@@ -160,3 +160,25 @@ Things about Remix 3 in this setup that are easy to get wrong:
   asset compilation. Vitest's transform honours `jsxImportSource` from `tsconfig.json`, no extra config.
   Playwright `_electron.launch({ args: ['.'] })` works with this ESM entry (once nothing deadlocks
   `ready`).
+
+## Vault notes
+
+`src/vault` (public entry `src/vault/index.ts`) is plain Node, no Electron. Things consumers need to know:
+
+- **Entry point:** `openVault(root, { watch: true })` returns a `Vault`: `tree()`, `index` (titles, tags,
+  starred, `search()`), `readNote`/`writeNote`/`createNote`/`renameNote`/`moveNote`/`deleteNote`,
+  `listTrash`/`restore`/`emptyTrash`, folder CRUD + colours/order, `saveAsset`/`assetPath`. Errors are
+  `VaultError` with a `code` (`INVALID_PATH`, `NOT_FOUND`, `EXISTS`, `NOT_A_VAULT`) to map onto HTTP
+  statuses. Mutations are serialised per vault.
+- **Ids are vault-relative POSIX paths** (`work/todo.md`, folders `work`, root `''`). Ids with `..`, `\`,
+  dot-segments or `*.assets` segments are rejected, and every resolved path is checked against symlink
+  escapes. Serve note assets only through `vault.assetPath(noteId, href)`.
+- **Events (`subscribe`) only report external changes.** The vault remembers the content hash of every
+  file it wrote, so its own writes, moves and deletes never come back as `note-changed`; a controller
+  that mutates must update the UI itself. `Note.hash` (sha256 of the file) lets the editor detect that a
+  file changed under it.
+- **Watching:** `fs.watch(recursive)`; a burst of events triggers one full reconcile (stat-first, hash
+  on change). macOS FSEvents can drop changes made in the first moments after a watcher starts, so one
+  extra reconcile runs a second after `startWatching`; `vault.refresh()` forces one (e.g. on window focus).
+- **Frontmatter writes edit the YAML text in place:** unchanged keys keep their exact bytes (quotes,
+  comments, flow lists); invalid YAML is treated as body, so nothing is ever lost.
