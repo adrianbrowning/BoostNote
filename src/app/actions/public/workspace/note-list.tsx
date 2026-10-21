@@ -33,7 +33,16 @@ export function NoteList(handle: Handle<{ model: WorkspaceModel }>) {
         draggable="true"
         mix={[
           itemStyle,
-          on('click', () => void model.openNote(note.id)),
+          on('click', (event) => void model.openNote(note.id, { newTab: event.metaKey || event.ctrlKey })),
+          on('mousedown', (event) => {
+            // Middle button: no autoscroll, the note opens in a new tab on `auxclick`.
+            if (event.button === 1) event.preventDefault()
+          }),
+          on('auxclick', (event) => {
+            if (event.button !== 1) return
+            event.preventDefault()
+            void model.openNote(note.id, { newTab: true })
+          }),
           on('contextmenu', (event) => {
             event.preventDefault()
             model.openMenu(event.clientX, event.clientY, model.noteMenu(note.id))

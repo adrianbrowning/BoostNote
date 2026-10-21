@@ -19,9 +19,12 @@ const { assets, katexStylesHref } = await import('../src/app/assets.ts')
 const origin = 'http://app'
 const scratch = await mkdtemp(path.join(os.tmpdir(), 'boostnote-verify-'))
 const events = createEventHub()
+const settings = new SettingsStore(path.join(scratch, 'settings.json'))
 const router = createAppRouter({
   events,
-  vaults: new VaultSession({ settings: new SettingsStore(path.join(scratch, 'settings.json')), events }),
+  vaults: new VaultSession({ settings, events }),
+  settings,
+  preferences: { apply: () => {}, setHotkey: () => true, registeredHotkey: undefined },
   pickFolder: async () => undefined,
   openExternal: async () => {},
   showItemInFolder: () => {},

@@ -8,6 +8,7 @@ import { errorResponse, HttpError, json, readJsonObject, requireString } from '.
 import { routes } from '../../routes.ts'
 import type { AppServices } from '../../services.ts'
 import type { SaveConflictBody } from '../public/workspace/types.ts'
+import { parseUiPatch, preferencesState, savePreferences } from './preferences.ts'
 import { importSummary, toJsonValue, toNoteDocument, workspaceData } from './workspace-data.ts'
 
 /** Largest asset the editor may upload (pasted screenshots, dropped images). */
@@ -285,6 +286,12 @@ export function createApiController(services: AppServices) {
         await services.openExternal(url.href)
         return json({ ok: true })
       }),
+
+      preferences: guarded(async () => json(preferencesState(services))),
+
+      preferencesSave: guarded(async ({ request }: { request: Request }) =>
+        json(savePreferences(services, parseUiPatch(await readJsonObject(request)))),
+      ),
     },
   })
 }

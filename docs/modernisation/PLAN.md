@@ -102,7 +102,7 @@ tests/         Vitest tests mirroring src/; tests/e2e for Playwright (phase 6)
 ```
 
 App-level settings live in `<userData>/settings.json` (owned by main: window bounds, `vaults`,
-`lastVault`). `userData` is `<appData>/Boostnote Modern`, deliberately not legacy Boostnote's
+`lastVault`, and the `ui` section of preferences and pane layout, see phase 5). `userData` is `<appData>/Boostnote Modern`, deliberately not legacy Boostnote's
 `<appData>/Boostnote`: sharing it would make both apps contend for the single-instance lock and let
 Chromium 140+ migrate the Electron 4 profile in place. A `--user-data-dir=<dir>` switch overrides it
 (tests, side-by-side profiles).
@@ -191,6 +191,7 @@ JSON `{ error, message }`: `VaultError` `INVALID_PATH`/`NOT_A_VAULT` → 400, `N
 | `POST /api/assets?note=&ext=` (raw body, ≤ 50 MB) | Editor `saveAsset` → `{ href: "./<stem>.assets/<hash>.<ext>" }` |
 | `GET /api/import/candidates` · `POST /api/import/pick {purpose}` · `POST /api/import/run {source, target, dryRun, force}` | Importer: storages found on this machine, folder dialog, dry run / run → summary |
 | `POST /api/open-external {url}` | http(s) links only |
+| `GET /api/preferences` · `POST /api/preferences {…UiPatch}` | `{ ui, hotkeyRegistered }`; save validates every field, `409 HOTKEY_UNAVAILABLE` when the OS refuses the global hotkey (phase 5) |
 
 ### Editor integration and conflict rules
 
@@ -210,7 +211,82 @@ JSON `{ error, message }`: `VaultError` `INVALID_PATH`/`NOT_A_VAULT` → 400, `N
   the file is a separate action. Relative `.md` links open inside the app, http(s) links open in the
   browser, everything else is ignored.
 - Folders show the notes directly inside them; "All notes" shows everything. Drag a note (or folder)
-  onto a folder to move it. Pane widths persist in `localStorage`.
+  onto a folder to move it. Pane widths and visibility persist in `settings.json` (`ui.panes`).
+
+## Tabs, properties, preferences (phase 5)
+
+### Tabs
+
+`tabs.ts` (`Tabs`, pure state, unit-tested) follows Hubble: a tab is a note path plus its own
+back/forward trail. There is one editor and one `NoteSession`; the session always shows the active
+tab's note. Every tab transition goes through `WorkspaceModel.#switchTabs`: save the open note
+(refused while a conflict is unresolved, like any note switch), change the tabs, load the active
+tab's note from disk. Background tabs therefore never hold unsaved text.
+
+- Click in the note list (or a relative `.md` link, or ↑/↓ in the list) navigates the active tab,
+  pushing onto its back trail; ⌘/Ctrl+click, middle-click or "Open in New Tab" open a new tab after
+  the active one. Back/forward: ⌘[ / ⌘] (View menu), mouse buttons 4/5, the arrows in the tab strip;
+  entries of notes that no longer exist are skipped.
+- ⌘W closes the tab (the right neighbour becomes active; without tabs the editor shows its empty
+  state, the window stays); ⇧⌘W closes the window (macOS). ⇧⌘T reopens the most recently closed
+  tab at its former position (40 remembered per vault). Ctrl+Tab / Ctrl+⇧Tab cycle, ⌘1…⌘8 pick by
+  position, ⌘9 the last tab. Drag a tab to reorder; middle-click or × closes it.
+- Persisted per vault in `localStorage` under `boostnote.tabs:<vault root>`: ordered tab paths, the
+  active index and the closed-tab stack (`TabsSnapshot`); trails stay in memory. Restoring skips
+  notes that no longer exist. App renames/moves (notes and folders) rebase tabs, trails and closed
+  tabs; app deletes close their tabs; after a list refresh, background tabs whose note vanished on
+  disk are dropped (the active one keeps the "removed" bar until the user decides).
+
+### Properties panel
+
+Toggle with ⇧⌘P (View > Toggle Properties) or the ⓘ button. It edits the open note's frontmatter:
+tags as chips (Enter/comma adds, Backspace removes the last, autocomplete from the vault's tags via a
+`<datalist>`), starred, created/updated read-only, and every other key by type (text, number,
+checkbox, `YYYY-MM-DD` date, list of scalars as comma-separated text); keys can be renamed, removed
+and added. Mappings and nested lists are shown read-only with a note; frontmatter that is not valid
+YAML stays in the body (the panel says so). Each committed change is one `POST /api/notes/save`
+with the whole `frontmatter`; the server keeps the original YAML of keys sent back unchanged and
+the vault splices changed keys in place. A renamed key is rewritten after the others (the vault
+treats it as remove + add). The saved summary updates the sidebar's tag and starred counts.
+
+### Preferences and settings
+
+⌘, (app menu "Settings…" on macOS, File > Preferences… elsewhere) opens a modal; every change is
+saved and applied immediately through `POST /api/preferences` (any subset of `UiPreferences`,
+validated field by field: unknown keys or bad values are `400`). `GET /api/preferences` and the page's
+SSR props carry `{ ui, hotkeyRegistered }`.
+
+| Preference | Effect |
+| --- | --- |
+| `theme` `system`/`light`/`dark` | main sets `nativeTheme.themeSource`, which drives the renderer's `prefers-color-scheme`: `base.css` and the editor (`setTheme`, mermaid `dark`) switch without a reload |
+| `editorFont`, `fontSize`, `lineWidth` (`0` = full width) | `--editor-font`, `--editor-font-size`, `--editor-max-width` on the workspace root |
+| `spellcheck` | `session.defaultSession.setSpellCheckerEnabled` |
+| `confirmDelete` | ask before moving notes/folders to the Trash |
+| `globalHotkey` (default `CommandOrControl+Shift+Space`; `''` = off) | recorded by key capture; main registers it with `globalShortcut.register` before storing it. If the OS refuses (another app has it) the route answers `409 HOTKEY_UNAVAILABLE`, the previous hotkey stays registered and nothing is stored. The hotkey hides the app when it is focused, else shows and focuses the window |
+| `panes` | sidebar/list widths, sidebar/list collapsed, properties open |
+
+`AppServices.preferences` (`src/main/preferences.ts` in the app, a fake in tests) is the Electron
+side; `SettingsStore.ui` normalises the stored section (invalid fields fall back to defaults).
+
+### Menus and shortcuts
+
+Every app shortcut is a native menu accelerator (`ACCELERATORS` in
+`src/app/actions/public/workspace/shortcuts.ts`, shared by `src/main/menu.ts`): File (New Note ⌘N,
+New Folder ⇧⌘N, Open Folder ⌘O, Import, Reveal ⌥⌘R, Close Tab ⌘W, Reopen Closed Tab ⇧⌘T), Edit (roles,
+Find… ⌘F → the editor's search panel), View (Toggle Sidebar ⇧⌘E, Toggle Note List ⇧⌘J, Toggle
+Properties ⇧⌘P, Back ⌘[, Forward ⌘], reload/devtools, zoom roles, full screen), Window (Next/Previous
+Tab Ctrl+Tab / Ctrl+⇧Tab, Select Tab ⌘1…⌘9), Help (GitHub, these notes, Report an Issue). Items reach
+the renderer as SSE `menu` events (`{ command, index? }`). The renderer binds none of these keys
+itself; a capture-phase `keydown` listener only stops their propagation (without `preventDefault`)
+so CodeMirror's own bindings (Mod-[ / Mod-] indent, Mod-F) don't act as well. Each shortcut thus fires
+exactly once, through the menu. Mouse back/forward buttons and Cmd/Ctrl/middle-click are handled in
+the renderer (no menu equivalent).
+
+### Note-list excerpts
+
+`excerptOf` (`src/vault/note.ts`) produces plain text: no leftover frontmatter, fenced code, math
+blocks, HTML tags/comments, images, link URLs, footnotes, table pipes or markdown markers; the first
+H1 is skipped, whitespace collapsed, at most 160 characters.
 
 ## Phases (stack bottom → top)
 

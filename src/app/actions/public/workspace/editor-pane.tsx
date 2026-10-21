@@ -1,3 +1,4 @@
+import { openSearchPanel } from '@codemirror/search'
 import type { Handle } from 'remix/component'
 import { css, on, ref } from 'remix/component'
 
@@ -5,7 +6,9 @@ import { createLivePreviewEditor, type EditorTheme } from '../../../../editor/in
 import { client, vaultAssetUrl } from './api.ts'
 import type { WorkspaceModel } from './model.ts'
 import { parentOf, resolveNoteLink } from './paths.ts'
+import { PropertiesPanel } from './properties.tsx'
 import { button, emptyState, emptyTitle, iconButton, muted, primaryButton } from './styles.ts'
+import { TabStrip } from './tab-strip.tsx'
 
 /**
  * The open note: read-only title (derived from frontmatter/first H1/file name), note actions,
@@ -54,6 +57,14 @@ export function EditorPane(handle: Handle<{ model: WorkspaceModel }>) {
       'doc',
       (event) => {
         instance.setDoc(event.body, { preserveSelection: event.preserveSelection })
+      },
+      { signal },
+    )
+    handle.props.model.addEventListener(
+      'find',
+      () => {
+        instance.focus()
+        openSearchPanel(instance.view)
       },
       { signal },
     )
@@ -109,7 +120,10 @@ export function EditorPane(handle: Handle<{ model: WorkspaceModel }>) {
           <button type="button" mix={[button, primaryButton, on('click', () => void current.keepMine())]}>
             Save my copy
           </button>
-          <button type="button" mix={[button, on('click', () => current.close())]}>
+          <button
+            type="button"
+            mix={[button, on('click', () => void handle.props.model.closeTab(undefined, { discard: true }))]}
+          >
             Close
           </button>
         </div>
@@ -134,6 +148,7 @@ export function EditorPane(handle: Handle<{ model: WorkspaceModel }>) {
     const folder = note ? parentOf(note.id) : ''
     return (
       <main mix={paneStyle} aria-label="Editor">
+        {model.tabs.tabs.length > 0 ? <TabStrip model={model} /> : null}
         {note ? (
           <header mix={headerStyle}>
             <div mix={titleBlockStyle}>
@@ -144,6 +159,16 @@ export function EditorPane(handle: Handle<{ model: WorkspaceModel }>) {
                 {folder === '' ? model.data.vault?.name : folder} · {note.id.slice(note.id.lastIndexOf('/') + 1)}
               </div>
             </div>
+            <button
+              type="button"
+              mix={[iconButton, on('click', () => model.togglePane('propertiesOpen'))]}
+              aria-pressed={model.preferences.panes.propertiesOpen ? 'true' : 'false'}
+              aria-label="Properties"
+              title="Properties (⇧⌘P)"
+              data-toggle-properties
+            >
+              ⓘ
+            </button>
             <button
               type="button"
               mix={[iconButton, starButtonStyle, on('click', () => void model.toggleStar())]}
@@ -181,7 +206,15 @@ export function EditorPane(handle: Handle<{ model: WorkspaceModel }>) {
             </button>
           </div>
         )}
-        <div mix={[editorHostStyle, mountEditor]} data-rmx-preserve-dom data-editor hidden={note ? undefined : true} />
+        <div mix={bodyStyle} hidden={note ? undefined : true}>
+          <div
+            mix={[editorHostStyle, mountEditor]}
+            data-rmx-preserve-dom
+            data-editor
+            hidden={note ? undefined : true}
+          />
+          {note && model.preferences.panes.propertiesOpen ? <PropertiesPanel model={model} /> : null}
+        </div>
       </main>
     )
   }
@@ -227,6 +260,8 @@ const barStyle = css({
   borderBottom: '1px solid var(--warning-border)',
   '& > span': { flex: 1 },
 })
+
+const bodyStyle = css({ display: 'flex', flex: 1, minHeight: 0, '&[hidden]': { display: 'none' } })
 
 const editorHostStyle = css({
   flex: 1,

@@ -1,9 +1,20 @@
 import { TypedEventTarget } from 'remix/component'
 
-import { client } from './api.ts'
+import { ApiError, client } from './api.ts'
 import { NoteSession } from './note-session.ts'
 import { folderChain, parentOf } from './paths.ts'
-import type { FolderSummary, NoteSummary, VaultChangeEvent, WorkspaceData } from './types.ts'
+import { type Tab, Tabs } from './tabs.ts'
+import type {
+  FolderSummary,
+  JsonValue,
+  NoteSummary,
+  PaneLayout,
+  PreferencesState,
+  UiPatch,
+  UiPreferences,
+  VaultChangeEvent,
+  WorkspaceData,
+} from './types.ts'
 
 export type Selection =
   | { kind: 'all' }
@@ -79,12 +90,20 @@ export class FocusEditorEvent extends Event {
   }
 }
 
+/** `localStorage` key of a vault's tabs (`TabsSnapshot`). */
+const tabsStorageKey = (root: string) => `boostnote.tabs:${root}`
+
 /**
  * State and operations of the workspace: the vault's lists (from `GET /api/workspace`), the sidebar
- * selection, sorting and search, menus and dialogs, and the open note (`session`). Components render
- * it and call its methods; it emits `change` whenever something visible changed.
+ * selection, sorting and search, menus and dialogs, the tabs and the open note (`session`, always
+ * the active tab's note), and the preferences. Components render it and call its methods; it emits
+ * `change` whenever something visible changed.
  */
-export class WorkspaceModel extends TypedEventTarget<{ change: Event; 'focus-editor': FocusEditorEvent }> {
+export class WorkspaceModel extends TypedEventTarget<{
+  change: Event
+  'focus-editor': FocusEditorEvent
+  find: Event
+}> {
   data: WorkspaceData
   selection: Selection = { kind: 'all' }
   sort: SortKey = 'updated'
@@ -96,18 +115,24 @@ export class WorkspaceModel extends TypedEventTarget<{ change: Event; 'focus-edi
   menu: ContextMenu | null = null
   dialog: Dialog | null = null
   importOpen = false
+  preferencesOpen = false
   notice: Notice | null = null
   connection: Connection = 'connecting'
   readonly session = new NoteSession()
+  tabs = new Tabs()
+  preferences: UiPreferences
+  hotkeyRegistered: boolean
 
   #searchTimer: ReturnType<typeof setTimeout> | undefined
   #searchAbort: AbortController | undefined
   #refreshTimer: ReturnType<typeof setTimeout> | undefined
   #noticeTimer: ReturnType<typeof setTimeout> | undefined
 
-  constructor(initial: WorkspaceData) {
+  constructor(initial: WorkspaceData, preferences: PreferencesState) {
     super()
     this.data = initial
+    this.preferences = preferences.ui
+    this.hotkeyRegistered = preferences.hotkeyRegistered
     this.session.addEventListener('saved', (event) => this.#putSummary(event.note))
     this.session.addEventListener('change', () => this.changed())
   }
@@ -222,18 +247,135 @@ export class WorkspaceModel extends TypedEventTarget<{ change: Event; 'focus-edi
     }
   }
 
-  // ── Notes ──────────────────────────────────────────────────────────────────────────────
+  // ── Tabs ───────────────────────────────────────────────────────────────────────────────
 
-  /** Opens a note in the editor after saving the current one; refuses while the current one has an unresolved conflict. */
-  async openNote(id: string): Promise<void> {
-    if (this.openId === id) return
+  /** Whether the vault has a note with this id (as of the last list refresh). */
+  hasNote = (id: string): boolean => this.data.notes.some((note) => note.id === id)
+
+  /** Restores the open vault's tabs from `localStorage` (after hydration, after switching vaults). */
+  async restoreTabs(): Promise<void> {
+    const root = this.data.vault?.root
+    let snapshot: unknown = null
+    try {
+      snapshot = root ? JSON.parse(localStorage.getItem(tabsStorageKey(root)) ?? 'null') : null
+    } catch {
+      // A corrupt entry restores no tabs.
+    }
+    this.tabs = Tabs.restore(snapshot, this.hasNote)
+    await this.#loadActiveTab()
+  }
+
+  #saveTabs(): void {
+    const root = this.data.vault?.root
+    if (root) localStorage.setItem(tabsStorageKey(root), JSON.stringify(this.tabs))
+  }
+
+  /** Saves the open note, applies `change` to the tabs and loads the (new) active tab's note. */
+  async #switchTabs(change: () => unknown): Promise<void> {
     if (!(await this.leaveNote())) return
+    change()
+    this.#saveTabs()
+    await this.#loadActiveTab()
+  }
+
+  /** Makes the session show the active tab's note (or nothing without tabs). */
+  async #loadActiveTab(): Promise<void> {
+    const id = this.tabs.active?.path
+    if (id === undefined) {
+      if (this.session.note) this.session.close()
+      this.changed()
+      return
+    }
+    if (id === this.openId) {
+      this.changed()
+      return
+    }
     try {
       this.session.open(await client.readNote(id))
     } catch (error) {
-      this.fail(error)
+      if (!(error instanceof ApiError && error.status === 404)) {
+        this.fail(error)
+        return
+      }
+      this.notify('error', `Note not found: ${id}`)
+      this.tabs.forget((path) => path === id)
+      this.#saveTabs()
+      await this.#loadActiveTab()
     }
   }
+
+  /**
+   * Opens a note after saving the current one (refused while that has an unresolved conflict): in
+   * the active tab, pushing onto its back trail, or with `newTab` in a new tab after it.
+   */
+  async openNote(id: string, options: { newTab?: boolean } = {}): Promise<void> {
+    if (!options.newTab && this.openId === id) return
+    await this.#switchTabs(() => (options.newTab ? this.tabs.openNew(id) : this.tabs.navigate(id)))
+  }
+
+  async activateTab(key: number): Promise<void> {
+    if (key !== this.tabs.activeKey) await this.#switchTabs(() => this.tabs.activate(key))
+  }
+
+  /**
+   * Closes a tab (the active one by default). Closing the active tab saves its note first; `discard`
+   * drops unsaved edits instead (the "Close" of a note removed on disk).
+   */
+  async closeTab(key = this.tabs.activeKey, options: { discard?: boolean } = {}): Promise<void> {
+    if (key === null) return
+    if (key !== this.tabs.activeKey) {
+      this.tabs.close(key)
+      this.#saveTabs()
+      this.changed()
+      return
+    }
+    if (options.discard) this.session.close()
+    await this.#switchTabs(() => this.tabs.close(key))
+  }
+
+  async reopenTab(): Promise<void> {
+    if (this.tabs.closed.length > 0) await this.#switchTabs(() => this.tabs.reopen(this.hasNote))
+  }
+
+  async cycleTab(delta: 1 | -1): Promise<void> {
+    if (this.tabs.tabs.length > 1) await this.#switchTabs(() => this.tabs.cycle(delta))
+  }
+
+  async selectTab(index: number): Promise<void> {
+    const target: Tab | undefined = this.tabs.tabs[index === -1 ? this.tabs.tabs.length - 1 : index]
+    if (target) await this.activateTab(target.key)
+  }
+
+  moveTab(key: number, index: number): void {
+    this.tabs.move(key, index)
+    this.#saveTabs()
+    this.changed()
+  }
+
+  async goBack(): Promise<void> {
+    if (this.tabs.canGoBack()) await this.#switchTabs(() => this.tabs.back(this.hasNote))
+  }
+
+  async goForward(): Promise<void> {
+    if (this.tabs.canGoForward()) await this.#switchTabs(() => this.tabs.forward(this.hasNote))
+  }
+
+  /** Notes were renamed/moved by the app: tabs follow. */
+  #rebaseTabs(map: (path: string) => string): void {
+    this.tabs.rebase(map)
+    this.#saveTabs()
+  }
+
+  /** Notes were deleted by the app: their tabs close; the session follows the active tab. */
+  async #forgetTabs(gone: (path: string) => boolean): Promise<void> {
+    const openGone = this.openId !== null && gone(this.openId)
+    this.tabs.forget(gone)
+    this.#saveTabs()
+    if (openGone) this.session.close()
+    await this.#loadActiveTab()
+  }
+
+  // ── Notes ──────────────────────────────────────────────────────────────────────────────
 
   /** Saves the open note; `false` (with a notice) when unsaved work would be lost by leaving it. */
   async leaveNote(): Promise<boolean> {
@@ -259,6 +401,8 @@ export class WorkspaceModel extends TypedEventTarget<{ change: Event; 'focus-edi
       }
       this.setQuery('')
       this.#putSummary(note)
+      this.tabs.navigate(note.id)
+      this.#saveTabs()
       this.session.open(note)
       this.dispatchEvent(new FocusEditorEvent(true))
       await this.refresh()
@@ -274,6 +418,7 @@ export class WorkspaceModel extends TypedEventTarget<{ change: Event; 'focus-edi
     if (this.openId === id && !(await this.leaveNote())) return
     await this.attempt(async () => {
       const renamed = await client.renameNote(id, name.trim())
+      this.#rebaseTabs((path) => (path === id ? renamed.id : path))
       if (this.openId === id) this.session.relocated(renamed)
       await this.refresh()
     })
@@ -284,6 +429,7 @@ export class WorkspaceModel extends TypedEventTarget<{ change: Event; 'focus-edi
     if (this.openId === id && !(await this.leaveNote())) return
     await this.attempt(async () => {
       const moved = await client.moveNote(id, folder)
+      this.#rebaseTabs((path) => (path === id ? moved.id : path))
       if (this.openId === id) this.session.relocated(moved)
       await this.refresh()
       this.notify('info', `Moved to ${this.folderName(folder)}`)
@@ -301,13 +447,23 @@ export class WorkspaceModel extends TypedEventTarget<{ change: Event; 'focus-edi
     if (folder !== null) await this.moveNote(id, folder)
   }
 
-  /** Moves a note to the trash (its latest edits included). */
+  /** Moves a note to the trash (its latest edits included); its tabs close. */
   async deleteNote(id: string): Promise<void> {
-    const open = this.openId === id
-    if (open) await this.session.flush()
+    if (
+      this.preferences.confirmDelete &&
+      !(await this.confirm({
+        title: 'Move to Trash',
+        message: `Move “${this.data.notes.find((note) => note.id === id)?.title ?? id}” to the Trash?`,
+        confirm: 'Move to Trash',
+        danger: true,
+      }))
+    ) {
+      return
+    }
+    if (this.openId === id) await this.session.flush()
     await this.attempt(async () => {
       await client.deleteNote(id)
-      if (open) this.session.close()
+      await this.#forgetTabs((path) => path === id)
       await this.refresh()
       this.notify('info', 'Moved to Trash')
     })
@@ -317,6 +473,8 @@ export class WorkspaceModel extends TypedEventTarget<{ change: Event; 'focus-edi
   noteMenu(id: string): MenuEntry[] {
     const reveal = /Mac/.test(navigator.platform) ? 'Reveal in Finder' : 'Show in Folder'
     return [
+      { kind: 'action', label: 'Open in New Tab', run: () => void this.openNote(id, { newTab: true }) },
+      { kind: 'separator' },
       { kind: 'action', label: 'Rename…', run: () => void this.renameNote(id) },
       { kind: 'action', label: 'Move to…', run: () => void this.chooseMoveTarget(id) },
       { kind: 'action', label: reveal, run: () => void this.revealNote(id) },
@@ -336,6 +494,51 @@ export class WorkspaceModel extends TypedEventTarget<{ change: Event; 'focus-edi
     if (!(await this.session.setFrontmatter(note.starred ? rest : { ...note.frontmatter, starred: true }))) {
       this.notify('error', 'Could not update the note')
     }
+  }
+
+  /** Properties panel: writes the open note's frontmatter (keys sent back unchanged keep their YAML bytes). */
+  async setFrontmatter(frontmatter: Record<string, JsonValue>): Promise<void> {
+    if (!this.session.note) return
+    if (!(await this.session.setFrontmatter(frontmatter))) this.notify('error', 'Could not update the note')
+  }
+
+  // ── Preferences and layout ──────────────────────────────────────────────────────────────
+
+  /** Stores and applies preferences; the error message when they were refused (a taken hotkey), else `null`. */
+  async savePreferences(patch: UiPatch): Promise<string | null> {
+    try {
+      const state = await client.savePreferences(patch)
+      this.preferences = state.ui
+      this.hotkeyRegistered = state.hotkeyRegistered
+      this.changed()
+      return null
+    } catch (error) {
+      return error instanceof Error ? error.message : String(error)
+    }
+  }
+
+  /** Pane sizes and visibility: shown right away, stored in `settings.json`. */
+  setPanes(panes: Partial<PaneLayout>): void {
+    this.preferences = { ...this.preferences, panes: { ...this.preferences.panes, ...panes } }
+    this.changed()
+    void this.savePreferences({ panes }).then((error) => {
+      if (error) this.notify('error', error)
+    })
+  }
+
+  togglePane(pane: 'sidebarCollapsed' | 'listCollapsed' | 'propertiesOpen'): void {
+    this.setPanes({ [pane]: !this.preferences.panes[pane] })
+  }
+
+  setPreferencesOpen(open: boolean): void {
+    this.preferencesOpen = open
+    this.closeMenu()
+    this.changed()
+  }
+
+  /** Edit > Find: the editor opens its search panel. */
+  find(): void {
+    if (this.session.note) this.dispatchEvent(new Event('find'))
   }
 
   // ── Folders ────────────────────────────────────────────────────────────────────────────
@@ -375,6 +578,7 @@ export class WorkspaceModel extends TypedEventTarget<{ change: Event; 'focus-edi
         this.expanded.delete(folder)
         this.expanded.add(rebase(folder))
       }
+      this.#rebaseTabs(rebase)
       const openId = this.openId
       if (affectsOpen && openId) this.session.relocated(await client.readNote(rebase(openId)))
       await this.refresh()
@@ -382,18 +586,20 @@ export class WorkspaceModel extends TypedEventTarget<{ change: Event; 'focus-edi
   }
 
   async deleteFolder(id: string): Promise<void> {
-    const ok = await this.confirm({
-      title: 'Delete folder',
-      message: `Move “${this.folderName(id)}” and everything in it to the Trash?`,
-      confirm: 'Move to Trash',
-      danger: true,
-    })
-    if (!ok) return
+    if (this.preferences.confirmDelete) {
+      const ok = await this.confirm({
+        title: 'Delete folder',
+        message: `Move “${this.folderName(id)}” and everything in it to the Trash?`,
+        confirm: 'Move to Trash',
+        danger: true,
+      })
+      if (!ok) return
+    }
     const affectsOpen = this.openId?.startsWith(`${id}/`) ?? false
     if (affectsOpen) await this.session.flush()
     await this.attempt(async () => {
       await client.deleteFolder(id)
-      if (affectsOpen) this.session.close()
+      await this.#forgetTabs((path) => path.startsWith(`${id}/`))
       if (this.selection.kind === 'folder' && (this.selection.id === id || this.selection.id.startsWith(`${id}/`))) {
         this.selection = { kind: 'all' }
       }
@@ -471,6 +677,7 @@ export class WorkspaceModel extends TypedEventTarget<{ change: Event; 'focus-edi
     this.expanded.clear()
     this.importOpen = false
     this.setQuery('')
+    void this.restoreTabs()
   }
 
   // ── Live updates ────────────────────────────────────────────────────────────────────────
@@ -485,6 +692,11 @@ export class WorkspaceModel extends TypedEventTarget<{ change: Event; 'focus-edi
       selection.kind === 'folder' && selection.id !== '' && !this.folderOptions.some((o) => o.value === selection.id)
     const tagGone = selection.kind === 'tag' && !data.notes.some((note) => note.tags.includes(selection.tag))
     if (folderGone || tagGone) this.selection = { kind: 'all' }
+    // Background tabs (and trail entries) of notes that are gone; the active tab keeps its note
+    // until the user resolves the removal (conflict bar).
+    const active = this.tabs.active?.path
+    this.tabs.forget((path) => path !== active && !this.hasNote(path))
+    this.#saveTabs()
     if (this.query.trim() !== '') void this.#search()
     this.changed()
   }

@@ -37,5 +37,7 @@ export const routes = route({
     importPick: post('/import/pick'),
     importRun: post('/import/run'),
     openExternal: post('/open-external'),
+    preferences: get('/preferences'),
+    preferencesSave: post('/preferences'),
   }),
 })

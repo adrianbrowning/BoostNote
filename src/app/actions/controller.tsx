@@ -8,6 +8,7 @@ import { errorResponse, HttpError, requireString } from '../http.ts'
 import { routes } from '../routes.ts'
 import type { AppServices } from '../services.ts'
 import { serveVendorFile } from '../vendor.ts'
+import { preferencesState } from './api/preferences.ts'
 import { workspaceData } from './api/workspace-data.ts'
 import { HomePage } from './home-page.tsx'
 
@@ -24,7 +25,9 @@ export function createRootController(services: AppServices) {
         return (await assets.fetch(context.request)) ?? new Response('Not Found', { status: 404 })
       },
       async home(context) {
-        return context.render(<HomePage initial={await workspaceData(services)} />)
+        return context.render(
+          <HomePage initial={await workspaceData(services)} preferences={preferencesState(services)} />,
+        )
       },
       events(context) {
         return services.events.subscribe(context.request.signal)

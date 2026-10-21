@@ -7,12 +7,34 @@
  */
 import type { VaultEventType } from '../vault/index.ts'
 
-/** File-menu commands; the workspace performs them (it knows the selected folder and open note). */
-export type MenuCommand = 'new-note' | 'new-folder' | 'open-folder' | 'import-storage' | 'reveal-note'
+/**
+ * Menu commands the workspace performs (it knows the selected folder, the open note and the tabs).
+ * Every app keyboard shortcut is a menu accelerator, so each one arrives exactly once, through here.
+ */
+export type MenuCommand =
+  | 'new-note'
+  | 'new-folder'
+  | 'open-folder'
+  | 'import-storage'
+  | 'reveal-note'
+  | 'close-tab'
+  | 'reopen-tab'
+  | 'next-tab'
+  | 'previous-tab'
+  /** `index`: 0–7 for tabs 1–8, `-1` for the last tab. */
+  | 'select-tab'
+  | 'go-back'
+  | 'go-forward'
+  | 'toggle-sidebar'
+  | 'toggle-note-list'
+  | 'toggle-properties'
+  | 'preferences'
+  | 'find'
 
 export interface MenuEvent {
   type: 'menu'
   command: MenuCommand
+  index?: number
 }
 
 /** An external change in the open vault (the vault's own writes never produce one). */
