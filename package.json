@@ -24,7 +24,8 @@
     "typecheck": "tsc",
     "test": "vitest run",
     "build": "tsc && node --import remix/node-tsx scripts/verify-assets.ts",
-    "dist": "pnpm build && electron-builder --publish never"
+    "dist": "pnpm build && electron-builder --publish never",
+    "migrate": "node --import remix/node-tsx src/migrate/cli.ts"
   },
   "pnpm": {
     "onlyBuiltDependencies": [
@@ -33,7 +34,9 @@
     ]
   },
   "dependencies": {
-    "remix": "3.0.0"
+    "cson-parser": "^4.0.9",
+    "remix": "3.0.0",
+    "yaml": "^2.9.1"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.5.15",
