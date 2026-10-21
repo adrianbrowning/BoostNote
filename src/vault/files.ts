@@ -7,12 +7,19 @@ import { isNodeError } from './errors.ts'
 /**
  * Writes `data` to a hidden temp file next to `file`, then renames it over `file`, so readers (and
  * the watcher) never see a half-written file. The temp name starts with `.`, which the vault ignores.
+ * `beforeReplace` runs after the temp file is complete and just before the rename; throwing from it
+ * aborts the write and leaves `file` untouched.
  */
-export async function writeFileAtomic(file: string, data: string | Uint8Array): Promise<void> {
+export async function writeFileAtomic(
+  file: string,
+  data: string | Uint8Array,
+  beforeReplace?: () => Promise<void>,
+): Promise<void> {
   await mkdir(path.dirname(file), { recursive: true })
   const temp = path.join(path.dirname(file), `.${path.basename(file)}.${randomBytes(6).toString('hex')}.tmp`)
   try {
     await writeFile(temp, data)
+    await beforeReplace?.()
     await rename(temp, file)
   } catch (error) {
     await rm(temp, { force: true })

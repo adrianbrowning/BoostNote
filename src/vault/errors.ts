@@ -7,6 +7,8 @@ export type VaultErrorCode =
   | 'EXISTS'
   /** The vault root is missing or not a directory. */
   | 'NOT_A_VAULT'
+  /** The note on disk no longer matches the `baseHash` a write was based on. */
+  | 'CHANGED'
 
 /** Error thrown by vault operations; `code` lets callers (router controllers) map it to an HTTP status. */
 export class VaultError extends Error {
