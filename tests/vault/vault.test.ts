@@ -43,7 +43,8 @@ describe('vault notes', () => {
     const note = await vault.readNote('work/todo.md')
     expect(note).toMatchObject({ title: 'My todo', tags: ['work', 'urgent'], starred: true, folder: 'work' })
     expect(note.body).toBe('body\n')
-    expect((await vault.readNote('inbox.md')).title).toBe('Inbox')
+    // The file name is the name: a `# H1` is just content.
+    expect((await vault.readNote('inbox.md')).title).toBe('inbox')
     expect((await vault.readNote('work/projects/x.md')).title).toBe('x')
   })
 
@@ -61,18 +62,29 @@ describe('vault notes', () => {
 
     const fresh = await vault.writeNote('new/plain.md', { body: '# Plain\n' })
     expect(fresh.frontmatter.created).toBe(fresh.frontmatter.updated)
-    expect(vault.index.get('new/plain.md')?.title).toBe('Plain')
+    expect(vault.index.get('new/plain.md')?.title).toBe('plain')
     expect(vault.folders).toContain('new')
   })
 
-  it('creates notes with unique slugged names', async () => {
+  it('creates notes named after the title, unique ignoring case', async () => {
     vault = await openVault(root)
     const first = await vault.createNote('', 'Hello, World!')
-    const second = await vault.createNote('', 'hello world')
-    expect(first.id).toBe('hello-world.md')
-    expect(second.id).toBe('hello-world-2.md')
+    const second = await vault.createNote('', 'hello, world!')
+    expect(first.id).toBe('Hello, World!.md')
+    expect(second.id).toBe('hello, world! 2.md')
     expect(first.title).toBe('Hello, World!')
+    expect((await vault.createNote('', 'a/b: c?')).id).toBe('a-b- c-.md')
     await expect(vault.createNote('missing', 'x')).rejects.toMatchObject({ code: 'NOT_FOUND' })
+  })
+
+  it('creates empty Untitled notes by default', async () => {
+    vault = await openVault(root)
+    const first = await vault.createNote('')
+    const second = await vault.createNote('')
+    expect([first.id, second.id]).toEqual(['Untitled.md', 'Untitled 2.md'])
+    expect(first.title).toBe('Untitled')
+    expect(first.body).toBe('')
+    expect(first.raw).not.toContain('#')
   })
 
   it('renames and moves notes with their assets, rewriting links', async () => {
@@ -111,7 +123,7 @@ describe('vault notes', () => {
     await put('a/note.md', 'one')
     await put('b/note.md', 'two')
     vault = await openVault(root)
-    expect((await vault.moveNote('a/note.md', 'b')).id).toBe('b/note-2.md')
+    expect((await vault.moveNote('a/note.md', 'b')).id).toBe('b/note 2.md')
   })
 
   it('saves assets by content hash next to the note', async () => {
@@ -136,26 +148,26 @@ describe('vault trash', () => {
     expect(entry).toMatchObject({ id: 'work/todo.md', kind: 'note', originalPath: 'work/todo.md' })
     expect(await read('.trash/work/todo.assets/a.png')).toBe('A')
     expect(vault.index.has('work/todo.md')).toBe(false)
-    expect((await vault.listTrash()).map((item) => [item.id, item.title])).toEqual([['work/todo.md', 'Todo']])
+    expect((await vault.listTrash()).map((item) => [item.id, item.title])).toEqual([['work/todo.md', 'todo']])
 
     // Same name deleted twice gets a distinct trash slot.
     await put('work/todo.md', '# Second\n')
     await vault.refresh()
-    expect((await vault.deleteNote('work/todo.md')).id).toBe('work/todo-2.md')
+    expect((await vault.deleteNote('work/todo.md')).id).toBe('work/todo 2.md')
 
     // Restore while the original name is taken: suffixed name, assets and links follow.
     await put('work/todo.md', 'occupied')
     await vault.refresh()
     const restored = await vault.restore('work/todo.md')
-    expect(restored).toBe('work/todo-2.md')
-    expect(await read('work/todo-2.assets/a.png')).toBe('A')
-    expect(await read('work/todo-2.md')).toContain('![a](./todo-2.assets/a.png)')
-    expect(vault.index.get('work/todo-2.md')?.title).toBe('Todo')
-    expect((await vault.listTrash()).map((item) => item.id)).toEqual(['work/todo-2.md'])
+    expect(restored).toBe('work/todo 2.md')
+    expect(await read('work/todo 2.assets/a.png')).toBe('A')
+    expect(await read('work/todo 2.md')).toContain('![a](./todo%202.assets/a.png)')
+    expect(vault.index.get('work/todo 2.md')?.title).toBe('todo 2')
+    expect((await vault.listTrash()).map((item) => item.id)).toEqual(['work/todo 2.md'])
 
     await vault.emptyTrash()
     expect(await vault.listTrash()).toEqual([])
-    await expect(vault.restore('work/todo-2.md')).rejects.toMatchObject({ code: 'NOT_FOUND' })
+    await expect(vault.restore('work/todo 2.md')).rejects.toMatchObject({ code: 'NOT_FOUND' })
   })
 
   it('restores into a folder that no longer exists', async () => {

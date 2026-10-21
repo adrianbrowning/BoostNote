@@ -33,7 +33,10 @@ export function hashText(text: string): string {
   return createHash('sha256').update(text).digest('hex')
 }
 
-/** Text of the first ATX `# H1` outside fenced code blocks, with inline markup stripped. */
+/**
+ * Text of the first ATX `# H1` outside fenced code blocks, with inline markup stripped. Not a
+ * note's title (that is the file name); the bulk rename uses it to reconstruct imported titles.
+ */
 export function findH1(body: string): string | undefined {
   let fence: string | undefined
   for (const line of body.split(/\r?\n/)) {
@@ -61,11 +64,6 @@ function stripInline(text: string): string {
     .replace(/(?<![\w*])([*_])(?!\s)(.+?)(?<!\s)\1(?![\w*])/g, '$2')
     .replace(/`([^`]*)`/g, '$1')
     .trim()
-}
-
-/** The title a note gets without a frontmatter `title`: its first H1, else the file stem. */
-export function fallbackTitle(id: string, body: string): string {
-  return findH1(body) ?? noteStem(id)
 }
 
 function readTags(value: unknown): string[] {
@@ -170,13 +168,17 @@ export function excerptOf(body: string): string {
   return excerpt.length > EXCERPT_LENGTH ? `${excerpt.slice(0, EXCERPT_LENGTH - 1).trimEnd()}…` : excerpt
 }
 
+/** A note's displayed name: its frontmatter `title` (a non-empty string), else its file name stem. */
+export function noteTitle(id: string, frontmatter: Frontmatter): string {
+  return typeof frontmatter.title === 'string' && frontmatter.title.trim() !== ''
+    ? frontmatter.title.trim()
+    : noteStem(id)
+}
+
 /** Builds a `Note` from a parsed file. `stats` supplies date fallbacks for notes without frontmatter dates. */
 export function toNote(id: string, raw: string, text: NoteText, stats: { birthtime: Date; mtime: Date }): Note {
   const { frontmatter, body } = text
-  const title =
-    typeof frontmatter.title === 'string' && frontmatter.title.trim() !== ''
-      ? frontmatter.title.trim()
-      : fallbackTitle(id, body)
+  const title = noteTitle(id, frontmatter)
   return {
     id,
     folder: noteFolder(id),

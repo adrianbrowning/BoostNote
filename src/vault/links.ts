@@ -3,10 +3,11 @@ import * as path from 'node:path'
 import { encodeLinkPath, safeDecode } from './paths.ts'
 
 /**
- * Markdown link/image destinations (`](dest)`, `](<dest> "title")`) and HTML `src`/`href`
- * attributes. Group 1 is the prefix, group 2 the destination, kept apart so only the URL changes.
+ * Inline code spans (group 1, matched only to be skipped), then markdown link/image destinations
+ * (`](dest)`, `](<dest> "title")`) and HTML `src`/`href` attributes: groups 2/4 are the prefix,
+ * 3/5 the destination, kept apart so only the URL changes.
  */
-const LINK = /(\]\(\s*)(<[^>\n]*>|[^\s)]+)|(\b(?:src|href)\s*=\s*["'])([^"'\n]+)/g
+const LINK = /(`+)[^\n]*?(?<!`)\1(?!`)|(\]\(\s*)(<[^>\n]*>|[^\s)]+)|(\b(?:src|href)\s*=\s*["'])([^"'\n]+)/g
 
 function isRelative(destination: string): boolean {
   return !/^(?:[a-z][a-z\d+.-]*:|\/|#)/i.test(destination)
@@ -31,26 +32,31 @@ function mapOutsideCode(markdown: string, transform: (line: string) => string): 
 }
 
 /**
- * Rewrites relative link destinations outside code blocks. `map` receives the decoded path (no
- * `#fragment`/`?query`) and returns a replacement path, or `undefined` to keep the link as is.
+ * Rewrites relative link destinations outside code blocks and code spans. `map` receives the
+ * decoded path (no `#fragment`/`?query`) and returns a replacement path, or `undefined` to keep
+ * the link as is.
  */
 export function rewriteRelativeLinks(markdown: string, map: (relPath: string) => string | undefined): string {
   return mapOutsideCode(markdown, (line) =>
-    line.replace(LINK, (whole, mdPrefix?: string, mdDest?: string, htmlPrefix?: string, htmlDest?: string) => {
-      const prefix = mdPrefix ?? htmlPrefix ?? ''
-      const raw = mdDest ?? htmlDest ?? ''
-      const bracketed = raw.startsWith('<') && raw.endsWith('>')
-      const destination = bracketed ? raw.slice(1, -1) : raw
-      if (!isRelative(destination)) return whole
-      const suffixIndex = destination.search(/[#?]/)
-      const pathPart = suffixIndex === -1 ? destination : destination.slice(0, suffixIndex)
-      const suffix = suffixIndex === -1 ? '' : destination.slice(suffixIndex)
-      if (pathPart === '') return whole
-      const next = map(safeDecode(pathPart))
-      if (next === undefined) return whole
-      const encoded = bracketed ? `<${next}${suffix}>` : `${encodeLinkPath(next)}${suffix}`
-      return `${prefix}${encoded}`
-    }),
+    line.replace(
+      LINK,
+      (whole, code?: string, mdPrefix?: string, mdDest?: string, htmlPrefix?: string, htmlDest?: string) => {
+        if (code !== undefined) return whole
+        const prefix = mdPrefix ?? htmlPrefix ?? ''
+        const raw = mdDest ?? htmlDest ?? ''
+        const bracketed = raw.startsWith('<') && raw.endsWith('>')
+        const destination = bracketed ? raw.slice(1, -1) : raw
+        if (!isRelative(destination)) return whole
+        const suffixIndex = destination.search(/[#?]/)
+        const pathPart = suffixIndex === -1 ? destination : destination.slice(0, suffixIndex)
+        const suffix = suffixIndex === -1 ? '' : destination.slice(suffixIndex)
+        if (pathPart === '') return whole
+        const next = map(safeDecode(pathPart))
+        if (next === undefined) return whole
+        const encoded = bracketed ? `<${next}${suffix}>` : `${encodeLinkPath(next)}${suffix}`
+        return `${prefix}${encoded}`
+      },
+    ),
   )
 }
 

@@ -8,6 +8,9 @@ import type {
   OpenRequest,
   PreferencesState,
   SaveConflictBody,
+  TitleRename,
+  TitleRenamePlan,
+  TitleRenameReport,
   UiPatch,
   WorkspaceData,
 } from './types.ts'
@@ -84,6 +87,8 @@ export const client = {
   moveNote: (id: string, folder: string) => post<NoteDocument>(api.noteMove.href(), { id, folder }),
   deleteNote: (id: string) => post<unknown>(api.noteDelete.href(), { id }),
   revealNote: (id: string) => post<unknown>(api.noteReveal.href(), { id }),
+  planTitleRenames: () => request<TitleRenamePlan>(api.titleRenamesPlan.href()),
+  applyTitleRenames: (renames: TitleRename[]) => post<TitleRenameReport>(api.titleRenamesApply.href(), { renames }),
 
   createFolder: (parent: string, name: string) => post<{ id: string }>(api.folderCreate.href(), { parent, name }),
   renameFolder: (id: string, name: string) => post<{ id: string }>(api.folderRename.href(), { id, name }),

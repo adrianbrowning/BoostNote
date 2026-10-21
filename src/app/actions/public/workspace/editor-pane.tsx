@@ -7,13 +7,13 @@ import { client, vaultAssetUrl } from './api.ts'
 import type { WorkspaceModel } from './model.ts'
 import { parentOf, resolveNoteLink } from './paths.ts'
 import { PropertiesPanel } from './properties.tsx'
-import { button, emptyState, emptyTitle, iconButton, muted, primaryButton } from './styles.ts'
+import { button, emptyState, emptyTitle, iconButton, input, muted, primaryButton } from './styles.ts'
 import { TabStrip } from './tab-strip.tsx'
 
 /**
- * The open note: read-only title (derived from frontmatter/first H1/file name), note actions,
- * the conflict bar, and the live-preview editor. The editor is created once and shows whatever
- * note the session holds; it only ever sees the body.
+ * The open note: its name (the file name, or the frontmatter `title` when it has one), renamed in
+ * place by clicking it (or F2/Enter), note actions, the conflict bar, and the live-preview editor.
+ * The editor is created once and shows whatever note the session holds; it only ever sees the body.
  */
 export function EditorPane(handle: Handle<{ model: WorkspaceModel }>) {
   const session = () => handle.props.model.session
@@ -98,6 +98,98 @@ export function EditorPane(handle: Handle<{ model: WorkspaceModel }>) {
     model.openMenu(rect.right - 180, rect.bottom + 4, model.noteMenu(id))
   }
 
+  /** Inline rename: the id of the note whose name is being edited, the draft and the last error. */
+  let renaming: string | null = null
+  let draft = ''
+  let renameError = ''
+
+  const startRename = () => {
+    const note = session().note
+    if (!note) return
+    renaming = note.id
+    draft = note.title
+    renameError = ''
+    void handle.update()
+  }
+
+  const endRename = async (commit: boolean) => {
+    const id = renaming
+    if (id === null) return
+    renaming = null
+    if (!commit || id !== session().note?.id) {
+      renameError = ''
+      void handle.update()
+      return
+    }
+    void handle.update()
+    const error = await handle.props.model.renameOpenNote(draft)
+    renameError = error ?? ''
+    // Keep editing after a refusal so the name can be fixed.
+    if (error !== null) renaming = session().note?.id ?? null
+    void handle.update()
+  }
+
+  const nameView = (note: { id: string; title: string; frontmatter: Record<string, unknown> }) => {
+    const fromTitle = typeof note.frontmatter.title === 'string' && note.frontmatter.title.trim() !== ''
+    const hint = fromTitle
+      ? 'Name from the frontmatter “title” — editing it changes the title, not the file name'
+      : 'Rename (click, F2 or Enter)'
+    if (renaming !== note.id) {
+      return (
+        <h1 mix={titleStyle} data-note-title data-name-source={fromTitle ? 'title' : 'file'}>
+          <button
+            type="button"
+            mix={[
+              titleButtonStyle,
+              on('click', startRename),
+              on('keydown', (event) => {
+                if (event.key !== 'F2') return
+                event.preventDefault()
+                startRename()
+              }),
+            ]}
+            title={hint}
+            data-rename-note
+          >
+            {note.title}
+          </button>
+        </h1>
+      )
+    }
+    return (
+      <input
+        aria-label={fromTitle ? 'Note title' : 'Note name'}
+        title={hint}
+        value={draft}
+        aria-invalid={renameError ? 'true' : undefined}
+        data-note-title-input
+        mix={[
+          input,
+          titleInputStyle,
+          ref((node) => {
+            if (!(node instanceof HTMLInputElement) || document.activeElement === node) return
+            node.focus()
+            node.select()
+          }),
+          on('input', (event) => {
+            draft = event.currentTarget.value
+          }),
+          on('keydown', (event) => {
+            if (event.key === 'Enter') {
+              event.preventDefault()
+              void endRename(true)
+            } else if (event.key === 'Escape') {
+              event.preventDefault()
+              event.stopPropagation()
+              void endRename(false)
+            }
+          }),
+          on('blur', () => void endRename(true)),
+        ]}
+      />
+    )
+  }
+
   const conflictBar = () => {
     const current = session()
     if (current.state === 'conflict') {
@@ -152,9 +244,12 @@ export function EditorPane(handle: Handle<{ model: WorkspaceModel }>) {
         {note ? (
           <header mix={headerStyle}>
             <div mix={titleBlockStyle}>
-              <h1 mix={titleStyle} data-note-title>
-                {note.title}
-              </h1>
+              {nameView(note)}
+              {renameError && renaming === note.id ? (
+                <div role="alert" mix={renameErrorStyle} data-rename-error>
+                  {renameError}
+                </div>
+              ) : null}
               <div mix={[muted, pathStyle]} title={note.id}>
                 {folder === '' ? model.data.vault?.name : folder} · {note.id.slice(note.id.lastIndexOf('/') + 1)}
               </div>
@@ -246,6 +341,27 @@ const titleStyle = css({
   textOverflow: 'ellipsis',
   whiteSpace: 'nowrap',
 })
+
+const titleButtonStyle = css({
+  maxWidth: '100%',
+  padding: '0 6px',
+  margin: '0 -6px',
+  border: '1px solid transparent',
+  borderRadius: '4px',
+  background: 'none',
+  font: 'inherit',
+  color: 'inherit',
+  textAlign: 'left',
+  overflow: 'hidden',
+  textOverflow: 'ellipsis',
+  whiteSpace: 'nowrap',
+  cursor: 'text',
+  '&:hover': { borderColor: 'var(--border)' },
+})
+
+const titleInputStyle = css({ fontSize: '15px', fontWeight: 600, padding: '0 6px' })
+
+const renameErrorStyle = css({ color: 'var(--danger)', fontSize: '12px' })
 
 const pathStyle = css({ fontSize: '11px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' })
 

@@ -14,14 +14,13 @@ import {
 import { isNodeError } from '../vault/errors.ts'
 import { writeJsonFile } from '../vault/files.ts'
 import { type Frontmatter, parseNoteText, serializeNoteText } from '../vault/frontmatter.ts'
-import { fallbackTitle } from '../vault/note.ts'
 import {
   ASSETS_SUFFIX,
   CONFIG_DIR,
   encodeLinkPath,
   isInside,
-  sanitizeName,
-  slugify,
+  noteFileName,
+  sanitizeFileName,
   TRASH_DIR,
   uniqueName,
 } from '../vault/paths.ts'
@@ -200,7 +199,7 @@ export async function migrateStorage(
   const folderDirs = new Map<string, string>()
   const colors = new Map<string, string>()
   const addFolder = (key: string, name: string, color?: string) => {
-    const base = sanitizeName(name) || 'Untitled folder'
+    const base = sanitizeFileName(name) || 'Untitled folder'
     const dir = uniqueName(base, (candidate) => usedRootNames.has(candidate.toLowerCase()), ' ')
     usedRootNames.add(dir.toLowerCase())
     folderDirs.set(key, dir)
@@ -228,7 +227,7 @@ export async function migrateStorage(
   }
   report.counts.folders = folderDirs.size
 
-  // Notes → `<folder>/<slug(title)>.md`, oldest first so the original keeps the plain name.
+  // Notes → `<folder>/<noteFileName(title)>.md`, oldest first so the original keeps the plain name.
   const ordered = [...storage.notes].sort(
     (a, b) =>
       toIso(a.createdAt, a.fileTime).localeCompare(toIso(b.createdAt, b.fileTime)) || a.key.localeCompare(b.key),
@@ -245,14 +244,16 @@ export async function migrateStorage(
             .split('\n')
             .find((line) => line.trim() !== '')
             ?.trim() ?? ''))
-    const base = slugify(title)
+    const base = noteFileName(title)
     const stems = stemsByFolder.get(dir) ?? new Set<string>()
     stemsByFolder.set(dir, stems)
     const stem = uniqueName(base, (candidate) => stems.has(candidate.toLowerCase()))
     stems.add(stem.toLowerCase())
     const id = `${dir}/${stem}.md`
-    if (stem !== base) {
-      report.renamed.push({ kind: 'note', key: note.key, name: title, path: id, reason: 'duplicate file name' })
+    if (stem !== title) {
+      const reason =
+        title === '' ? 'empty title' : base !== title ? 'title is not a valid file name' : 'duplicate file name'
+      report.renamed.push({ kind: 'note', key: note.key, name: title, path: id, reason })
     }
     planned.set(note.key, { note, id, stem, folderKey: note.folder, title, trashed: note.isTrashed === true })
   }
@@ -335,7 +336,13 @@ export async function migrateStorage(
     const updated = toIso(note.updatedAt, note.fileTime)
     const frontmatter: Frontmatter = {}
     const contentTitle = typeof contentFrontmatter.title === 'string' ? contentFrontmatter.title.trim() : ''
-    if (plan.title !== '' && plan.title !== (contentTitle || fallbackTitle(id, body))) frontmatter.title = plan.title
+    // The file name is the note's name; the legacy title is only kept when the file name can't say it
+    // (or the content's own frontmatter title would win otherwise).
+    if (
+      plan.title !== '' &&
+      (noteFileName(plan.title) !== plan.title || (contentTitle !== '' && contentTitle !== plan.title))
+    )
+      frontmatter.title = plan.title
     const tags = [
       ...new Set((note.tags ?? []).filter((tag) => typeof tag === 'string').map((tag) => tag.trim())),
     ].filter(Boolean)

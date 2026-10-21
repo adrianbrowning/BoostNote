@@ -16,20 +16,21 @@ import {
 import { isNodeError, VaultError } from './errors.ts'
 import { exists, writeFileAtomic } from './files.ts'
 import { type Frontmatter, parseNoteText, serializeNoteText } from './frontmatter.ts'
-import { rebaseNoteLinks } from './links.ts'
-import { hashText, type Note, type NoteMeta, toNote } from './note.ts'
+import { rebaseNoteLinks, rewriteRelativeLinks } from './links.ts'
+import { findH1, hashText, type Note, type NoteMeta, toNote } from './note.ts'
 import {
   ASSETS_SUFFIX,
   encodeLinkPath,
   folderSegments,
   isHiddenName,
   joinId,
+  noteFileName,
   noteFolder,
   noteSegments,
   noteStem,
   resolveInside,
   safeDecode,
-  sanitizeName,
+  sanitizeFileName,
   slugify,
   TRASH_DIR,
   uniqueName,
@@ -81,10 +82,40 @@ export interface WriteNoteInput {
 }
 
 export interface CreateNoteOptions {
-  /** Defaults to `# <title>` followed by a blank line. */
+  /** Defaults to an empty body. */
   body?: string
   /** Extra frontmatter; `created`/`updated` are always set. */
   frontmatter?: Frontmatter
+}
+
+/** One file rename proposed by `planTitleRenames`: `from` → `to` in the same folder. */
+export interface TitleRename {
+  from: string
+  to: string
+  /** The title the new file name comes from (frontmatter `title`, else first H1). */
+  title: string
+}
+
+export interface TitleRenameSkip {
+  id: string
+  reason: string
+}
+
+export interface TitleRenamePlan {
+  renames: TitleRename[]
+  /** Notes whose title would give a different file name but which are left alone. */
+  skipped: TitleRenameSkip[]
+}
+
+export interface TitleRenameReport {
+  renamed: TitleRename[]
+  skipped: TitleRenameSkip[]
+  /** Frontmatter `title` keys removed because they equal the new file name. */
+  titlesRemoved: number
+  /** Links (in any note) rewritten to follow a renamed note or its assets folder. */
+  linksRewritten: number
+  /** Notes whose links were rewritten. */
+  notesUpdated: number
 }
 
 interface KnownFile {
@@ -129,6 +160,7 @@ export class Vault {
   readonly #listeners = new Set<(event: VaultEvent) => void>()
   #watcher: FSWatcher | undefined
   #timer: NodeJS.Timeout | undefined
+  #settleTimer: NodeJS.Timeout | undefined
   #queue: Promise<unknown> = Promise.resolve()
 
   /** Use `openVault`. */
@@ -164,18 +196,18 @@ export class Vault {
    */
   startWatching(debounceMs: number): void {
     if (this.#watcher) return
-    const schedule = (delay: number) => {
-      clearTimeout(this.#timer)
-      this.#timer = setTimeout(() => {
-        this.refresh().catch((error: unknown) => console.warn('[vault] rescan failed', error))
-      }, delay)
+    const rescan = () => {
+      this.refresh().catch((error: unknown) => console.warn('[vault] rescan failed', error))
     }
     this.#watcher = watch(this.root, { recursive: true }, (_event, filename) => {
       // Dot-entries (.trash, .boostnote, our temp files) and assets never affect notes or folders.
-      if (!filename?.split(/[\\/]/).some(isHiddenName)) schedule(debounceMs)
+      if (filename?.split(/[\\/]/).some(isHiddenName)) return
+      clearTimeout(this.#timer)
+      this.#timer = setTimeout(rescan, debounceMs)
     })
     this.#watcher.on('error', (error) => console.warn('[vault] watcher error', error))
-    schedule(Math.max(debounceMs, WATCHER_SETTLE_MS))
+    // Its own timer: events debounced meanwhile must not cancel it (they may be all that arrived).
+    this.#settleTimer = setTimeout(rescan, Math.max(debounceMs, WATCHER_SETTLE_MS))
   }
 
   /** Stops watching and drops listeners. */
@@ -183,6 +215,7 @@ export class Vault {
     this.#watcher?.close()
     this.#watcher = undefined
     clearTimeout(this.#timer)
+    clearTimeout(this.#settleTimer)
     this.#listeners.clear()
     await this.#queue
   }
@@ -263,32 +296,159 @@ export class Vault {
     })
   }
 
-  /** Creates `<folder>/<slug(title)>.md` (suffixed `-2`, `-3`… when taken). */
+  /** Creates `<folder>/<noteFileName(title)>.md` (suffixed ` 2`, ` 3`… when taken, ignoring case). */
   createNote(folder: string, title = 'Untitled', options: CreateNoteOptions = {}): Promise<Note> {
     return this.#exclusive(async () => {
       const dir = await this.#existingFolder(folder)
-      const stem = await uniqueStem(dir, slugify(title))
+      const stem = await uniqueStem(dir, noteFileName(title))
       const id = joinId(folder, `${stem}.md`)
       const now = new Date().toISOString()
       const frontmatter = { ...options.frontmatter, created: now, updated: now }
-      const raw = serializeNoteText(frontmatter, options.body ?? `# ${title}\n\n`)
+      const raw = serializeNoteText(frontmatter, options.body ?? '')
       const file = path.join(dir, `${stem}.md`)
       await writeFileAtomic(file, raw)
       return this.#track(id, file, raw)
     })
   }
 
-  /** Renames the file (not the title) to `<name>.md`; its assets folder follows and links are rewritten. */
+  /** Renames the file — the note's name — to `<name>.md`; its assets folder follows and links are rewritten. */
   renameNote(id: string, name: string): Promise<Note> {
     return this.#exclusive(async () => {
-      const stem = sanitizeName(name.replace(/\.md$/i, ''))
+      const stem = sanitizeFileName(name.replace(/\.md$/i, ''))
       if (stem === '') throw new VaultError('INVALID_PATH', `Invalid note name: ${JSON.stringify(name)}`)
       const toId = joinId(noteFolder(id), `${stem}.md`)
       return this.#relocateNote(id, toId)
     })
   }
 
-  /** Moves a note into `folder`, keeping its file name unless taken (then `-2`, …). */
+  /**
+   * Dry run of `applyTitleRenames`: finds notes whose file name is still the slug the importer gave
+   * them before file names became note names (`slugify(title)`, maybe with a `-2` suffix), where
+   * `title` is the frontmatter `title`, else the first H1. Each gets `noteFileName(title)`, made
+   * unique (ignoring case) in its folder. Files named some other way (by the user) are skipped.
+   * Nothing is written.
+   */
+  planTitleRenames(): Promise<TitleRenamePlan> {
+    return this.#exclusive(async () => {
+      const plan: TitleRenamePlan = { renames: [], skipped: [] }
+      const taken = new Map<string, Set<string>>()
+      // `x.md` before `x-2.md` before `x-10.md`, so the importer's original keeps the plain name.
+      const order = (id: string) => id.replace(/-(\d+)\.md$/, (_match, n: string) => `\uffff${n.padStart(9, '0')}`)
+      const ids = this.index
+        .all()
+        .map((meta) => meta.id)
+        .sort((a, b) => (order(a) < order(b) ? -1 : order(a) > order(b) ? 1 : 0))
+      for (const id of ids) {
+        const note = await this.readNote(id)
+        const stem = noteStem(id)
+        const frontmatterTitle = typeof note.frontmatter.title === 'string' ? note.frontmatter.title.trim() : ''
+        const title = frontmatterTitle || findH1(note.body) || stem
+        const target = noteFileName(title)
+        if (target === stem) continue
+        const slug = slugify(title)
+        if (stem !== slug && !(stem.startsWith(`${slug}-`) && /^\d+$/.test(stem.slice(slug.length + 1)))) {
+          plan.skipped.push({ id, reason: `file name was not made from the title “${title}”` })
+          continue
+        }
+        const names =
+          taken.get(note.folder) ??
+          (await lowerCaseEntries(await resolveInside(this.root, folderSegments(note.folder))))
+        taken.set(note.folder, names)
+        // The note's own names are free (a case-only rename), the others' and earlier picks are not.
+        const own = stem.toLowerCase()
+        const toStem = uniqueName(target, (candidate) => {
+          const lower = candidate.toLowerCase()
+          return lower !== own && (names.has(`${lower}.md`) || names.has(`${lower}${ASSETS_SUFFIX}`))
+        })
+        names.add(`${toStem.toLowerCase()}.md`)
+        names.add(`${toStem.toLowerCase()}${ASSETS_SUFFIX}`)
+        plan.renames.push({ from: id, to: joinId(note.folder, `${toStem}.md`), title })
+      }
+      return plan
+    })
+  }
+
+  /**
+   * Applies (a possibly user-trimmed) `planTitleRenames` result: renames each file in place (its
+   * assets folder and own links follow, as with `renameNote`), drops a frontmatter `title` that now
+   * equals the file name, then rewrites the relative links of every note that pointed at a renamed
+   * note or into its assets folder. Renames that no longer apply are skipped with the reason.
+   */
+  applyTitleRenames(plan: Pick<TitleRenamePlan, 'renames'>): Promise<TitleRenameReport> {
+    return this.#exclusive(async () => {
+      const report: TitleRenameReport = {
+        renamed: [],
+        skipped: [],
+        titlesRemoved: 0,
+        linksRewritten: 0,
+        notesUpdated: 0,
+      }
+      const moved = new Map<string, string>()
+      for (const rename of plan.renames) {
+        try {
+          noteSegments(rename.from)
+          noteSegments(rename.to)
+          if (noteFolder(rename.from) !== noteFolder(rename.to)) {
+            throw new VaultError('INVALID_PATH', `Not in the same folder: ${rename.from} → ${rename.to}`)
+          }
+          if (sanitizeFileName(noteStem(rename.to)) !== noteStem(rename.to)) {
+            throw new VaultError('INVALID_PATH', `Invalid note name: ${JSON.stringify(noteStem(rename.to))}`)
+          }
+          const note = await this.#relocateNote(rename.from, rename.to)
+          moved.set(rename.from, rename.to)
+          report.renamed.push(rename)
+          const { title: _title, ...rest } = note.frontmatter
+          if (note.frontmatter.title === noteStem(rename.to)) {
+            const text = parseNoteText(note.raw)
+            const raw = serializeNoteText(rest, text.body, text)
+            const file = await resolveInside(this.root, noteSegments(rename.to))
+            await writeFileAtomic(file, raw)
+            await this.#track(rename.to, file, raw)
+            report.titlesRemoved++
+          }
+        } catch (error) {
+          if (!(error instanceof VaultError)) throw error
+          report.skipped.push({ id: rename.from, reason: error.message })
+        }
+      }
+      if (moved.size === 0) return report
+      const movedAssets = new Map(
+        [...moved].map(([from, to]) => [from.replace(/\.md$/, ASSETS_SUFFIX), to.replace(/\.md$/, ASSETS_SUFFIX)]),
+      )
+      for (const meta of this.index.all()) {
+        const file = await resolveInside(this.root, noteSegments(meta.id))
+        const raw = await readOptional(file)
+        if (raw === undefined) continue
+        const text = parseNoteText(raw)
+        const dir = meta.folder
+        let rewritten = 0
+        const body = rewriteRelativeLinks(text.body, (relPath) => {
+          const target = path.posix.normalize(path.posix.join(dir, relPath))
+          let next = moved.get(target)
+          if (next === undefined) {
+            const segments = target.split('/')
+            for (let end = 1; end <= segments.length && next === undefined; end++) {
+              const to = movedAssets.get(segments.slice(0, end).join('/'))
+              if (to !== undefined) next = [to, ...segments.slice(end)].join('/')
+            }
+          }
+          if (next === undefined) return undefined
+          rewritten++
+          const relative = path.posix.relative(dir, next)
+          return relPath.startsWith('./') && !relative.startsWith('../') ? `./${relative}` : relative
+        })
+        if (body === text.body) continue
+        const next = raw.slice(0, raw.length - text.body.length) + body
+        await writeFileAtomic(file, next)
+        await this.#track(meta.id, file, next)
+        report.linksRewritten += rewritten
+        report.notesUpdated++
+      }
+      return report
+    })
+  }
+
+  /** Moves a note into `folder`, keeping its file name unless taken (then ` 2`, …). */
   moveNote(id: string, folder: string): Promise<Note> {
     return this.#exclusive(async () => {
       if (noteFolder(id) === folder) return this.readNote(id)
@@ -521,7 +681,7 @@ export class Vault {
   }
 
   #folderName(name: string): string {
-    const folder = sanitizeName(name)
+    const folder = sanitizeFileName(name)
     if (folder === '') throw new VaultError('INVALID_PATH', `Invalid folder name: ${JSON.stringify(name)}`)
     return folder
   }

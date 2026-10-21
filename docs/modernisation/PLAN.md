@@ -217,8 +217,8 @@ JSON `{ error, message }`: `VaultError` `INVALID_PATH`/`NOT_A_VAULT` → 400, `N
   conflict bar, autosave suspended: **Keep mine** saves on top of their hash, **Load theirs** drops the
   edits. External delete/move → "Save my copy" (writes with `baseHash: null`) or Close. While a
   conflict is unresolved the app refuses to leave the note, so neither side is lost silently.
-- Title is read-only above the editor (frontmatter `title`, else first H1, else file name); renaming
-  the file is a separate action. Relative `.md` links open inside the app, http(s) links open in the
+- The note's name above the editor is its file name (or frontmatter `title`) and is renamed in place
+  (see Note names (phase 7)). Relative `.md` links open inside the app, http(s) links open in the
   browser, everything else is ignored.
 - Folders show the notes directly inside them; "All notes" shows everything. Drag a note (or folder)
   onto a folder to move it. Pane widths and visibility persist in `settings.json` (`ui.panes`).
@@ -372,6 +372,40 @@ Linux installers on their own runners (`release` job) and attaches them to a dra
 (`publish` job). Signing is optional: `CSC_LINK`/`CSC_KEY_PASSWORD` secrets enable it, `APPLE_ID`,
 `APPLE_APP_SPECIFIC_PASSWORD`, `APPLE_TEAM_ID` notarisation; without them artifacts are unsigned.
 
+## Note names (phase 7)
+
+The file name **is** the note's name (as in Obsidian/Hubble); the first `# H1` is just content.
+
+- **Displayed name** (`noteTitle`, `src/vault/note.ts`): frontmatter `title` when it is a non-empty
+  string, else the file name stem. Used by the index (and its search title field), the note list,
+  editor header, tabs, trash list and exports (document `<title>`, folder index pages).
+- **One sanitiser** (`noteFileName` / `sanitizeFileName`, `src/vault/paths.ts`) for new notes,
+  renames, folders and the importer: `/ \ : * ? " < > |` and control characters → `-`, whitespace
+  collapsed, leading dots and trailing dots/spaces stripped, a trailing `.assets` dropped, capped at
+  120 characters / 200 UTF-8 bytes on a grapheme boundary, Windows device names suffixed with `-`
+  (`CON` → `CON-`, `con.txt` → `con-.txt`); empty → `Untitled` (`sanitizeFileName` returns `''`
+  so renames can refuse it). Names are unique per folder ignoring case, with ` 2`, ` 3`, …
+  (also for moves, trash slots and restores). `createNote` makes `Untitled.md`, `Untitled 2.md`, … with an
+  empty body. Link paths encode space, `#`, `%`, `(`, `)`, `<`, `>`.
+- **Inline rename:** click the name in the editor header (or focus it and press F2/Enter); Enter or
+  blur commits through `POST /api/notes/rename`, Esc cancels, `EXISTS`/`INVALID_PATH` show inline. A
+  note whose name comes from a frontmatter `title` edits that key instead (tooltip says so; clearing
+  it shows the file name again).
+- **Importer:** `<folder>/<noteFileName(title)>.md`; frontmatter `title` only when the file name
+  can't spell the legacy title (see MIGRATION.md).
+- **Rename Files From Titles…** (File menu; `vault.planTitleRenames()` → `GET /api/notes/title-renames`,
+  `vault.applyTitleRenames(plan)` → `POST /api/notes/title-renames/apply`) for vaults imported with
+  slug names. A note is eligible only when its stem is `slugify(oldTitle)` (optionally `-N`), where
+  `oldTitle` = frontmatter `title` ?? first H1 ?? stem, and `noteFileName(oldTitle)` differs from the
+  stem; user-named files (`Craig.md` starting `# 2026-09-18`) are listed as skipped. Originals sort
+  before their `-2` duplicates so they keep the plain name. Apply renames each file (assets folder
+  and own links follow, as `renameNote`), removes a frontmatter `title` equal to the new stem
+  (in-place YAML edit), then rewrites relative links in every note (not `.trash`) that point at a
+  renamed note or into its assets (`./x.md`, `../dir/x.md`, `%`-encoded, `#anchor`/`?query` kept;
+  new links `%20`-encoded; code blocks and code spans untouched). Renames that no longer apply are
+  reported as skipped. The workspace saves the open note first, rebases tabs old id → new id and
+  reloads the open note. `slugify` survives only for this recognition.
+
 ## Phases (stack bottom → top)
 
 1. `modernise/01-foundation` — toolchain, Electron 45 shell, `boost://` → Remix router,
@@ -389,6 +423,8 @@ Linux installers on their own runners (`release` job) and attaches them to a dra
 6. `modernise/06-export-release` — export renderer, HTML/PDF/Markdown export (notes, folders, vault),
    print, `.md` file associations, unfocused fully rendered editor, Playwright smoke tests, packaging
    verification and tag releases, README/contributing rewrite.
+7. `modernise/07-note-names` — the file name is the note's name: shared file-name sanitiser, inline
+   rename in the editor header, readable importer names, File › Rename Files From Titles….
 
 ## Remix notes
 
@@ -439,7 +475,8 @@ Things about Remix 3 in this setup that are easy to get wrong:
 
 - **Entry point:** `openVault(root, { watch: true })` returns a `Vault`: `tree()`, `index` (titles, tags,
   starred, `search()`), `readNote`/`writeNote`/`createNote`/`renameNote`/`moveNote`/`deleteNote`,
-  `listTrash`/`restore`/`emptyTrash`, folder CRUD + colours/order, `saveAsset`/`assetPath`. Errors are
+  `listTrash`/`restore`/`emptyTrash`, folder CRUD + colours/order, `saveAsset`/`assetPath`,
+  `planTitleRenames`/`applyTitleRenames` (phase 7). Errors are
   `VaultError` with a `code` (`INVALID_PATH`, `NOT_FOUND`, `EXISTS`, `NOT_A_VAULT`) to map onto HTTP
   statuses. Mutations are serialised per vault.
 - **Ids are vault-relative POSIX paths** (`work/todo.md`, folders `work`, root `''`). Ids with `..`, `\`,
@@ -451,6 +488,7 @@ Things about Remix 3 in this setup that are easy to get wrong:
   file changed under it.
 - **Watching:** `fs.watch(recursive)`; a burst of events triggers one full reconcile (stat-first, hash
   on change). macOS FSEvents can drop changes made in the first moments after a watcher starts, so one
-  extra reconcile runs a second after `startWatching`; `vault.refresh()` forces one (e.g. on window focus).
+  extra reconcile runs a second after `startWatching` (on its own timer, so early events can't cancel
+  it); `vault.refresh()` forces one (e.g. on window focus).
 - **Frontmatter writes edit the YAML text in place:** unchanged keys keep their exact bytes (quotes,
   comments, flow lists); invalid YAML is treated as body, so nothing is ever lost.

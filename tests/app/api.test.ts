@@ -6,6 +6,8 @@ import type {
   ImportSummary,
   NoteDocument,
   SaveConflictBody,
+  TitleRenamePlan,
+  TitleRenameReport,
   WorkspaceData,
 } from '../../src/app/actions/public/workspace/types.ts'
 import { errorResponse, HttpError, VAULT_ERROR_STATUS } from '../../src/app/http.ts'
@@ -99,7 +101,7 @@ describe('notes', () => {
     await writeFile(path.join(vault.root, 'todo.md'), '---\ntags: [a]\ncustom: keep\n---\n# Todo\n\nBody\n')
     await vault.refresh()
     const note = await readJson<NoteDocument>(await app.get(`${api.noteRead.href()}?id=todo.md`))
-    expect(note).toMatchObject({ id: 'todo.md', title: 'Todo', tags: ['a'], body: '# Todo\n\nBody\n' })
+    expect(note).toMatchObject({ id: 'todo.md', title: 'todo', tags: ['a'], body: '# Todo\n\nBody\n' })
     expect(note.frontmatter).toEqual({ tags: ['a'], custom: 'keep' })
     expect(note.hash).toMatch(/^[0-9a-f]{64}$/)
   })
@@ -114,7 +116,9 @@ describe('notes', () => {
     expect(response.status).toBe(200)
     const saved = await readJson<NoteDocument>(response)
     expect(saved.hash).not.toBe(note.hash)
-    expect(saved.title).toBe('Hello')
+    // The name is the file name, whatever the first heading says.
+    expect(saved.title).toBe('Untitled')
+    expect(saved.id).toBe('Untitled.md')
     const raw = await readFile(path.join(vault.root, note.id), 'utf8')
     expect(raw).toMatch(/^---\ncreated: .+\nupdated: .+\n---\n# Hello\n\nWorld\n$/)
   })
@@ -206,7 +210,7 @@ describe('notes', () => {
     await vault.createNote('', 'Mermaid diagrams', { body: '# Mermaid diagrams\n\nflowchart\n' })
     await vault.createNote('', 'Groceries', { body: '# Groceries\n\nmilk\n' })
     const { ids } = await readJson<{ ids: string[] }>(await app.get(`${api.search.href()}?q=flowchart`))
-    expect(ids).toEqual(['mermaid-diagrams.md'])
+    expect(ids).toEqual(['Mermaid diagrams.md'])
   })
 
   it('reveals a note in the file manager, after validating its id', async () => {
@@ -216,6 +220,33 @@ describe('notes', () => {
     expect((await app.post(api.noteReveal.href(), { id: '../x.md' })).status).toBe(400)
     expect(app.revealed).toHaveLength(1)
   })
+
+  it('plans title renames on GET and applies them on POST', async () => {
+    await mkdir(path.join(vault.root, 'Work'))
+    await writeFile(path.join(vault.root, 'Work/meeting-notes.md'), '# Meeting notes\n')
+    await writeFile(path.join(vault.root, 'Work/Craig.md'), '# 2026-09-18\n')
+    await writeFile(path.join(vault.root, 'index.md'), '[m](./Work/meeting-notes.md)\n')
+    await vault.refresh()
+
+    const plan = await readJson<TitleRenamePlan>(await app.get(api.titleRenamesPlan.href()))
+    expect(plan.renames).toEqual([
+      { from: 'Work/meeting-notes.md', to: 'Work/Meeting notes.md', title: 'Meeting notes' },
+    ])
+    expect(plan.skipped.map((skip) => skip.id)).toEqual(['Work/Craig.md'])
+    // The dry run wrote nothing.
+    expect(await readFile(path.join(vault.root, 'Work/meeting-notes.md'), 'utf8')).toBe('# Meeting notes\n')
+
+    const response = await app.post(api.titleRenamesApply.href(), { renames: plan.renames })
+    expect(response.status).toBe(200)
+    const report = await readJson<TitleRenameReport>(response)
+    expect(report).toMatchObject({ renamed: plan.renames, skipped: [], linksRewritten: 1, notesUpdated: 1 })
+    expect(await readFile(path.join(vault.root, 'index.md'), 'utf8')).toBe('[m](./Work/Meeting%20notes.md)\n')
+    const workspace = await readJson<WorkspaceData>(await app.get(api.workspace.href()))
+    expect(workspace.notes.map((note) => note.title).sort()).toEqual(['Craig', 'Meeting notes', 'index'])
+
+    expect((await app.post(api.titleRenamesApply.href(), { renames: 'all' })).status).toBe(400)
+    expect((await app.post(api.titleRenamesApply.href(), { renames: [{ from: 'x.md' }] })).status).toBe(400)
+  })
 })
 
 describe('assets', () => {
@@ -223,7 +254,7 @@ describe('assets', () => {
 
   beforeEach(async () => {
     vault = await app.openVault()
-    await vault.createNote('', 'Note')
+    await vault.createNote('', 'note')
   })
 
   it('uploads an asset next to the note and serves it with its content type', async () => {

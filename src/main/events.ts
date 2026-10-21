@@ -16,6 +16,8 @@ export type MenuCommand =
   | 'new-folder'
   | 'open-folder'
   | 'import-storage'
+  /** File › Rename Files From Titles…: the bulk rename of slug-named (imported) notes. */
+  | 'rename-from-titles'
   | 'reveal-note'
   | 'close-tab'
   | 'reopen-tab'
