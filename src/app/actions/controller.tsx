@@ -11,6 +11,7 @@ import { serveVendorFile } from '../vendor.ts'
 import { preferencesState } from './api/preferences.ts'
 import { workspaceData } from './api/workspace-data.ts'
 import { HomePage } from './home-page.tsx'
+import { MermaidRendererPage } from './mermaid-renderer-page.tsx'
 
 /**
  * Vault files are user content: even when one is opened as a document (an `.svg` or `.html` asset),
@@ -28,6 +29,9 @@ export function createRootController(services: AppServices) {
         return context.render(
           <HomePage initial={await workspaceData(services)} preferences={preferencesState(services)} />,
         )
+      },
+      mermaidRenderer(context) {
+        return context.render(<MermaidRendererPage />)
       },
       events(context) {
         return services.events.subscribe(context.request.signal)

@@ -1,3 +1,6 @@
+import { realpath } from 'node:fs/promises'
+import * as path from 'node:path'
+
 import { openVault, type Vault, VaultError } from '../vault/index.ts'
 import type { EventHub } from './events.ts'
 import type { SettingsStore } from './settings.ts'
@@ -12,6 +15,14 @@ export interface VaultSessionOptions {
   debounceMs?: number
 }
 
+/** A markdown file opened from the OS (Finder, Explorer, argv): its folder becomes the vault. */
+export interface OpenRequest {
+  /** Real path of the file's folder. */
+  vault: string
+  /** Note id inside that vault (the file name). */
+  id: string
+}
+
 /**
  * The open vault of the app (at most one) and the vault list in `settings.json`. Opening a vault
  * makes it `lastVault` (reopened on the next start) and moves it to the front of `vaults`; its
@@ -23,6 +34,7 @@ export class VaultSession {
   readonly #debounceMs: number | undefined
   #vault: Vault | undefined
   #queue: Promise<unknown> = Promise.resolve()
+  #openRequest: string | undefined
 
   constructor(options: VaultSessionOptions) {
     this.#settings = options.settings
@@ -38,6 +50,26 @@ export class VaultSession {
   /** Vault folders the user opened, most recent first. */
   get recent(): string[] {
     return this.#settings.read().vaults ?? []
+  }
+
+  /**
+   * Remembers a `.md` file the OS asked the app to open and tells the workspace (SSE `open-request`).
+   * The workspace takes it (`takeOpenRequest`) after hydrating or on the event, saves the open note,
+   * switches vaults and opens the note, so a request made before the window exists is not lost.
+   */
+  requestOpen(file: string): void {
+    this.#openRequest = path.resolve(file)
+    this.#events.broadcast({ type: 'open-request' })
+  }
+
+  /** The pending open request, cleared; `undefined` when there is none or the file is gone. */
+  async takeOpenRequest(): Promise<OpenRequest | undefined> {
+    const file = this.#openRequest
+    this.#openRequest = undefined
+    if (file === undefined) return undefined
+    const real = await realpath(file).catch(() => undefined)
+    if (real === undefined || !/\.md$/i.test(real)) return undefined
+    return { vault: path.dirname(real), id: path.basename(real) }
   }
 
   /**

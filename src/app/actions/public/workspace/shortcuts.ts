@@ -21,6 +21,7 @@ export const ACCELERATORS = {
   'toggle-properties': 'CmdOrCtrl+Shift+P',
   preferences: 'CmdOrCtrl+,',
   find: 'CmdOrCtrl+F',
+  print: 'CmdOrCtrl+P',
 } satisfies Partial<Record<MenuCommand, string>>
 
 /** `select-tab`: Cmd/Ctrl+1–8 pick a tab, Cmd/Ctrl+9 the last one. */

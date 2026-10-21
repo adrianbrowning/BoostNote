@@ -3,7 +3,7 @@ import * as os from 'node:os'
 import * as path from 'node:path'
 
 import { type AppRouter, createAppRouter } from '../../src/app/router.ts'
-import type { FolderPickerOptions, PreferenceServices } from '../../src/app/services.ts'
+import type { FolderPickerOptions, PreferenceServices, SaveFileOptions } from '../../src/app/services.ts'
 import { createEventHub, type EventHub } from '../../src/main/events.ts'
 import { SettingsStore, type UiPreferences } from '../../src/main/settings.ts'
 import { VaultSession } from '../../src/main/vault-session.ts'
@@ -29,6 +29,12 @@ export class TestApp {
   readonly applied: UiPreferences[] = []
   /** Accelerators the fake OS refuses to register. */
   readonly takenHotkeys: string[] = []
+  /** Answers of the next save dialogs (`undefined` = cancelled). */
+  readonly saves: Array<string | undefined> = []
+  readonly saveCalls: SaveFileOptions[] = []
+  /** Documents sent to the fake printer / PDF writer. */
+  readonly printed: string[] = []
+  readonly pdfs: string[] = []
   /** The fake `PreferenceServices` (`registeredHotkey` is what the fake OS has registered). */
   readonly preferences: { registeredHotkey: string | undefined } & PreferenceServices
 
@@ -68,6 +74,20 @@ export class TestApp {
         this.revealed.push(fullPath)
       },
       findLegacyStorages: async () => this.legacyStorages,
+      exports: {
+        saveFile: async (options) => {
+          this.saveCalls.push(options)
+          return this.saves.shift()
+        },
+        renderMermaid: async (source) => `<svg data-fake-mermaid="${source.length}"></svg>`,
+        printToPdf: async (html) => {
+          this.pdfs.push(html)
+          return new TextEncoder().encode('%PDF-fake')
+        },
+        print: async (html) => {
+          this.printed.push(html)
+        },
+      },
     })
   }
 

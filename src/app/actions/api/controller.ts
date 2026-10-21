@@ -7,7 +7,8 @@ import { type Note, type Vault, VaultError } from '../../../vault/index.ts'
 import { errorResponse, HttpError, json, readJsonObject, requireString } from '../../http.ts'
 import { routes } from '../../routes.ts'
 import type { AppServices } from '../../services.ts'
-import type { SaveConflictBody } from '../public/workspace/types.ts'
+import type { OpenRequest, SaveConflictBody } from '../public/workspace/types.ts'
+import { exportFolder, exportNote } from './export.ts'
 import { parseUiPatch, preferencesState, savePreferences } from './preferences.ts'
 import { importSummary, toJsonValue, toNoteDocument, workspaceData } from './workspace-data.ts'
 
@@ -292,6 +293,19 @@ export function createApiController(services: AppServices) {
       preferencesSave: guarded(async ({ request }: { request: Request }) =>
         json(savePreferences(services, parseUiPatch(await readJsonObject(request)))),
       ),
+
+      exportNote: guarded(async ({ request }: { request: Request }) =>
+        exportNote(services, requireVault(services), request),
+      ),
+
+      exportFolder: guarded(async ({ request }: { request: Request }) =>
+        exportFolder(services, requireVault(services), request),
+      ),
+
+      openRequest: guarded(async () => {
+        const pending: OpenRequest | null = (await services.vaults.takeOpenRequest()) ?? null
+        return json(pending)
+      }),
     },
   })
 }

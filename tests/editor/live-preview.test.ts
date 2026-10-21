@@ -1,9 +1,13 @@
-import type { Extension } from '@codemirror/state'
+// @vitest-environment happy-dom
+import { EditorState, type Extension } from '@codemirror/state'
+import { EditorView } from '@codemirror/view'
 import { describe, expect, it } from 'vitest'
 
 import { editorHost } from '../../src/editor/config.ts'
-import { buildPreviewWidgets } from '../../src/editor/live-preview/blocks.ts'
-import { buildMarkerDecorations } from '../../src/editor/live-preview/markers.ts'
+import { markdownSupport } from '../../src/editor/language.ts'
+import { buildPreviewWidgets, previewWidgets } from '../../src/editor/live-preview/blocks.ts'
+import { buildMarkerDecorations, livePreviewMarkers } from '../../src/editor/live-preview/markers.ts'
+import { editorFocusTracking, setEditorFocused } from '../../src/editor/live-preview/selection.ts'
 import {
   CheckboxWidget,
   ImageWidget,
@@ -132,5 +136,58 @@ describe('preview widgets', () => {
     const done = open.update(toggleTaskAt(open, 13) ?? {}).state
     expect(done.doc.toString()).toBe('- [x] open\n- [ ] done')
     expect(toggleTaskAt(state, 0)).toBeNull()
+  })
+})
+
+describe('unfocused editor', () => {
+  // With focus tracking installed, a state starts unfocused, like a freshly created view.
+  const unfocused = (doc: string) => markdownState(doc, editorFocusTracking)
+  const focus = (state: EditorState) => state.update({ effects: setEditorFocused.of(true) }).state
+
+  it('hides markers on the cursor line until the view is focused', () => {
+    const heading = unfocused('# Ti‸tle')
+    expect(hiddenTexts(heading, buildMarkerDecorations(heading))).toEqual(['# '])
+    const bold = unfocused('a **str‸ong**')
+    expect(hiddenTexts(bold, buildMarkerDecorations(bold))).toEqual(['**', '**'])
+    const focused = focus(bold)
+    expect(hiddenTexts(focused, buildMarkerDecorations(focused))).toEqual([])
+  })
+
+  it('renders block widgets under the cursor until the view is focused, recomputing on focus change', () => {
+    const math = unfocused('$$\nE = ‸mc^2\n$$')
+    expect(decorationList(buildPreviewWidgets(math)).map((range) => range.value.spec.widget)).toEqual([
+      new MathWidget('E = mc^2', true),
+    ])
+    const table = markdownState('| a | b |\n| - | - |\n| 1 | ‸2 |', [editorFocusTracking, previewWidgets])
+    const tableWidgets = (state: EditorState) => decorationList(state.field(previewWidgets))
+    expect(tableWidgets(table)).toHaveLength(1)
+    const focused = focus(table)
+    expect(tableWidgets(focused)).toEqual([])
+    expect(tableWidgets(focused.update({ effects: setEditorFocused.of(false) }).state)).toHaveLength(1)
+  })
+
+  it('rebuilds a mounted view’s markers when focus arrives and leaves', () => {
+    const parent = document.createElement('div')
+    document.body.append(parent)
+    const view = new EditorView({
+      parent,
+      state: EditorState.create({
+        doc: '# Title **bold**',
+        selection: { anchor: 11 },
+        extensions: [markdownSupport(), editorFocusTracking, livePreviewMarkers],
+      }),
+    })
+    try {
+      expect(view.hasFocus).toBe(false)
+      expect(view.contentDOM.textContent).toBe('Title bold')
+      // The effect EditorView.focusChangeEffect produces; real DOM focus in happy-dom re-enters CodeMirror updates.
+      view.dispatch({ effects: setEditorFocused.of(true) })
+      expect(view.contentDOM.textContent).toBe('# Title **bold**')
+      view.dispatch({ effects: setEditorFocused.of(false) })
+      expect(view.contentDOM.textContent).toBe('Title bold')
+    } finally {
+      view.destroy()
+      parent.remove()
+    }
   })
 })

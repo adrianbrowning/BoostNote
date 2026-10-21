@@ -4,8 +4,6 @@
 Let us know what is currently happening.
 
 Please include some **screenshots** with the **developer tools** open (console tab) when you report a bug.
-
-If your issue is regarding the new Boost Note.next, please open an issue in the new repo 👉 https://github.com/BoostIO/BoostNote.next/issues.
 -->
 
 # Expected behavior

@@ -24,6 +24,25 @@ export interface PreferenceServices {
   readonly registeredHotkey: string | undefined
 }
 
+export interface SaveFileOptions {
+  title: string
+  /** Suggested file name (or full path). */
+  defaultPath: string
+  filters: Array<{ name: string; extensions: string[] }>
+}
+
+/** What export needs from Electron: a save dialog and Chromium (mermaid layout, PDF, printing). */
+export interface ExportServices {
+  /** Native save dialog; `undefined` when cancelled. */
+  saveFile(options: SaveFileOptions): Promise<string | undefined>
+  /** SVG of a mermaid diagram, laid out by a hidden window; rejects with mermaid's error. */
+  renderMermaid(source: string): Promise<string>
+  /** PDF of a standalone HTML document (`htmlDocument`). */
+  printToPdf(html: string): Promise<Uint8Array>
+  /** Opens the system print dialog for a standalone HTML document; resolves when it is done or cancelled. */
+  print(html: string): Promise<void>
+}
+
 /**
  * Everything the router needs from the main process. `src/main` passes Electron-backed
  * implementations (`dialog`, `shell`); tests pass fakes. Controllers never import Electron.
@@ -42,4 +61,5 @@ export interface AppServices {
   showItemInFolder(fullPath: string): void
   /** Legacy Boostnote storages on this machine (prefills the importer). */
   findLegacyStorages(): Promise<LegacyStorageLocation[]>
+  exports: ExportServices
 }

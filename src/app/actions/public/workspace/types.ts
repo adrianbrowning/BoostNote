@@ -4,8 +4,18 @@
  */
 import type { MenuCommand, MenuEvent, VaultChangeEvent } from '../../../../main/events.ts'
 import type { PaneLayout, ThemePreference, UiPatch, UiPreferences } from '../../../../main/settings.ts'
+import type { OpenRequest } from '../../../../main/vault-session.ts'
 
-export type { MenuCommand, MenuEvent, PaneLayout, ThemePreference, UiPatch, UiPreferences, VaultChangeEvent }
+export type {
+  MenuCommand,
+  MenuEvent,
+  OpenRequest,
+  PaneLayout,
+  ThemePreference,
+  UiPatch,
+  UiPreferences,
+  VaultChangeEvent,
+}
 
 /** `GET`/`POST /api/preferences`. */
 export interface PreferencesState {
@@ -77,6 +87,11 @@ export interface ApiErrorBody {
 export interface SaveConflictBody extends ApiErrorBody {
   error: 'CONFLICT'
   note: NoteDocument
+}
+
+/** `POST /api/export/note` and `/api/export/folder`: where the export was written; `null` when cancelled or printed. */
+export interface ExportResult {
+  path: string | null
 }
 
 export interface ImportCandidate {
