@@ -7,8 +7,10 @@ import { button, input, muted, primaryButton } from './styles.ts'
 import type { ImportCandidate, ImportSummary } from './types.ts'
 
 /**
- * "Import Boostnote Storage…": pick a legacy storage (prefilled from the storages found on this
- * machine) and a target folder, preview the conversion (dry run), run it, then open the new vault.
+ * "Import Boostnote Storage…": pick a legacy storage (storages found on this machine are offered as
+ * buttons) and a target folder, preview the conversion (dry run), run it, then open the new vault.
+ * Found storages are never written into the field in the background: a late write would merge with
+ * what the user is typing or pasting at that moment.
  */
 export function ImportDialog(handle: Handle<{ model: WorkspaceModel }>) {
   let candidates: ImportCandidate[] = []
@@ -24,7 +26,6 @@ export function ImportDialog(handle: Handle<{ model: WorkspaceModel }>) {
     try {
       candidates = await client.importCandidates()
       if (signal.aborted) return
-      if (source === '' && candidates[0]) source = candidates[0].path
       void handle.update()
     } catch {
       // Detection is a convenience; the user can still choose a folder.
@@ -129,7 +130,6 @@ export function ImportDialog(handle: Handle<{ model: WorkspaceModel }>) {
             <span mix={rowStyle}>
               <input
                 name="source"
-                list="import-candidates"
                 value={source}
                 disabled={result !== null}
                 mix={[input, on('input', (event) => edited(() => (source = event.currentTarget.value)))]}
@@ -138,13 +138,23 @@ export function ImportDialog(handle: Handle<{ model: WorkspaceModel }>) {
                 Choose…
               </button>
             </span>
-            <datalist id="import-candidates">
-              {candidates.map((candidate) => (
-                <option key={candidate.path} value={candidate.path}>
-                  {candidate.name ?? candidate.path}
-                </option>
-              ))}
-            </datalist>
+            {candidates.length > 0 && result === null ? (
+              <span mix={rowStyle} data-import-candidates>
+                <span mix={muted}>Found:</span>
+                {candidates.map((candidate) => (
+                  <button
+                    key={candidate.path}
+                    type="button"
+                    title={candidate.path}
+                    aria-pressed={source === candidate.path ? 'true' : 'false'}
+                    data-import-candidate={candidate.path}
+                    mix={[button, on('click', () => edited(() => (source = candidate.path)))]}
+                  >
+                    {candidate.name ?? candidate.path}
+                  </button>
+                ))}
+              </span>
+            ) : null}
           </label>
           <label mix={fieldStyle}>
             <span>New vault folder</span>

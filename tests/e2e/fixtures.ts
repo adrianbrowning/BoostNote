@@ -44,6 +44,8 @@ export async function launchApp(files: VaultFiles, openFiles: VaultFiles = {}): 
   await writeFiles(vault, files)
   await writeFiles(path.join(root, 'loose'), openFiles)
   await mkdir(userDataDir, { recursive: true })
+  // A temp home, so legacy-storage detection never finds the developer's real ~/Boostnote.
+  await mkdir(path.join(root, 'home'), { recursive: true })
   await writeFile(
     path.join(userDataDir, 'settings.json'),
     JSON.stringify({ vaults: [vault], lastVault: vault, ui: { globalHotkey: '' } }),
@@ -55,7 +57,7 @@ export async function launchApp(files: VaultFiles, openFiles: VaultFiles = {}): 
       ...Object.keys(openFiles).map((rel) => path.join(root, 'loose', ...rel.split('/'))),
     ],
     cwd: projectRoot,
-    env: { ...process.env, NODE_ENV: 'development' },
+    env: { ...process.env, NODE_ENV: 'development', HOME: path.join(root, 'home') },
   })
   const page = await electronApp.firstWindow()
   await page.waitForLoadState('domcontentloaded')

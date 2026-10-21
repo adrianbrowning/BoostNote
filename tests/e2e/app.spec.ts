@@ -126,13 +126,21 @@ test('renames slug-named files from their titles', async ({ app }) => {
 
 test('imports a legacy Boostnote storage through the dialog', async ({ app }) => {
   const { page, dir } = app
-  const storage = path.join(dir, 'legacy')
+  // Detected at the legacy default location (~/Boostnote) and offered as a button.
+  const storage = path.join(dir, 'home', 'Boostnote')
   const target = path.join(dir, 'imported')
   await createLegacyStorage(storage)
   await app.clickMenu('import-storage')
   const dialog = page.getByRole('dialog', { name: 'Import Boostnote storage' })
-  await dialog.locator('input[name="source"]').fill(storage)
+  const source = dialog.locator('input[name="source"]')
+  await dialog.locator(`[data-import-candidate="${storage}"]`).click()
+  await expect(source).toHaveValue(storage)
+  // Typing over it keeps exactly what was typed (found storages are never written in late).
+  await source.fill(`${storage}-typed`)
+  await expect(source).toHaveValue(`${storage}-typed`)
+  await source.fill(storage)
   await dialog.locator('input[name="target"]').fill(target)
+  await expect(source).toHaveValue(storage)
   await dialog.locator('[data-import-preview]').click()
   await expect(dialog.locator('[data-import-summary="preview"]')).toBeVisible()
   await dialog.locator('[data-import-run]').click()
