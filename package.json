@@ -1,0 +1,47 @@
+{
+  "name": "boostnote",
+  "productName": "Boostnote",
+  "version": "0.17.0",
+  "description": "Note-taking app for programmers",
+  "license": "GPL-3.0",
+  "author": "Junyoung Choi <fluke8259@gmail.com> (https://github.com/Rokt33r)",
+  "homepage": "https://github.com/adrianbrowning/BoostNote",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/adrianbrowning/BoostNote.git"
+  },
+  "type": "module",
+  "private": true,
+  "packageManager": "pnpm@10.34.5",
+  "engines": {
+    "node": ">=24"
+  },
+  "main": "src/main/index.js",
+  "scripts": {
+    "dev": "electron .",
+    "check": "biome check .",
+    "fix": "biome check --write .",
+    "typecheck": "tsc",
+    "test": "vitest run",
+    "build": "tsc && node --import remix/node-tsx scripts/verify-assets.ts",
+    "dist": "pnpm build && electron-builder --publish never"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "electron",
+      "esbuild"
+    ]
+  },
+  "dependencies": {
+    "remix": "3.0.0"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^2.5.15",
+    "@types/node": "^26.6.5",
+    "electron": "45.0.0",
+    "electron-builder": "^26.15.3",
+    "happy-dom": "^21.0.4",
+    "typescript": "^7.0.2",
+    "vitest": "^5.0.5"
+  }
+}

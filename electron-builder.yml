@@ -1,0 +1,47 @@
+# electron-builder configuration. `pnpm dist` builds installers for the current platform;
+# pass --mac/--win/--linux (and --dir for an unpacked app) to choose targets.
+appId: io.boostnote.app
+productName: Boostnote
+copyright: Copyright © 2016-2026 BoostIO, Inc. and contributors
+
+directories:
+  output: dist
+  buildResources: resources
+
+# The app runs from source: the main process loads TS/JSX through remix/node-tsx and the Remix
+# asset server compiles browser modules on demand, so the sources and tsconfig ship with the app.
+files:
+  - package.json
+  - tsconfig.json
+  - remix.json
+  - src/**/*
+  - resources/app.png
+  - "!**/*.test.*"
+# No asar: packaged inside an archive the app was observed to hang before `ready`, most likely because
+# the native oxc/lightningcss toolchain behind node-tsx and the asset server cannot read asar entries.
+asar: false
+
+mac:
+  category: public.app-category.productivity
+  icon: resources/app.icns
+  target:
+    - dmg
+    - zip
+dmg:
+  icon: resources/dmg.icns
+win:
+  icon: resources/app.ico
+  target:
+    - nsis
+nsis:
+  oneClick: false
+  allowToChangeInstallationDirectory: true
+linux:
+  icon: resources/app.png
+  category: Office
+  synopsis: Note-taking app for programmers
+  target:
+    - AppImage
+    - deb
+
+publish: null
