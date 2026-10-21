@@ -77,21 +77,23 @@ Consequences:
 │     ├─ GET /assets/*  remix/assets: compiles src/**/public/**, src/editor/**, packages   │
 │     ├─ GET /vendor/*  allow-listed package files served verbatim (mermaid's ESM build)  │
 │     ├─ GET /events    text/event-stream from the SSE hub                                 │
-│     └─ GET /dev/*     developer harnesses (/dev/editor), unpackaged app only           │
+│     ├─ GET /vault-assets/*  files a note links to (images), via vault.assetPath()        │
+│     └─ /api/*         the workspace's JSON API (see "Workspace (phase 4)")              │
 │   src/vault (phase 2)  plain Node storage core, used by router controllers               │
 └──────────────────────────────────────────────────────────────────────────────────────────┘
                  ▲  boost://app/... (HTML, JS, CSS, fetch, forms)   │  SSE: event: menu …
                  │                                                  ▼
 ┌──────────────── Renderer (sandboxed Chromium, no Node, no preload) ──────────────────────┐
 │  HTML from the router → entry.ts runs remix/component run() → hydrates clientEntry()s    │
-│  (StatusBar today; sidebar, note list, CodeMirror 6 editor in later phases)             │
+│  (one Workspace entry: sidebar, note list, CodeMirror 6 editor, status bar)             │
 └──────────────────────────────────────────────────────────────────────────────────────────┘
 ```
 
 Layout:
 
 ```
-src/main/      Electron main: main.ts, window.ts, protocol.ts, menu.ts, events.ts, settings.ts
+src/main/      Electron main: main.ts, window.ts, protocol.ts, menu.ts, events.ts, settings.ts,
+               vault-session.ts
 src/app/       Remix app: routes.ts, router.ts, assets.ts, actions/ (controllers), ui/ (server
                components), middleware/, **/public/ (browser-reachable client entries + CSS)
 src/vault/     storage core (phase 2)          src/migrate/  CSON importer + CLI (phase 2)
@@ -99,10 +101,11 @@ src/editor/    CM6 live preview (phase 3)      src/markdown/ export renderer (ph
 tests/         Vitest tests mirroring src/; tests/e2e for Playwright (phase 6)
 ```
 
-App-level settings live in `<userData>/settings.json` (owned by main; phase 1 stores the window
-bounds). `userData` is `<appData>/Boostnote Modern`, deliberately not legacy Boostnote's
+App-level settings live in `<userData>/settings.json` (owned by main: window bounds, `vaults`,
+`lastVault`). `userData` is `<appData>/Boostnote Modern`, deliberately not legacy Boostnote's
 `<appData>/Boostnote`: sharing it would make both apps contend for the single-instance lock and let
-Chromium 140+ migrate the Electron 4 profile in place.
+Chromium 140+ migrate the Electron 4 profile in place. A `--user-data-dir=<dir>` switch overrides it
+(tests, side-by-side profiles).
 
 ## Editor (phase 3)
 
@@ -140,9 +143,74 @@ returns `{ view, setDoc(doc, { preserveSelection }), setTheme, focus, destroy }`
 - **`setDoc`** without options resets the state (selection, history); with `preserveSelection` it
   replaces only the changed middle so the selection maps through, isn't undoable, and doesn't call
   `onChange`.
-- `GET /dev/editor` (development only) mounts the editor with in-memory callbacks next to its markdown
-  source; phase 4 replaces it with the workspace. `pnpm build` also compiles the editor's whole
-  graph, including every lazily loaded language.
+- The workspace (phase 4) hosts the editor; the phase-3 `/dev/editor` harness is gone. `pnpm build`
+  compiles the workspace entry's whole graph, including every lazily loaded language.
+
+## Workspace (phase 4)
+
+The app's only page (`GET /`) server-renders one client entry, `Workspace`
+(`src/app/actions/public/workspace/workspace.tsx`), with the vault's current lists as props, so the
+first paint is complete; `run()` then hydrates it. It is one entry rather than frames plus several
+small entries because the three panes share live state (selection, the dirty editor, conflicts):
+
+- `model.ts` — `WorkspaceModel`: lists from `GET /api/workspace`, sidebar selection, sort, debounced
+  search, menus/dialogs/notices and every mutation. Components render it and call its methods.
+- `note-session.ts` — `NoteSession`: the open note's body, frontmatter and hash; autosave; live reload
+  and conflict handling.
+- `sidebar.tsx`, `note-list.tsx`, `editor-pane.tsx`, `overlays.tsx`, `import-dialog.tsx` — plain
+  components inside the entry; `api.ts` is the typed client of `/api`, `types.ts` the shared JSON shapes.
+
+Main side: `VaultSession` (`src/main/vault-session.ts`, plain Node) holds the open vault (opened with
+`{ watch: true }`), keeps `vaults[]` (most recent first, max 10) and `lastVault` in `settings.json`,
+reopens `lastVault` before the first window loads and forwards watcher events to the SSE hub as
+`event: vault` (`{ type: 'vault', change, id }`). The router is built by `createAppRouter(services)`;
+`AppServices` (`src/app/services.ts`) is everything Electron-specific (folder picker =
+`dialog.showOpenDialog`, `shell.openExternal`, `shell.showItemInFolder`, legacy storage discovery),
+so controllers never import Electron and tests pass fakes. The File menu (New Note ⌘N, New Folder
+⇧⌘N, Open Folder… ⌘O, Import Boostnote Storage…, Reveal in Finder ⌥⌘R) sends SSE `menu` events;
+the workspace performs them because it knows the selected folder and open note.
+
+### Routes
+
+All URLs are path-only. Ids travel in query strings or JSON bodies (note ids are paths). Errors are
+JSON `{ error, message }`: `VaultError` `INVALID_PATH`/`NOT_A_VAULT` → 400, `NOT_FOUND` → 404,
+`EXISTS` → 409; `MigrationError` → 400 (`TARGET_NOT_EMPTY` → 409); no open vault → 409 `NO_VAULT`.
+
+| Route | Purpose |
+| --- | --- |
+| `GET /` | Workspace document (SSR with the open vault's lists) |
+| `GET /vault-assets/<note id>?src=<link>` | File a note links to, resolved by `vault.assetPath` (no `..`, dot-dirs or symlink escapes); `Content-Type` from the extension, `nosniff`, `CSP: sandbox` |
+| `GET /api/workspace` | `{ vault, recent, tree, notes, trash }` |
+| `GET /api/search?q=` | `{ ids }`, best first (vault index) |
+| `POST /api/vaults/pick` · `open {path}` · `close` · `forget {path}` | Folder dialog + open; open a recent vault; close; drop from Recent |
+| `GET /api/notes/read?id=` | `NoteDocument`: summary + `frontmatter` + `body` + `hash` |
+| `POST /api/notes/save {id, body, baseHash, frontmatter?}` | Writes if the file's hash is still `baseHash` (`null`: must not exist); 409 `CONFLICT` with the disk version otherwise |
+| `POST /api/notes/create {folder}` · `rename {id, name}` · `move {id, folder}` · `delete {id}` · `reveal {id}` | Note CRUD (delete → trash), Reveal in Finder |
+| `POST /api/folders/create {parent, name}` · `rename` · `move` · `delete` · `color {id, color\|null}` | Folder CRUD and colour |
+| `POST /api/trash/restore {id}` · `empty` | Trash |
+| `POST /api/assets?note=&ext=` (raw body, ≤ 50 MB) | Editor `saveAsset` → `{ href: "./<stem>.assets/<hash>.<ext>" }` |
+| `GET /api/import/candidates` · `POST /api/import/pick {purpose}` · `POST /api/import/run {source, target, dryRun, force}` | Importer: storages found on this machine, folder dialog, dry run / run → summary |
+| `POST /api/open-external {url}` | http(s) links only |
+
+### Editor integration and conflict rules
+
+- The editor only sees the body. Frontmatter stays in the session and is sent only when edited (star
+  toggle; phase 5's properties panel); without it the server keeps the file's frontmatter. Values
+  sent back unchanged keep their original YAML bytes.
+- Autosave 500 ms after the last edit; also on editor blur, before switching/renaming/moving notes,
+  switching vaults, when the window is hidden, and on quit (main calls
+  `window.boostFlushPendingSave()` via `executeJavaScript`, 3 s timeout; if work could not be saved it
+  asks "Quit Anyway?"). On Windows/Linux closing the window does the same.
+- Every save carries the hash it is based on. External change (SSE `note-changed`) of the open note:
+  not dirty → `setDoc(body, { preserveSelection: true })`; dirty (or a save answered 409) → a
+  conflict bar, autosave suspended: **Keep mine** saves on top of their hash, **Load theirs** drops the
+  edits. External delete/move → "Save my copy" (writes with `baseHash: null`) or Close. While a
+  conflict is unresolved the app refuses to leave the note, so neither side is lost silently.
+- Title is read-only above the editor (frontmatter `title`, else first H1, else file name); renaming
+  the file is a separate action. Relative `.md` links open inside the app, http(s) links open in the
+  browser, everything else is ignored.
+- Folders show the notes directly inside them; "All notes" shows everything. Drag a note (or folder)
+  onto a folder to move it. Pane widths persist in `localStorage`.
 
 ## Phases (stack bottom → top)
 

@@ -1,20 +1,30 @@
 /**
  * Server-Sent Events hub: the single push channel from the main process to the renderer.
  *
- * `GET /events` returns `subscribe(request.signal)`; menus (and later the vault watcher) call
+ * `GET /events` returns `subscribe(request.signal)`; the menu and the vault watcher call
  * `broadcast(event)`. Each event is written as `event: <type>` with the JSON-encoded event as data.
  * This module is plain Node (no Electron imports) so it can be unit tested.
  */
+import type { VaultEventType } from '../vault/index.ts'
 
-export type MenuCommand = 'new-note'
+/** File-menu commands; the workspace performs them (it knows the selected folder and open note). */
+export type MenuCommand = 'new-note' | 'new-folder' | 'open-folder' | 'import-storage' | 'reveal-note'
 
 export interface MenuEvent {
   type: 'menu'
   command: MenuCommand
 }
 
-/** Union of every event pushed over `/events`. Later phases extend it. */
-export type AppEvent = MenuEvent
+/** An external change in the open vault (the vault's own writes never produce one). */
+export interface VaultChangeEvent {
+  type: 'vault'
+  change: VaultEventType
+  /** Note id, or folder id for `tree-changed`. */
+  id: string
+}
+
+/** Union of every event pushed over `/events`. */
+export type AppEvent = MenuEvent | VaultChangeEvent
 
 export interface EventHub {
   /** Opens a new `text/event-stream` response. The client is dropped when `signal` aborts or the stream is cancelled. */

@@ -1,16 +1,11 @@
 import * as path from 'node:path'
-import { app, BrowserWindow, nativeTheme, screen, shell } from 'electron'
+import { BrowserWindow, nativeTheme, screen, shell } from 'electron'
 
 import { APP_ORIGIN } from './protocol.ts'
-import { readSettings, updateSettings, type WindowBounds } from './settings.ts'
+import type { SettingsStore, WindowBounds } from './settings.ts'
 
 const DEFAULT_SIZE = { width: 1080, height: 720 }
 const iconPath = path.resolve(import.meta.dirname, '../../resources/app.png')
-
-let quitting = false
-app.on('before-quit', () => {
-  quitting = true
-})
 
 /** Saved bounds, minus a position that no longer lands on any connected display. */
 function restoreBounds(saved: WindowBounds | undefined): WindowBounds {
@@ -27,10 +22,16 @@ function openExternal(url: string): void {
   if (/^https?:\/\//i.test(url)) void shell.openExternal(url)
 }
 
+export interface MainWindowOptions {
+  settings: SettingsStore
+  /** True once a quit has been confirmed: closing the window then really closes it (macOS hides it otherwise). */
+  isQuitting(): boolean
+}
+
 /** The single app window: sandboxed renderer that only ever shows `boost://app/` pages. */
-export function createMainWindow(): BrowserWindow {
+export function createMainWindow({ settings, isQuitting }: MainWindowOptions): BrowserWindow {
   const window = new BrowserWindow({
-    ...restoreBounds(readSettings().windowBounds),
+    ...restoreBounds(settings.read().windowBounds),
     minWidth: 500,
     minHeight: 320,
     show: false,
@@ -62,7 +63,7 @@ export function createMainWindow(): BrowserWindow {
     clearTimeout(saveTimer)
     saveTimer = setTimeout(() => {
       if (window.isDestroyed() || window.isMinimized() || window.isFullScreen()) return
-      updateSettings({ windowBounds: window.getNormalBounds() })
+      settings.update({ windowBounds: window.getNormalBounds() })
     }, 500)
   }
   window.on('resize', saveBounds)
@@ -71,7 +72,7 @@ export function createMainWindow(): BrowserWindow {
   // macOS convention (as in legacy Boostnote): closing the window hides it; Cmd+Q quits.
   if (process.platform === 'darwin') {
     window.on('close', (event) => {
-      if (quitting) return
+      if (isQuitting()) return
       event.preventDefault()
       if (window.isFullScreen()) {
         window.once('leave-full-screen', () => window.hide())

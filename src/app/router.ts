@@ -1,12 +1,13 @@
 import { asyncContext } from 'remix/middleware/async-context'
 import { render } from 'remix/middleware/render'
-import { createRouter, type MiddlewareContext } from 'remix/router'
+import { createRouter, type MiddlewareContext, type Router } from 'remix/router'
 
-import controller from './actions/controller.tsx'
-import devController from './actions/dev/controller.tsx'
+import { createApiController } from './actions/api/controller.ts'
+import { createRootController } from './actions/controller.tsx'
 import { assets } from './assets.ts'
 import { contentSecurityPolicy } from './middleware/content-security-policy.ts'
-import { devRoutes, routes } from './routes.ts'
+import { routes } from './routes.ts'
+import type { AppServices } from './services.ts'
 
 // `asyncContext()` lets server components read request values (the CSP nonce) via `getContext()`.
 const middleware = [asyncContext(), contentSecurityPolicy(), render({ assets })] as const
@@ -18,12 +19,12 @@ declare module 'remix' {
   }
 }
 
+export type AppRouter = Router<AppContext>
+
 /** The whole app. The Electron main process serves it on `boost://app/` via `protocol.handle`. */
-export const router = createRouter<AppContext>({
-  middleware: [...middleware],
-})
-
-router.map(routes, controller)
-
-// Developer harnesses (e.g. `/dev/editor`) exist only in the unpackaged app.
-if (process.env.NODE_ENV === 'development') router.map(devRoutes, devController)
+export function createAppRouter(services: AppServices): AppRouter {
+  const router = createRouter<AppContext>({ middleware: [...middleware] })
+  router.map(routes, createRootController(services))
+  router.map(routes.api, createApiController(services))
+  return router
+}
