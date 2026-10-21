@@ -1,6 +1,6 @@
 import { protocol } from 'electron'
 
-import { router } from '../app/router.ts'
+import type { AppRouter } from '../app/router.ts'
 
 export const SCHEME = 'boost'
 export const APP_ORIGIN = `${SCHEME}://app`
@@ -33,7 +33,7 @@ export function toRouterRequest(request: Request): Request {
 }
 
 /** Serves every `boost://app/...` request from the Remix router running in the main process. */
-export function handleBoostProtocol(): void {
+export function handleBoostProtocol(router: AppRouter): void {
   protocol.handle(SCHEME, async (request) => {
     if (new URL(request.url).host !== 'app') return new Response('Not Found', { status: 404 })
     try {
