@@ -1,6 +1,14 @@
 import { statSync } from 'node:fs'
 import * as path from 'node:path'
-import { app, type BrowserWindow, dialog, globalShortcut, type OpenDialogOptions, shell } from 'electron'
+import {
+  app,
+  type BrowserWindow,
+  dialog,
+  globalShortcut,
+  type MessageBoxOptions,
+  type OpenDialogOptions,
+  shell,
+} from 'electron'
 
 import { createAppRouter } from '../app/router.ts'
 import { findLegacyStorages } from '../migrate/index.ts'
@@ -10,6 +18,7 @@ import { installMenu } from './menu.ts'
 import { createPreferenceServices } from './preferences.ts'
 import { handleBoostProtocol, registerBoostScheme } from './protocol.ts'
 import { SettingsStore } from './settings.ts'
+import { checkForUpdate, createUpdater } from './updates.ts'
 import { VaultSession } from './vault-session.ts'
 import { createMainWindow } from './window.ts'
 
@@ -27,6 +36,14 @@ registerBoostScheme()
 const settings = new SettingsStore(path.join(app.getPath('userData'), 'settings.json'))
 const vaults = new VaultSession({ settings, events: eventHub })
 const preferences = createPreferenceServices(toggleMainWindow)
+// `BOOSTNOTE_UPDATE_URL` (development and tests only) points the checker at another server and
+// turns on the automatic checks, which otherwise run only in the packaged app.
+const updateUrl = app.isPackaged ? undefined : process.env.BOOSTNOTE_UPDATE_URL
+const updater = createUpdater({
+  check: () => checkForUpdate({ currentVersion: app.getVersion(), ...(updateUrl ? { url: updateUrl } : {}) }),
+  automatic: app.isPackaged || updateUrl !== undefined,
+  onUpdate: (update) => eventHub.broadcast({ type: 'update', ...update }),
+})
 
 /** Existing `.md` files on a command line (Windows/Linux file associations, `electron . note.md`). */
 function markdownFilesIn(argv: string[], cwd: string): string[] {
@@ -75,6 +92,7 @@ const router = createAppRouter({
   showItemInFolder: (fullPath) => shell.showItemInFolder(fullPath),
   findLegacyStorages: () => findLegacyStorages({ appDataDir: path.join(app.getPath('appData'), 'Boostnote') }),
   exports: createExportServices(liveWindow),
+  updates: updater,
 })
 
 function showMainWindow(): void {
@@ -172,15 +190,40 @@ if (!app.requestSingleInstanceLock()) {
   // No top-level `await` here: Electron emits `ready` only after the ESM entry graph has evaluated.
   void app.whenReady().then(async () => {
     handleBoostProtocol(router)
-    installMenu((command, index) =>
-      eventHub.broadcast({ type: 'menu', command, ...(index === undefined ? {} : { index }) }),
+    installMenu(
+      (command, index) => eventHub.broadcast({ type: 'menu', command, ...(index === undefined ? {} : { index }) }),
+      () => void checkForUpdatesNow(),
     )
     // Theme before the window exists (its background colour follows it).
     const ui = settings.ui
     preferences.apply(ui)
     if (!preferences.setHotkey(ui.globalHotkey)) console.warn(`Could not register the hotkey ${ui.globalHotkey}`)
+    updater.setAutomatic(ui.checkUpdates)
     // Reopen the last vault first, so the first page already shows it.
     await vaults.restore().catch((error: unknown) => console.error('Could not reopen the last vault', error))
     showMainWindow()
   })
+}
+
+/** Help › Check for Updates…: checks now and reports the result in a message box. */
+async function checkForUpdatesNow(): Promise<void> {
+  const result = await updater.checkNow()
+  const window = liveWindow()
+  const show = (options: MessageBoxOptions) =>
+    window ? dialog.showMessageBox(window, options) : dialog.showMessageBox(options)
+  if (result.status === 'update') {
+    const { response } = await show({
+      type: 'info',
+      buttons: ['Download', 'Later'],
+      defaultId: 0,
+      cancelId: 1,
+      message: `Boostnote ${result.version} is available.`,
+      detail: `You have ${app.getVersion()}. Download opens the release page in your browser.`,
+    })
+    if (response === 0) await shell.openExternal(result.url)
+  } else if (result.status === 'current') {
+    await show({ type: 'info', message: 'Boostnote is up to date.', detail: `Version ${app.getVersion()}` })
+  } else {
+    await show({ type: 'warning', message: 'Could not check for updates.', detail: result.message })
+  }
 }

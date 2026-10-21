@@ -187,6 +187,16 @@ export function PreferencesDialog(handle: Handle<{ model: WorkspaceModel }>) {
             <span>Ask before moving notes and folders to the Trash</span>
           </label>
 
+          <label mix={checkRowStyle}>
+            <input
+              name="checkUpdates"
+              type="checkbox"
+              checked={prefs.checkUpdates}
+              mix={on('change', (event) => void save({ checkUpdates: event.currentTarget.checked }))}
+            />
+            <span>Check for updates automatically</span>
+          </label>
+
           <fieldset mix={hotkeyStyle}>
             <legend>Show/hide Boostnote from anywhere</legend>
             <div mix={hotkeyRowStyle}>

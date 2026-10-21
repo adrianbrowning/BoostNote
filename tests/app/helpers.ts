@@ -6,6 +6,7 @@ import { type AppRouter, createAppRouter } from '../../src/app/router.ts'
 import type { FolderPickerOptions, PreferenceServices, SaveFileOptions } from '../../src/app/services.ts'
 import { createEventHub, type EventHub } from '../../src/main/events.ts'
 import { SettingsStore, type UiPreferences } from '../../src/main/settings.ts'
+import type { UpdateInfo } from '../../src/main/updates.ts'
 import { VaultSession } from '../../src/main/vault-session.ts'
 import type { LegacyStorageLocation } from '../../src/migrate/index.ts'
 import type { Vault } from '../../src/vault/index.ts'
@@ -37,6 +38,14 @@ export class TestApp {
   readonly pdfs: string[] = []
   /** The fake `PreferenceServices` (`registeredHotkey` is what the fake OS has registered). */
   readonly preferences: { registeredHotkey: string | undefined } & PreferenceServices
+  /** The fake `UpdateServices`: set `available` to simulate a found release; `automatic` records `setAutomatic` calls. */
+  readonly updates = {
+    available: undefined as UpdateInfo | undefined,
+    automatic: [] as boolean[],
+    setAutomatic(enabled: boolean) {
+      this.automatic.push(enabled)
+    },
+  }
 
   static async create(): Promise<TestApp> {
     return new TestApp(await mkdtemp(path.join(os.tmpdir(), 'boostnote-app-')))
@@ -74,6 +83,7 @@ export class TestApp {
         this.revealed.push(fullPath)
       },
       findLegacyStorages: async () => this.legacyStorages,
+      updates: this.updates,
       exports: {
         saveFile: async (options) => {
           this.saveCalls.push(options)

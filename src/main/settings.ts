@@ -35,6 +35,10 @@ export interface UiPreferences {
   confirmDelete: boolean
   /** Electron accelerator that shows/hides the window from anywhere; `''` disables it. */
   globalHotkey: string
+  /** Check GitHub for a newer release once a day (packaged app only). */
+  checkUpdates: boolean
+  /** Version whose update notice the user dismissed; `''` when none. */
+  dismissedUpdate: string
   panes: PaneLayout
 }
 
@@ -52,6 +56,8 @@ export const DEFAULT_UI: UiPreferences = {
   spellcheck: true,
   confirmDelete: true,
   globalHotkey: DEFAULT_HOTKEY,
+  checkUpdates: true,
+  dismissedUpdate: '',
   panes: { sidebarWidth: 220, listWidth: 300, sidebarCollapsed: false, listCollapsed: false, propertiesOpen: false },
 }
 
@@ -98,6 +104,8 @@ export const UI_FIELDS: { [K in keyof Omit<UiPreferences, 'panes'>]: (value: unk
   spellcheck: isBoolean,
   confirmDelete: isBoolean,
   globalHotkey: (value) => typeof value === 'string' && (value === '' || isAccelerator(value)),
+  checkUpdates: isBoolean,
+  dismissedUpdate: (value) => typeof value === 'string' && value.length <= 64 && /^[0-9A-Za-z.+-]*$/.test(value),
 }
 
 export const PANE_FIELDS: { [K in keyof PaneLayout]: (value: unknown) => boolean } = {

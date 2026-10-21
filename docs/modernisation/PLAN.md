@@ -406,6 +406,30 @@ The file name **is** the note's name (as in Obsidian/Hubble); the first `# H1` i
   reported as skipped. The workspace saves the open note first, rebases tabs old id → new id and
   reloads the open note. `slugify` survives only for this recognition.
 
+## Update notice (phase 8)
+
+Notice only: no electron-updater, no downloads, no installs.
+
+- **Checker** (`src/main/updates.ts`, plain Node): `GET https://api.github.com/repos/adrianbrowning/BoostNote/releases/latest`
+  (`Accept: application/vnd.github+json`, `User-Agent: Boostnote/<version>`, 10 s timeout). That endpoint
+  returns only the newest published, non-draft, non-prerelease release; `404` (none yet) = `current`.
+  `tag_name` (leading `v` stripped) is compared with `app.getVersion()` by semver precedence
+  (prerelease < release, build metadata ignored); an invalid version never yields an update. Result:
+  `{ status: 'update', version, url } | { status: 'current' } | { status: 'error', message }`.
+- **Schedule** (`createUpdater`): only when `app.isPackaged` and `ui.checkUpdates` (default on) — 10 s
+  after start, then every 24 h; the last update found is kept in memory and broadcast as SSE
+  `update` `{ version, url }`. `POST /api/preferences { checkUpdates }` starts/stops the timer.
+  `BOOSTNOTE_UPDATE_URL` (honoured only when not packaged) points the checker at another server and
+  enables the schedule — used by smoke tests.
+- **Notice:** `GET/POST /api/preferences` return `update` (or `null` when `ui.dismissedUpdate` equals
+  its version); the status bar shows it with Download (`/api/open-external`, http(s) only) and ×
+  (stores `ui.dismissedUpdate`).
+- **Menu:** "Check for Updates…" (id `check-updates`) under About in the macOS app menu, in Help on
+  Windows/Linux; works in development too and answers with a native message box (Download/Later,
+  up to date with the current version, or the error).
+- **Releasing:** bump `version` in `package.json`, commit, tag `vX.Y.Z` and push the tag; CI builds a
+  **draft** release — publish it. The notice only sees published releases.
+
 ## Phases (stack bottom → top)
 
 1. `modernise/01-foundation` — toolchain, Electron 45 shell, `boost://` → Remix router,

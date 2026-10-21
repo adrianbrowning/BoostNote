@@ -4,6 +4,7 @@
  */
 import type { MenuCommand, MenuEvent, VaultChangeEvent } from '../../../../main/events.ts'
 import type { PaneLayout, ThemePreference, UiPatch, UiPreferences } from '../../../../main/settings.ts'
+import type { UpdateInfo } from '../../../../main/updates.ts'
 import type { OpenRequest } from '../../../../main/vault-session.ts'
 import type { TitleRename, TitleRenamePlan, TitleRenameReport } from '../../../../vault/index.ts'
 
@@ -18,6 +19,7 @@ export type {
   TitleRenameReport,
   UiPatch,
   UiPreferences,
+  UpdateInfo,
   VaultChangeEvent,
 }
 
@@ -26,6 +28,8 @@ export interface PreferencesState {
   ui: UiPreferences
   /** Whether `ui.globalHotkey` is registered with the OS right now. */
   hotkeyRegistered: boolean
+  /** The update notice to show, `null` when there is none (or it was dismissed). */
+  update: UpdateInfo | null
 }
 
 export type JsonValue = string | number | boolean | null | JsonValue[] | { [key: string]: JsonValue }

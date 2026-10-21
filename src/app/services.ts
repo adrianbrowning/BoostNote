@@ -1,5 +1,6 @@
 import type { EventHub } from '../main/events.ts'
 import type { SettingsStore, UiPreferences } from '../main/settings.ts'
+import type { UpdateInfo } from '../main/updates.ts'
 import type { VaultSession } from '../main/vault-session.ts'
 import type { LegacyStorageLocation } from '../migrate/index.ts'
 
@@ -62,4 +63,13 @@ export interface AppServices {
   /** Legacy Boostnote storages on this machine (prefills the importer). */
   findLegacyStorages(): Promise<LegacyStorageLocation[]>
   exports: ExportServices
+  updates: UpdateServices
+}
+
+/** The update notice: the newest release found, and the automatic checks. */
+export interface UpdateServices {
+  /** Newest release newer than the running app found so far (dismissed or not). */
+  readonly available: UpdateInfo | undefined
+  /** Starts or stops the automatic daily checks (`ui.checkUpdates`). */
+  setAutomatic(enabled: boolean): void
 }

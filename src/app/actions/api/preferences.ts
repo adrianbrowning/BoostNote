@@ -1,11 +1,16 @@
 import { PANE_FIELDS, type PaneLayout, UI_FIELDS, type UiPatch } from '../../../main/settings.ts'
+import { isUpdateShown } from '../../../main/updates.ts'
 import { HttpError } from '../../http.ts'
 import type { AppServices } from '../../services.ts'
 import type { PreferencesState } from '../public/workspace/types.ts'
 
 export function preferencesState(services: AppServices): PreferencesState {
   const ui = services.settings.ui
-  return { ui, hotkeyRegistered: ui.globalHotkey !== '' && services.preferences.registeredHotkey === ui.globalHotkey }
+  return {
+    ui,
+    hotkeyRegistered: ui.globalHotkey !== '' && services.preferences.registeredHotkey === ui.globalHotkey,
+    update: isUpdateShown(services.updates.available, ui.dismissedUpdate) ? services.updates.available : null,
+  }
 }
 
 function invalid(name: string): HttpError {
@@ -55,5 +60,6 @@ export function savePreferences(services: AppServices, patch: UiPatch): Preferen
   }
   services.settings.update({ ui: next })
   services.preferences.apply(next)
+  if (patch.checkUpdates !== undefined) services.updates.setAutomatic(patch.checkUpdates)
   return preferencesState(services)
 }
