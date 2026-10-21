@@ -26,7 +26,7 @@ async function readJson<T>(response: Response): Promise<T> {
 describe('preferences route', () => {
   it('answers the defaults when nothing is stored', async () => {
     const state = await readJson<PreferencesState>(await app.get(api.preferences.href()))
-    expect(state).toEqual({ ui: DEFAULT_UI, hotkeyRegistered: false })
+    expect(state).toEqual({ ui: DEFAULT_UI, hotkeyRegistered: false, update: null })
   })
 
   it('stores a valid patch in settings.json and applies it', async () => {

@@ -29,6 +29,7 @@ const router = createAppRouter({
   openExternal: async () => {},
   showItemInFolder: () => {},
   findLegacyStorages: async () => [],
+  updates: { available: undefined, setAutomatic: () => {} },
   exports: {
     saveFile: async () => undefined,
     renderMermaid: async () => '<svg></svg>',

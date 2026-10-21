@@ -14,7 +14,7 @@ import { isReservedShortcut } from './shortcuts.ts'
 import { Sidebar } from './sidebar.tsx'
 import { button, emptyState, emptyTitle, muted, primaryButton } from './styles.ts'
 import { TitleRenamesDialog } from './title-renames-dialog.tsx'
-import type { MenuEvent, PreferencesState, VaultChangeEvent, WorkspaceData } from './types.ts'
+import type { MenuEvent, PreferencesState, UpdateInfo, VaultChangeEvent, WorkspaceData } from './types.ts'
 
 declare global {
   interface Window {
@@ -108,6 +108,10 @@ export const Workspace = clientEntry(
         model.onVaultChange(change)
       })
       source.addEventListener('open-request', () => void model.takeOpenRequest())
+      source.addEventListener('update', (event) => {
+        const { version, url }: UpdateInfo = JSON.parse(event.data)
+        model.onUpdate({ version, url })
+      })
       signal.addEventListener('abort', () => source.close(), { once: true })
 
       window.boostFlushPendingSave = () => model.session.flush()
@@ -266,6 +270,26 @@ export const Workspace = clientEntry(
             <span mix={statusPathStyle} title={vault?.root}>
               {vault ? `${vault.root} · ${model.data.notes.length} notes` : ''}
             </span>
+            {model.update ? (
+              <span mix={updateStyle} data-update-notice>
+                <span>Boostnote {model.update.version} is available —</span>
+                <button
+                  type="button"
+                  mix={[linkButtonStyle, on('click', () => model.downloadUpdate())]}
+                  data-update-download
+                >
+                  Download
+                </button>
+                <button
+                  type="button"
+                  mix={[linkButtonStyle, on('click', () => model.dismissUpdate())]}
+                  aria-label="Dismiss update notice"
+                  data-update-dismiss
+                >
+                  ×
+                </button>
+              </span>
+            ) : null}
             <output data-save-status>{state ? SAVE_LABEL[state] : ''}</output>
           </footer>
           <ContextMenuView model={model} />
@@ -335,6 +359,18 @@ const statusBarStyle = css({
   color: 'var(--text-muted)',
   background: 'var(--bg-statusbar)',
   borderTop: '1px solid var(--border)',
+})
+
+const updateStyle = css({ display: 'flex', alignItems: 'center', gap: '4px', color: 'var(--text)' })
+
+const linkButtonStyle = css({
+  padding: 0,
+  border: 0,
+  background: 'none',
+  font: 'inherit',
+  color: 'var(--accent)',
+  cursor: 'pointer',
+  '&:hover': { textDecoration: 'underline' },
 })
 
 const statusPathStyle = css({

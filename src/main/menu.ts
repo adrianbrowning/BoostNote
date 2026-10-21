@@ -5,9 +5,17 @@ import type { MenuCommand } from './events.ts'
 
 const REPOSITORY_URL = 'https://github.com/adrianbrowning/BoostNote'
 
-/** Installs the application menu. App commands are forwarded to the renderer as SSE `menu` events. */
-export function installMenu(send: (command: MenuCommand, index?: number) => void): void {
+/**
+ * Installs the application menu. App commands are forwarded to the renderer as SSE `menu` events;
+ * "Check for Updates…" runs in main (`checkForUpdates`).
+ */
+export function installMenu(send: (command: MenuCommand, index?: number) => void, checkForUpdates: () => void): void {
   const isMac = process.platform === 'darwin'
+  const updates: MenuItemConstructorOptions = {
+    id: 'check-updates',
+    label: 'Check for Updates…',
+    click: checkForUpdates,
+  }
   const revealLabel = isMac ? 'Reveal in Finder' : process.platform === 'win32' ? 'Show in Explorer' : 'Show in Folder'
   // Ids are the commands, so tests (and anything else) can find an item: `Menu.getApplicationMenu().getMenuItemById(command)`.
   const command = (label: string, name: MenuCommand): MenuItemConstructorOptions => ({
@@ -36,6 +44,7 @@ export function installMenu(send: (command: MenuCommand, index?: number) => void
             label: app.name,
             submenu: [
               { role: 'about' },
+              updates,
               { type: 'separator' },
               preferences,
               { type: 'separator' },
@@ -141,7 +150,7 @@ export function installMenu(send: (command: MenuCommand, index?: number) => void
           click: () => void shell.openExternal(`${REPOSITORY_URL}/blob/master/docs/modernisation/PLAN.md`),
         },
         { label: 'Report an Issue', click: () => void shell.openExternal(`${REPOSITORY_URL}/issues`) },
-        ...(isMac ? [] : [{ type: 'separator' } as const, { role: 'about' } as const]),
+        ...(isMac ? [] : [{ type: 'separator' } as const, updates, { role: 'about' } as const]),
       ],
     },
   ]

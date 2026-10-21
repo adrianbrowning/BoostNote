@@ -14,6 +14,7 @@ import type {
   TitleRenameReport,
   UiPatch,
   UiPreferences,
+  UpdateInfo,
   VaultChangeEvent,
   WorkspaceData,
 } from './types.ts'
@@ -125,6 +126,8 @@ export class WorkspaceModel extends TypedEventTarget<{
   tabs = new Tabs()
   preferences: UiPreferences
   hotkeyRegistered: boolean
+  /** Newer release shown in the status bar. */
+  update: UpdateInfo | null
 
   #searchTimer: ReturnType<typeof setTimeout> | undefined
   #searchAbort: AbortController | undefined
@@ -136,6 +139,7 @@ export class WorkspaceModel extends TypedEventTarget<{
     this.data = initial
     this.preferences = preferences.ui
     this.hotkeyRegistered = preferences.hotkeyRegistered
+    this.update = preferences.update
     this.session.addEventListener('saved', (event) => this.#putSummary(event.note))
     this.session.addEventListener('change', () => this.changed())
   }
@@ -606,6 +610,7 @@ export class WorkspaceModel extends TypedEventTarget<{
       const state = await client.savePreferences(patch)
       this.preferences = state.ui
       this.hotkeyRegistered = state.hotkeyRegistered
+      this.update = state.update
       this.changed()
       return null
     } catch (error) {
@@ -805,6 +810,30 @@ export class WorkspaceModel extends TypedEventTarget<{
     }
     clearTimeout(this.#refreshTimer)
     this.#refreshTimer = setTimeout(() => void this.refresh().catch((error) => this.fail(error)), REFRESH_DELAY_MS)
+  }
+
+  /** SSE `update` event: a newer release; shown unless the user dismissed that version. */
+  onUpdate(update: UpdateInfo): void {
+    if (update.version === this.preferences.dismissedUpdate) return
+    this.update = update
+    this.changed()
+  }
+
+  /** Hides the notice for this version for good (a newer version shows again). */
+  dismissUpdate(): void {
+    const update = this.update
+    if (!update) return
+    this.update = null
+    this.changed()
+    void this.savePreferences({ dismissedUpdate: update.version }).then((error) => {
+      if (error) this.notify('error', error)
+    })
+  }
+
+  /** Opens the release page in the browser. */
+  downloadUpdate(): void {
+    const url = this.update?.url
+    if (url) void this.attempt(() => client.openExternal(url))
   }
 
   setConnection(connection: Connection): void {

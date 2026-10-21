@@ -59,8 +59,15 @@ export interface OpenRequestEvent {
   type: 'open-request'
 }
 
+/** A newer release was found; the workspace shows a notice unless the user dismissed this version. */
+export interface UpdateEvent {
+  type: 'update'
+  version: string
+  url: string
+}
+
 /** Union of every event pushed over `/events`. */
-export type AppEvent = MenuEvent | VaultChangeEvent | OpenRequestEvent
+export type AppEvent = MenuEvent | VaultChangeEvent | OpenRequestEvent | UpdateEvent
 
 export interface EventHub {
   /** Opens a new `text/event-stream` response. The client is dropped when `signal` aborts or the stream is cancelled. */

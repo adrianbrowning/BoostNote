@@ -37,6 +37,17 @@ Download an installer from the [releases](https://github.com/adrianbrowning/Boos
 (macOS `.dmg`/`.zip`, Windows NSIS `.exe`, Linux `.AppImage`/`.deb`). Builds are unsigned unless
 signing secrets are configured, so macOS may ask you to confirm the first launch (right-click → Open).
 
+## Updates
+
+Boostnote never downloads or installs anything by itself. New versions are published on the
+[releases](https://github.com/adrianbrowning/BoostNote/releases) page; download and install them
+as above. Once a day (and 10 seconds after launch) the installed app asks
+`api.github.com` — the only server it contacts for this — for the newest published release. When
+it is newer than yours, the status bar shows "Boostnote X.Y.Z is available — Download"; Download
+opens the release page in your browser, × hides the notice for that version (a later version
+shows again). Turn the daily check off in Preferences ("Check for updates automatically");
+**Check for Updates…** (app menu on macOS, Help on Windows/Linux) checks on demand.
+
 ## Coming from Boostnote (legacy)
 
 Use **File → Import Boostnote Storage…** (or `pnpm migrate <legacyStorageDir> <targetVaultDir>`). The
