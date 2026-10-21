@@ -24,12 +24,20 @@
 
 <h4 align="center">Note-taking app for programmers. </h4>
 <h5 align="center">Apps available for Mac, Windows and Linux.</h5>
-<h5 align="center">Built with Electron, React + Redux, Webpack, and CSSModules.</h5>
-<p align="center">
-  <a href="https://travis-ci.org/BoostIO/Boostnote">
-    <img src="https://travis-ci.org/BoostIO/Boostnote.svg?branch=master" alt="Build Status" />
-  </a>
- </p>
+<h5 align="center">Built with Electron and Remix 3.</h5>
+
+> This fork is being modernised — see [docs/modernisation/PLAN.md](docs/modernisation/PLAN.md).
+
+## Development
+
+Requires Node.js 24+ and pnpm 10.
+
+```sh
+pnpm install
+pnpm dev
+```
+
+See [docs/build.md](docs/build.md) for all commands.
 
 ## Download
 
@@ -38,7 +46,7 @@
 #### More Information
 
 - Website: https://boostnote.io
-- [Development](https://github.com/BoostIO/Boostnote/blob/master/docs/build.md): Development configurations for Boostnote.
+- [Development](docs/build.md): Development configurations for Boostnote.
 - Copyright (C) 2016 - 2020 BoostIO, Inc.
 
 #### License

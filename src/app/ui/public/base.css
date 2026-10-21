@@ -1,0 +1,76 @@
+/* Global styles. Component `css(...)` rules live in the `rmx` layer and win over `base`. */
+@layer base, rmx;
+
+:root {
+  color-scheme: light dark;
+  --font-ui: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  --font-size: 14px;
+
+  --bg: #ffffff;
+  --bg-sidebar: #f4f5f7;
+  --bg-list: #fafbfc;
+  --bg-statusbar: #eef0f3;
+  --text: #1f2328;
+  --text-muted: #656d76;
+  --border: #d8dee4;
+  --accent: #1ec38b;
+  --focus: #0969da;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #1e2124;
+    --bg-sidebar: #17191c;
+    --bg-list: #1b1d20;
+    --bg-statusbar: #141618;
+    --text: #e6e8eb;
+    --text-muted: #9198a1;
+    --border: #2f3338;
+    --accent: #1ec38b;
+    --focus: #4493f8;
+  }
+}
+
+@layer base {
+  *,
+  *::before,
+  *::after {
+    box-sizing: border-box;
+  }
+
+  html,
+  body {
+    height: 100%;
+    margin: 0;
+  }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--font-ui);
+    font-size: var(--font-size);
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  h1,
+  h2,
+  h3,
+  p {
+    margin: 0;
+  }
+
+  button,
+  input,
+  select,
+  textarea {
+    font: inherit;
+    color: inherit;
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--focus);
+    outline-offset: 2px;
+  }
+}
