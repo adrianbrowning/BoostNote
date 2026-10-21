@@ -27,6 +27,9 @@ export const routes = route({
     noteMove: post('/notes/move'),
     noteDelete: post('/notes/delete'),
     noteReveal: post('/notes/reveal'),
+    /** File › Rename Files From Titles…: `GET` the plan (dry run), `POST …/apply` to run (part of) it. */
+    titleRenamesPlan: get('/notes/title-renames'),
+    titleRenamesApply: post('/notes/title-renames/apply'),
     folderCreate: post('/folders/create'),
     folderRename: post('/folders/rename'),
     folderMove: post('/folders/move'),

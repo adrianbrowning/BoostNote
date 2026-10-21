@@ -58,6 +58,7 @@ export function installMenu(send: (command: MenuCommand, index?: number) => void
         { type: 'separator' },
         item('Open Folder…', 'open-folder'),
         command('Import Boostnote Storage…', 'import-storage'),
+        command('Rename Files From Titles…', 'rename-from-titles'),
         {
           label: 'Export',
           submenu: [

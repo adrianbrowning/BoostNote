@@ -170,7 +170,7 @@ describe('vault export', () => {
   it('exports a folder tree with an index and .html links', async () => {
     expect(await exportFolderHtml(vault, '', out)).toEqual({ contents: path.join(out, 'index.html'), pages: 2 })
     const index = await readFile(path.join(out, 'index.html'), 'utf8')
-    expect(index).toContain('<a href="other.html">Other</a>')
+    expect(index).toContain('<a href="other.html">other</a>')
     expect(index).toContain('<h2>work</h2>')
     expect(index).toContain('<a href="work/todo.html">Todo</a>')
     expect(await readFile(path.join(out, 'work/todo.html'), 'utf8')).toContain('href="../other.html"')

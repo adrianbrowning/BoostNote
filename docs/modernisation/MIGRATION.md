@@ -17,10 +17,11 @@ working with it exactly as before.
 | Folder colour | `.boostnote/config.json` → `folders["<dir>"].color` |
 | Folder order | `.boostnote/config.json` → `folderOrder` |
 | Notes whose folder is missing from `boostnote.json` | Directory `Unknown 1`, `Unknown 2`, … (the legacy app showed them the same way) |
-| Markdown note (`MARKDOWN_NOTE`) | `<folder>/<slug(title)>.md`, the content unchanged apart from the links below |
+| Markdown note (`MARKDOWN_NOTE`) | `<folder>/<title>.md`: the file name **is** the note's name, so it is the legacy title made safe for every OS (`noteFileName`, below), spaces and case kept; the content is unchanged apart from the links below |
 | Snippet note (`SNIPPET_NOTE`) | Markdown note: `# title`, the description, then per snippet `## <name>` (or `## Snippet N`) and a fenced code block whose language comes from the snippet's mode (`JavaScript` → `javascript`, `C++` → `cpp`, `Plain Text` → `text`) |
-| Duplicate titles in one folder | `-2`, `-3`, … appended to the file name (the oldest note keeps the plain name) |
-| `title` | Frontmatter `title`, **only** when it differs from what the vault would show anyway (the first `# H1`, else the file name) |
+| Empty title | `Untitled.md` |
+| Duplicate titles in one folder (compared case-insensitively) | ` 2`, ` 3`, … appended to the file name (the oldest note keeps the plain name) |
+| `title` | Frontmatter `title`, **only** when the file name cannot spell the title (it had `/ \ : * ? " < > \|`, control characters, leading/trailing dots, doubled spaces, a Windows device name such as `CON`, or was over ~120 characters), so the app still shows the exact legacy title |
 | `tags` | Frontmatter `tags` (empty and non-text tags dropped) |
 | `isStarred` | Frontmatter `starred: true` |
 | `isPinned` | Frontmatter `pinned: true` |
@@ -32,6 +33,32 @@ working with it exactly as before.
 | `:storage/<noteKey>/<file>` links (also `/:storage…`, `\` separators, `%5C`/`%2F` encoded) | `./<file>.assets/<file>` |
 | Very old `:storage/<file>` links to the storage's `images/` folder | Copied into the note's `.assets/` folder and relinked |
 | Note links `:note:<key>` | Relative links to the converted note (`./other.md`, `../Work/other.md`) |
+
+File names come from `noteFileName(title)` (`src/vault/paths.ts`), the same rule the app uses for
+new and renamed notes: `/ \ : * ? " < > |` and control characters become `-`, whitespace collapses
+to one space, leading dots and trailing dots/spaces are dropped, the name is capped at 120
+characters (and 200 bytes) on a character boundary, Windows device names get a `-` suffix
+(`CON` → `CON-`), and an empty result is `Untitled`.
+
+| Legacy title | File | Frontmatter `title` |
+| --- | --- | --- |
+| `Welcome to Boostnote!` | `Work/Welcome to Boostnote!.md` | — |
+| `Welcome to Boostnote!` (second note) | `Work/Welcome to Boostnote! 2.md` | — |
+| `Q1: plan / review?` | `Work/Q1- plan - review-.md` | `Q1: plan / review?` |
+| `CON` | `Work/CON-.md` | `CON` |
+| (empty) | `Work/Untitled.md` | — |
+
+### Vaults imported before readable names
+
+Earlier versions of the importer used lower-case slugs (`welcome-to-boostnote.md`,
+`welcome-to-boostnote-2.md`) and relied on the first `# H1` for the displayed name. The app now
+shows the file name (or a frontmatter `title`), so such a vault shows slugs. **File › Rename Files
+From Titles…** fixes that: it lists, per folder, every note whose file name is still the slug of its
+title (frontmatter `title`, else first H1) and the readable name it would get, and renames them
+when you confirm. Files you named yourself (say `1-1/Craig.md` starting with `# 2026-09-18`) are
+not slugs of their heading and are left alone. Each renamed note's `.assets/` folder moves with it,
+links to it (and into its assets) from every other note are rewritten, and a frontmatter `title`
+that now equals the file name is removed. The trash is not touched.
 
 ### Dropped
 
@@ -97,5 +124,5 @@ in the vault; they do not flow back to the legacy storage.
   (`Common Lisp` → `common-lisp`), which some highlighters may not recognise.
 - Legacy storages synced to multiple machines are imported as they are on this machine; run the
   importer once and sync the vault instead.
-- Moving or renaming a note in the vault rewrites the links *in* that note, but not links *to* it
-  from other notes.
+- Moving or renaming a note in the app rewrites the links *in* that note, but not links *to* it from
+  other notes (only **Rename Files From Titles…** rewrites incoming links).

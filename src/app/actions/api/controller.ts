@@ -3,7 +3,7 @@ import { isDeepStrictEqual } from 'node:util'
 import { createController } from 'remix/router'
 
 import { migrateStorage } from '../../../migrate/index.ts'
-import { type Note, type Vault, VaultError } from '../../../vault/index.ts'
+import { type Note, type TitleRename, type Vault, VaultError } from '../../../vault/index.ts'
 import { errorResponse, HttpError, json, readJsonObject, requireString } from '../../http.ts'
 import { routes } from '../../routes.ts'
 import type { AppServices } from '../../services.ts'
@@ -180,6 +180,23 @@ export function createApiController(services: AppServices) {
         await vault.readNote(id)
         services.showItemInFolder(path.join(vault.root, ...id.split('/')))
         return json({ ok: true })
+      }),
+
+      titleRenamesPlan: guarded(async () => json(await requireVault(services).planTitleRenames())),
+
+      titleRenamesApply: guarded(async ({ request }: { request: Request }) => {
+        const vault = requireVault(services)
+        const body = await readJsonObject(request)
+        if (!Array.isArray(body.renames)) throw new HttpError(400, 'BAD_REQUEST', 'Missing or invalid "renames"')
+        const renames: TitleRename[] = body.renames.map((item: unknown) => {
+          const rename = typeof item === 'object' && item !== null ? (item as Record<string, unknown>) : {}
+          return {
+            from: requireString(rename.from, 'from'),
+            to: requireString(rename.to, 'to'),
+            title: requireString(rename.title, 'title', { allowEmpty: true }),
+          }
+        })
+        return json(await vault.applyTitleRenames({ renames }))
       }),
 
       folderCreate: guarded(async ({ request }: { request: Request }) => {

@@ -65,7 +65,9 @@ describe('vault index', () => {
         .sort(),
     ).toEqual(['alpha.md', 'gamma.md'])
     expect(vault.index.search('#rust cooking')).toEqual([])
-    expect(vault.index.search('GOROUTINES')[0]).toMatchObject({ id: 'gamma.md', title: 'Go notes' })
+    expect(vault.index.search('GOROUTINES')[0]).toMatchObject({ id: 'gamma.md', title: 'gamma' })
+    // Titles are file names: a file name matches, its first H1 only as body text.
+    expect(vault.index.search('gamma').map((hit) => hit.id)).toEqual(['gamma.md'])
     expect(vault.index.search('   ')).toEqual([])
     expect(vault.index.get('beta.md')?.excerpt).toBe('Rust on cast iron pans; rust removal, rust again.')
   })
@@ -91,11 +93,11 @@ describe('vault watcher', () => {
 
     await writeFile(path.join(root, 'b.md'), '# B\n')
     await until(hasEvent('note-added', 'b.md'))
-    expect(vault.index.get('b.md')?.title).toBe('B')
+    expect(vault.index.get('b.md')?.title).toBe('b')
 
-    await writeFile(path.join(root, 'a.md'), '# A changed\n')
+    await writeFile(path.join(root, 'a.md'), '# A\n\nchanged\n')
     await until(hasEvent('note-changed', 'a.md'))
-    expect(vault.index.get('a.md')?.title).toBe('A changed')
+    expect(vault.index.get('a.md')?.excerpt).toBe('changed')
 
     await mkdir(path.join(root, 'dir'))
     await rename(path.join(root, 'b.md'), path.join(root, 'dir', 'b.md'))

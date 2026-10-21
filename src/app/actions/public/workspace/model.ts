@@ -10,6 +10,8 @@ import type {
   NoteSummary,
   PaneLayout,
   PreferencesState,
+  TitleRename,
+  TitleRenameReport,
   UiPatch,
   UiPreferences,
   VaultChangeEvent,
@@ -114,6 +116,7 @@ export class WorkspaceModel extends TypedEventTarget<{
   selectedTrashId: string | null = null
   menu: ContextMenu | null = null
   dialog: Dialog | null = null
+  titleRenamesOpen = false
   importOpen = false
   preferencesOpen = false
   notice: Notice | null = null
@@ -415,13 +418,64 @@ export class WorkspaceModel extends TypedEventTarget<{
     const stem = id.slice(id.lastIndexOf('/') + 1).replace(/\.md$/, '')
     const name = await this.prompt({ title: 'Rename note', label: 'File name', value: stem, confirm: 'Rename' })
     if (name === null || name.trim() === '' || name.trim() === stem) return
+    await this.attempt(() => this.#renameFile(id, name.trim()))
+  }
+
+  /**
+   * Inline rename of the open note (editor header): renames the file, or, for a note whose name
+   * comes from a frontmatter `title`, changes that key (cleared: the file name shows again).
+   * Resolves with the error message to show, or `null` once renamed.
+   */
+  async renameOpenNote(name: string): Promise<string | null> {
+    const note = this.session.note
+    if (!note) return null
+    const next = name.trim()
+    try {
+      if (typeof note.frontmatter.title === 'string' && note.frontmatter.title.trim() !== '') {
+        if (next === note.title) return null
+        const { title: _title, ...rest } = note.frontmatter
+        const ok = await this.session.setFrontmatter(next === '' ? rest : { ...note.frontmatter, title: next })
+        return ok ? null : 'Could not update the note'
+      }
+      if (next === '') return 'A note needs a name'
+      if (next === note.id.slice(note.id.lastIndexOf('/') + 1).replace(/\.md$/, '')) return null
+      await this.#renameFile(note.id, next)
+      return null
+    } catch (error) {
+      if (error instanceof ApiError && error.code === 'EXISTS') return `A note named “${next}” already exists here`
+      if (error instanceof ApiError && error.code === 'INVALID_PATH') return `“${next}” is not a valid note name`
+      return error instanceof Error ? error.message : String(error)
+    }
+  }
+
+  async #renameFile(id: string, name: string): Promise<void> {
     if (this.openId === id && !(await this.leaveNote())) return
-    await this.attempt(async () => {
-      const renamed = await client.renameNote(id, name.trim())
-      this.#rebaseTabs((path) => (path === id ? renamed.id : path))
-      if (this.openId === id) this.session.relocated(renamed)
-      await this.refresh()
-    })
+    const renamed = await client.renameNote(id, name)
+    this.#rebaseTabs((path) => (path === id ? renamed.id : path))
+    if (this.openId === id) this.session.relocated(renamed)
+    await this.refresh()
+  }
+
+  setTitleRenamesOpen(open: boolean): void {
+    this.titleRenamesOpen = open
+    this.closeMenu()
+    this.changed()
+  }
+
+  /**
+   * File › Rename Files From Titles…, after the user confirmed the plan: saves the open note, runs
+   * the renames, then tabs follow their notes and the open note is reloaded (its links may have
+   * been rewritten). `null` when the open note could not be saved first.
+   */
+  async applyTitleRenames(renames: TitleRename[]): Promise<TitleRenameReport | null> {
+    if (!(await this.leaveNote())) return null
+    const report = await client.applyTitleRenames(renames)
+    const moved = new Map(report.renamed.map((rename) => [rename.from, rename.to]))
+    const openId = this.openId
+    this.#rebaseTabs((path) => moved.get(path) ?? path)
+    if (openId !== null) this.session.open(await client.readNote(moved.get(openId) ?? openId))
+    await this.refresh()
+    return report
   }
 
   async moveNote(id: string, folder: string): Promise<void> {

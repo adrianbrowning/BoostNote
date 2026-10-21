@@ -73,7 +73,55 @@ test('tabs are restored after a reload', async ({ app }) => {
   await expect(tabs).toHaveCount(2)
   await expect(page.locator('[role="tab"][data-tab="diagram.md"]')).toBeVisible()
   await expect(page.locator('[role="tab"][aria-selected="true"]')).toHaveAttribute('data-tab', 'second.md')
-  await expect(page.locator('[data-note-title]')).toHaveText('Second')
+  // The file name is the note's name, not its first heading.
+  await expect(page.locator('[data-note-title]')).toHaveText('second')
+})
+
+test('renames the open note in place from the editor header', async ({ app }) => {
+  const { page, vault } = app
+  await page.locator('[data-note="second.md"]').click()
+  await page.locator('[data-rename-note]').click()
+  const field = page.locator('[data-note-title-input]')
+  await field.fill('Second: draft')
+  await field.press('Enter')
+  await expect(page.locator('[data-note-title]')).toHaveText('Second- draft')
+  await expect(page.locator('[role="tab"][aria-selected="true"]')).toHaveAttribute('data-tab', 'Second- draft.md')
+  await expect.poll(() => readFile(path.join(vault, 'Second- draft.md'), 'utf8')).toContain('Plain text.')
+
+  // A taken name is refused inline; Escape gives up.
+  await page.locator('[data-rename-note]').press('F2')
+  await field.fill('diagram')
+  await field.press('Enter')
+  await expect(page.locator('[data-rename-error]')).toContainText('already exists')
+  await field.press('Escape')
+  await expect(page.locator('[data-rename-error]')).toBeHidden()
+  await expect(page.locator('[data-note-title]')).toHaveText('Second- draft')
+
+  // A note named by its frontmatter title: editing changes the title key, not the file.
+  await page.locator('[data-note="diagram.md"]').click()
+  await page.locator('[data-rename-note]').click()
+  await field.fill('Diagrams')
+  await field.press('Enter')
+  await expect(page.locator('[data-note-title]')).toHaveText('Diagrams')
+  await expect.poll(() => readFile(path.join(vault, 'diagram.md'), 'utf8')).toContain('title: Diagrams')
+})
+
+test('renames slug-named files from their titles', async ({ app }) => {
+  const { page, vault } = app
+  await writeFiles(vault, {
+    'work/meeting-notes.md': '# Meeting notes\n\n[third](./third.md)\n',
+    'links.md': '[m](work/meeting-notes.md)\n',
+  })
+  await expect(page.locator('[data-note="work/meeting-notes.md"]')).toBeAttached({ timeout: 15_000 })
+  await page.locator('[data-note="work/meeting-notes.md"]').click()
+  await app.clickMenu('rename-from-titles')
+  const dialog = page.getByRole('dialog', { name: 'Rename files from titles' })
+  await expect(dialog.locator('[data-title-rename="work/meeting-notes.md"]')).toContainText('Meeting notes')
+  await dialog.locator('[data-title-renames-apply]').click()
+  await expect(dialog.locator('[data-title-renames-report]')).toContainText('Renamed')
+  await dialog.locator('[data-title-renames-close]').click()
+  await expect(page.locator('[role="tab"][aria-selected="true"]')).toHaveAttribute('data-tab', 'work/Meeting notes.md')
+  expect(await readFile(path.join(vault, 'links.md'), 'utf8')).toBe('[m](work/Meeting%20notes.md)\n')
 })
 
 test('imports a legacy Boostnote storage through the dialog', async ({ app }) => {
@@ -131,7 +179,7 @@ test('opens a loose .md file from the command line and through open-file', async
   try {
     const { page, dir } = app
     // argv: the file's folder becomes the vault and the note opens in a tab.
-    await expect(page.locator('[data-note-title]')).toHaveText('Loose readme', { timeout: 20_000 })
+    await expect(page.locator('[data-note-title]')).toHaveText('readme', { timeout: 20_000 })
     await expect(page.locator('[role="tab"][aria-selected="true"]')).toHaveAttribute('data-tab', 'readme.md')
     await expect(page.locator('[data-note="readme.md"]')).toBeVisible()
 
@@ -143,7 +191,7 @@ test('opens a loose .md file from the command line and through open-file', async
       },
       path.join(dir, 'loose', 'other', 'b.md'),
     )
-    await expect(page.locator('[data-note-title]')).toHaveText('Bee', { timeout: 20_000 })
+    await expect(page.locator('[data-note-title]')).toHaveText('b', { timeout: 20_000 })
     await expect(page.locator('[data-note="b.md"]')).toBeVisible()
   } finally {
     await app.electronApp.close()

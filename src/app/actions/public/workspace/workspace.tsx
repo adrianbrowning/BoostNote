@@ -13,6 +13,7 @@ import { PreferencesDialog } from './preferences-dialog.tsx'
 import { isReservedShortcut } from './shortcuts.ts'
 import { Sidebar } from './sidebar.tsx'
 import { button, emptyState, emptyTitle, muted, primaryButton } from './styles.ts'
+import { TitleRenamesDialog } from './title-renames-dialog.tsx'
 import type { MenuEvent, PreferencesState, VaultChangeEvent, WorkspaceData } from './types.ts'
 
 declare global {
@@ -66,6 +67,7 @@ export const Workspace = clientEntry(
       else if (!model.data.vault) return
       else if (command === 'new-note') void model.newNote()
       else if (command === 'new-folder') void model.newFolder()
+      else if (command === 'rename-from-titles') model.setTitleRenamesOpen(true)
       else if (command === 'reveal-note') void model.revealNote()
       else if (command === 'close-tab') void model.closeTab()
       else if (command === 'reopen-tab') void model.reopenTab()
@@ -270,6 +272,7 @@ export const Workspace = clientEntry(
           <DialogView model={model} />
           {model.importOpen ? <ImportDialog model={model} /> : null}
           {model.preferencesOpen ? <PreferencesDialog model={model} /> : null}
+          {model.titleRenamesOpen ? <TitleRenamesDialog model={model} /> : null}
           <NoticeView model={model} />
         </div>
       )

@@ -5,6 +5,7 @@
 import type { MenuCommand, MenuEvent, VaultChangeEvent } from '../../../../main/events.ts'
 import type { PaneLayout, ThemePreference, UiPatch, UiPreferences } from '../../../../main/settings.ts'
 import type { OpenRequest } from '../../../../main/vault-session.ts'
+import type { TitleRename, TitleRenamePlan, TitleRenameReport } from '../../../../vault/index.ts'
 
 export type {
   MenuCommand,
@@ -12,6 +13,9 @@ export type {
   OpenRequest,
   PaneLayout,
   ThemePreference,
+  TitleRename,
+  TitleRenamePlan,
+  TitleRenameReport,
   UiPatch,
   UiPreferences,
   VaultChangeEvent,

@@ -73,15 +73,16 @@ describe('migrateStorage', () => {
         expect.objectContaining({
           kind: 'note',
           key: KEYS.welcomeDup,
-          path: 'Work/welcome-to-boostnote-2.md',
+          path: 'Work/Welcome to Boostnote! 2.md',
           reason: 'duplicate file name',
         }),
       ]),
     )
     expect(report.warnings.some((warning) => warning.includes(KEYS.folderUnknown))).toBe(true)
 
-    // Markdown note: frontmatter, attachments with every separator style, note links.
-    const welcome = parseNoteText(await readTarget('Work/welcome-to-boostnote.md'))
+    // Markdown note: readable file name, frontmatter (no `title`: the file name says it), attachments
+    // with every separator style, note links.
+    const welcome = parseNoteText(await readTarget('Work/Welcome to Boostnote!.md'))
     expect(welcome.frontmatter).toEqual({
       tags: ['intro', 'docs'],
       starred: true,
@@ -94,28 +95,28 @@ describe('migrateStorage', () => {
       [
         '# Welcome to Boostnote!',
         '',
-        '![posix](./welcome-to-boostnote.assets/abc123.png)',
-        '![windows](./welcome-to-boostnote.assets/def456.jpg)',
-        '<img src="./welcome-to-boostnote.assets/def456.jpg">',
-        '[file](./welcome-to-boostnote.assets/My%20Doc.pdf)',
-        'See [the duplicate](./welcome-to-boostnote-2.md) and [trashed](../Personal/old-idea.md).',
+        '![posix](./Welcome%20to%20Boostnote!.assets/abc123.png)',
+        '![windows](./Welcome%20to%20Boostnote!.assets/def456.jpg)',
+        '<img src="./Welcome%20to%20Boostnote!.assets/def456.jpg">',
+        '[file](./Welcome%20to%20Boostnote!.assets/My%20Doc.pdf)',
+        'See [the duplicate](./Welcome%20to%20Boostnote!%202.md) and [trashed](../Personal/Old%20idea.md).',
         '',
       ].join('\n'),
     )
-    expect((await readdir(path.join(target, 'Work/welcome-to-boostnote.assets'))).sort()).toEqual([
+    expect((await readdir(path.join(target, 'Work/Welcome to Boostnote!.assets'))).sort()).toEqual([
       'My Doc.pdf',
       'abc123.png',
       'def456.jpg',
       'unreferenced.txt',
     ])
-    expect(await readTarget('Work/welcome-to-boostnote.assets/abc123.png')).toBe('PNG-abc')
-    expect((await stat(path.join(target, 'Work/welcome-to-boostnote.md'))).mtime.toISOString()).toBe(
+    expect(await readTarget('Work/Welcome to Boostnote!.assets/abc123.png')).toBe('PNG-abc')
+    expect((await stat(path.join(target, 'Work/Welcome to Boostnote!.md'))).mtime.toISOString()).toBe(
       '2019-04-02T11:30:00.000Z',
     )
-    expect(await readTarget('Work/welcome-to-boostnote-2.md')).toContain('[first](./welcome-to-boostnote.md)')
+    expect(await readTarget('Work/Welcome to Boostnote! 2.md')).toContain('[first](./Welcome%20to%20Boostnote!.md)')
 
     // Snippet note → markdown with one fenced block per snippet.
-    const snippet = parseNoteText(await readTarget('Personal/snippet-note-example.md'))
+    const snippet = parseNoteText(await readTarget('Personal/Snippet note example.md'))
     expect(snippet.frontmatter.title).toBeUndefined()
     expect(snippet.frontmatter.tags).toEqual(['snippets'])
     expect(snippet.body).toBe(
@@ -143,31 +144,31 @@ describe('migrateStorage', () => {
       ].join('\n'),
     )
 
-    // Note without a heading keeps its title in frontmatter; legacy images/ refs resolve.
-    const plain = parseNoteText(await readTarget('work 2/just-some-text.md'))
-    expect(plain.frontmatter.title).toBe('just some text')
-    expect(plain.body).toContain('![legacy](./just-some-text.assets/oldimg.png)')
-    expect(await readTarget('work 2/just-some-text.assets/oldimg.png')).toBe('PNG-old')
+    // Note without a heading: the file name is its title; legacy images/ refs resolve.
+    const plain = parseNoteText(await readTarget('work 2/just some text.md'))
+    expect(plain.frontmatter.title).toBeUndefined()
+    expect(plain.body).toContain('![legacy](./just%20some%20text.assets/oldimg.png)')
+    expect(await readTarget('work 2/just some text.assets/oldimg.png')).toBe('PNG-old')
     expect(report.unresolvedAttachments).toEqual([
-      { note: 'work 2/just-some-text.md', reference: `:storage/${KEYS.plain}/missing.png` },
+      { note: 'work 2/just some text.md', reference: `:storage/${KEYS.plain}/missing.png` },
     ])
 
     // Content that already had frontmatter: merged, not doubled.
-    const fm = await readTarget('Work/fm-title.md')
+    const fm = await readTarget('Work/FM title.md')
     expect(fm.match(/^---$/gm)).toHaveLength(2)
     expect(parseNoteText(fm).frontmatter).toMatchObject({ title: 'FM title', layout: 'post' })
     expect(parseNoteText(fm).body).toBe('# Heading\n\nBody.\n')
 
     // Trashed note → .trash with a restore entry; its attachments move with it.
-    expect(await readTarget('.trash/Personal/old-idea.assets/x.png')).toBe('PNG-x')
+    expect(await readTarget('.trash/Personal/Old idea.assets/x.png')).toBe('PNG-x')
     expect(JSON.parse(await readTarget('.trash/.index.json')).entries).toEqual({
-      'Personal/old-idea.md': {
+      'Personal/Old idea.md': {
         kind: 'note',
-        originalPath: 'Personal/old-idea.md',
+        originalPath: 'Personal/Old idea.md',
         deletedAt: '2019-04-02T11:30:00.000Z',
       },
     })
-    expect(report.unresolvedLinks).toEqual([{ note: 'Personal/old-idea.md', reference: `:note:${KEYS.missing}` }])
+    expect(report.unresolvedLinks).toEqual([{ note: 'Personal/Old idea.md', reference: `:note:${KEYS.missing}` }])
 
     // The report is saved, and the result opens as a vault.
     expect(JSON.parse(await readTarget('.boostnote/migration-report.json')).counts.notes).toBe(7)
@@ -179,17 +180,17 @@ describe('migrateStorage', () => {
       'Empty - Folder',
       'Unknown 1',
     ])
-    expect(vault.index.get('Work/welcome-to-boostnote.md')).toMatchObject({
+    expect(vault.index.get('Work/Welcome to Boostnote!.md')).toMatchObject({
       title: 'Welcome to Boostnote!',
       starred: true,
       tags: ['intro', 'docs'],
     })
-    expect(vault.index.get('Unknown 1/orphan.md')?.title).toBe('Orphan')
+    expect(vault.index.get('Unknown 1/Orphan.md')?.title).toBe('Orphan')
     const trash = await vault.listTrash()
     expect(trash.map((item) => item.title)).toEqual(['Old idea'])
-    expect(await vault.restore('Personal/old-idea.md')).toBe('Personal/old-idea.md')
-    expect(await vault.assetPath('Personal/old-idea.md', './old-idea.assets/x.png')).toBe(
-      path.join(vault.root, 'Personal', 'old-idea.assets', 'x.png'),
+    expect(await vault.restore('Personal/Old idea.md')).toBe('Personal/Old idea.md')
+    expect(await vault.assetPath('Personal/Old idea.md', './Old%20idea.assets/x.png')).toBe(
+      path.join(vault.root, 'Personal', 'Old idea.assets', 'x.png'),
     )
     await vault.close()
   })
@@ -198,7 +199,7 @@ describe('migrateStorage', () => {
     const report = await migrateStorage(source, target, { dryRun: true })
     expect(report.dryRun).toBe(true)
     expect(report.counts.notes).toBe(7)
-    expect(report.notes.map((item) => item.path)).toContain('Work/welcome-to-boostnote.md')
+    expect(report.notes.map((item) => item.path)).toContain('Work/Welcome to Boostnote!.md')
     await expect(stat(target)).rejects.toMatchObject({ code: 'ENOENT' })
   })
 
@@ -211,7 +212,7 @@ describe('migrateStorage', () => {
 
     const report = await migrateStorage(source, target, { force: true })
     expect(await readTarget('Work/mine.md')).toBe('mine')
-    expect(report.notes.find((item) => item.key === KEYS.welcome)?.path).toBe('Work 2/welcome-to-boostnote.md')
+    expect(report.notes.find((item) => item.key === KEYS.welcome)?.path).toBe('Work 2/Welcome to Boostnote!.md')
   })
 
   it('rejects a target inside the source and a source without boostnote.json', async () => {
@@ -235,8 +236,54 @@ describe('migrateStorage', () => {
       }),
     )
     const report = await migrateStorage(old, target)
-    expect(report.notes.map((item) => item.path)).toEqual(['Old/ancient.md'])
+    expect(report.notes.map((item) => item.path)).toEqual(['Old/Ancient.md'])
     expect(JSON.parse(await readFile(path.join(old, 'boostnote.json'), 'utf8')).version).toBeUndefined()
+  })
+
+  it('keeps the legacy title in frontmatter only when the file name cannot spell it', async () => {
+    const old = path.join(work, 'names')
+    await mkdir(path.join(old, 'f1'), { recursive: true })
+    await writeFile(path.join(old, 'boostnote.json'), JSON.stringify({ folders: [{ key: 'f1', name: 'F' }] }))
+    const note = (key: string, title: string, content: string, createdAt: string) => ({
+      key,
+      type: 'MARKDOWN_NOTE',
+      title,
+      content,
+      tags: [],
+      createdAt,
+    })
+    await writeFile(
+      path.join(old, 'f1', 'data.json'),
+      JSON.stringify({
+        notes: [
+          note('a', 'Q1: plan / review?', '# Q1: plan / review?\n', '2020-01-01T00:00:00Z'),
+          note('b', 'Meeting notes', '# Meeting notes\n', '2020-01-02T00:00:00Z'),
+          note('c', 'meeting NOTES', 'x\n', '2020-01-03T00:00:00Z'),
+          note('d', '', '', '2020-01-04T00:00:00Z'),
+          note('e', 'CON', 'device\n', '2020-01-05T00:00:00Z'),
+        ],
+      }),
+    )
+    const report = await migrateStorage(old, target)
+    expect(report.notes.map((item) => item.path)).toEqual([
+      'F/Q1- plan - review-.md',
+      'F/Meeting notes.md',
+      'F/meeting NOTES 2.md',
+      'F/Untitled.md',
+      'F/CON-.md',
+    ])
+    const title = async (rel: string) => parseNoteText(await readTarget(rel)).frontmatter.title
+    expect(await title('F/Q1- plan - review-.md')).toBe('Q1: plan / review?')
+    expect(await title('F/Meeting notes.md')).toBeUndefined()
+    expect(await title('F/meeting NOTES 2.md')).toBeUndefined()
+    expect(await title('F/Untitled.md')).toBeUndefined()
+    expect(await title('F/CON-.md')).toBe('CON')
+    expect(report.renamed.map((item) => [item.path, item.reason])).toEqual([
+      ['F/Q1- plan - review-.md', 'title is not a valid file name'],
+      ['F/meeting NOTES 2.md', 'duplicate file name'],
+      ['F/Untitled.md', 'empty title'],
+      ['F/CON-.md', 'title is not a valid file name'],
+    ])
   })
 })
 

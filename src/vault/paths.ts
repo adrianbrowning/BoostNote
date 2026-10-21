@@ -83,28 +83,50 @@ export async function resolveInside(root: string, segments: readonly string[]): 
   }
 }
 
-const WINDOWS_RESERVED = /^(con|prn|aux|nul|com\d|lpt\d)$/i
-const MAX_NAME_LENGTH = 100
+const WINDOWS_RESERVED = /^(con|prn|aux|nul|com[1-9]|lpt[1-9])(?=\.|$)/i
+/** Longest name (in characters, and in UTF-8 bytes so `.md`, ` 99` and `.assets` still fit in 255). */
+const MAX_NAME_LENGTH = 120
+const MAX_NAME_BYTES = 200
+const graphemes = new Intl.Segmenter(undefined, { granularity: 'grapheme' })
+const utf8 = new TextEncoder()
 
 /**
- * Turns a free-form name into a safe file/directory name while keeping its case and spaces
- * (used for folders and explicit renames). Returns `''` when nothing usable is left.
+ * Turns a free-form name into a safe file/directory name while keeping its case and spaces:
+ * `/ \ : * ? " < > |` and control characters become `-`, whitespace collapses, leading dots and
+ * trailing dots/spaces go, the length is capped on a character boundary, and Windows device names
+ * (`CON`, `LPT1`, …) get a `-` suffix. Returns `''` when nothing usable is left.
  */
-export function sanitizeName(name: string): string {
+export function sanitizeFileName(name: string): string {
   let result = name
     .normalize('NFC')
-    // biome-ignore lint/suspicious/noControlCharactersInRegex: control characters are invalid in file names
-    .replace(/[\u0000-\u001f\u007f<>:"/\\|?*]/g, '-')
+    // Tabs and line breaks are whitespace (collapsed to a space), other control characters invalid.
     .replace(/\s+/g, ' ')
+    // biome-ignore lint/suspicious/noControlCharactersInRegex: control characters are invalid in file names
+    .replace(/[\u0000-\u001f\u007f-\u009f<>:"/\\|?*]/g, '-')
     .trim()
-    .replace(/^[.\s]+|[.\s]+$/g, '')
-  if (result.endsWith(ASSETS_SUFFIX)) result = result.slice(0, -ASSETS_SUFFIX.length)
-  result = result.slice(0, MAX_NAME_LENGTH).trim()
-  if (WINDOWS_RESERVED.test(result)) result = `${result}-`
-  return result
+    .replace(/^[.\s]+/, '')
+    .replace(/[.\s]+$/, '')
+  if (result.endsWith(ASSETS_SUFFIX)) result = result.slice(0, -ASSETS_SUFFIX.length).replace(/[.\s]+$/, '')
+  let capped = ''
+  let count = 0
+  for (const { segment } of graphemes.segment(result)) {
+    if (count === MAX_NAME_LENGTH || utf8.encode(capped + segment).length > MAX_NAME_BYTES) break
+    capped += segment
+    count++
+  }
+  return capped.replace(/[.\s]+$/, '').replace(WINDOWS_RESERVED, '$1-')
 }
 
-/** File-name slug for a note title: lower-case, hyphen-separated, punctuation removed; `untitled` if empty. */
+/** File name (without `.md`) for a note called `name`: `sanitizeFileName(name)`, or `Untitled`. */
+export function noteFileName(name: string): string {
+  return sanitizeFileName(name) || 'Untitled'
+}
+
+/**
+ * The file-name slug the importer gave notes before file names became note names (phase 7):
+ * lower-case, hyphen-separated, punctuation removed; `untitled` if empty. Only the bulk
+ * "rename files from titles" uses it, to recognise those files.
+ */
 export function slugify(title: string): string {
   const slug = title
     .normalize('NFKC')
@@ -116,14 +138,15 @@ export function slugify(title: string): string {
     .slice(0, 80)
     .replace(/-+$/, '')
   if (slug === '') return 'untitled'
-  return WINDOWS_RESERVED.test(slug) ? `${slug}-note` : slug
+  return /^(con|prn|aux|nul|com\d|lpt\d)$/i.test(slug) ? `${slug}-note` : slug
 }
 
 /**
- * Returns `base`, or `base-2`, `base-3`, … — the first candidate for which `taken(candidate)` is false.
+ * Returns `base`, or `base 2`, `base 3`, … (`separator` between) — the first candidate for which
+ * `taken(candidate)` is false.
  * Comparison is the caller's business (pass a lower-cased set for case-insensitive file systems).
  */
-export function uniqueName(base: string, taken: (candidate: string) => boolean, separator = '-'): string {
+export function uniqueName(base: string, taken: (candidate: string) => boolean, separator = ' '): string {
   if (!taken(base)) return base
   for (let n = 2; ; n++) {
     const candidate = `${base}${separator}${n}`
@@ -131,9 +154,9 @@ export function uniqueName(base: string, taken: (candidate: string) => boolean, 
   }
 }
 
-/** Percent-encodes the characters that would break a CommonMark link destination. */
+/** Percent-encodes the characters that would break a CommonMark link destination (or start its fragment). */
 export function encodeLinkPath(relPath: string): string {
-  return relPath.replace(/[ %()<>]/g, (char) => `%${char.charCodeAt(0).toString(16).toUpperCase().padStart(2, '0')}`)
+  return relPath.replace(/[ #%()<>]/g, (char) => `%${char.charCodeAt(0).toString(16).toUpperCase().padStart(2, '0')}`)
 }
 
 export function safeDecode(value: string): string {
