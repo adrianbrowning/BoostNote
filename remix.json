@@ -7,7 +7,26 @@
       "npm": "node_modules"
     },
     "allowFiles": ["src/app/routes.ts", "src/app/**/public/**", "src/editor/**"],
-    "allowPackages": ["remix"],
-    "denyFiles": ["**/*.test.*"]
+    "allowPackages": [
+      "remix",
+      "@codemirror/autocomplete",
+      "@codemirror/commands",
+      "@codemirror/lang-markdown",
+      "@codemirror/language",
+      "@codemirror/language-data",
+      "@codemirror/search",
+      "@codemirror/state",
+      "@codemirror/view",
+      "@lezer/common",
+      "@lezer/highlight",
+      "@lezer/markdown",
+      "katex",
+      "turndown",
+      "turndown-plugin-gfm"
+    ],
+    "denyFiles": ["**/*.test.*"],
+    "files": {
+      "extensions": [".woff2", ".woff", ".ttf"]
+    }
   }
 }
