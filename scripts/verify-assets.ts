@@ -29,18 +29,26 @@ const router = createAppRouter({
   openExternal: async () => {},
   showItemInFolder: () => {},
   findLegacyStorages: async () => [],
+  exports: {
+    saveFile: async () => undefined,
+    renderMermaid: async () => '<svg></svg>',
+    printToPdf: async () => new Uint8Array(),
+    print: async () => {},
+  },
 })
 
 try {
-  const page = await router.fetch(new URL('/', origin))
-  if (!page.ok) throw new Error(`GET / responded ${page.status}`)
-  const html = await page.text()
-
   const urls = new Set<string>()
-  for (const match of html.matchAll(/(?:src|href)="(\/assets\/[^"]+)"/g)) if (match[1]) urls.add(match[1])
-  for (const match of html.matchAll(/<script[^>]*type="importmap"[^>]*>([^<]*)<\/script>/g)) {
-    const importMap = JSON.parse(match[1] ?? '{}') as { imports?: Record<string, string> }
-    for (const url of Object.values(importMap.imports ?? {})) urls.add(url)
+  // The workspace and the hidden page that lays out mermaid diagrams for export.
+  for (const pathname of ['/', '/export/mermaid']) {
+    const page = await router.fetch(new URL(pathname, origin))
+    if (!page.ok) throw new Error(`GET ${pathname} responded ${page.status}`)
+    const html = await page.text()
+    for (const match of html.matchAll(/(?:src|href)="(\/assets\/[^"]+)"/g)) if (match[1]) urls.add(match[1])
+    for (const match of html.matchAll(/<script[^>]*type="importmap"[^>]*>([^<]*)<\/script>/g)) {
+      const importMap = JSON.parse(match[1] ?? '{}') as { imports?: Record<string, string> }
+      for (const url of Object.values(importMap.imports ?? {})) urls.add(url)
+    }
   }
   // The workspace entry (and with it the editor) loads on `/`, but the languages the editor
   // highlights fenced code with are imported lazily, so compile its whole graph explicitly.

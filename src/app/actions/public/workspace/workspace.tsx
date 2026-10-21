@@ -75,13 +75,21 @@ export const Workspace = clientEntry(
       else if (command === 'go-back') void model.goBack()
       else if (command === 'go-forward') void model.goForward()
       else if (command === 'find') model.find()
+      else if (command === 'export-html') void model.exportNote('html')
+      else if (command === 'export-pdf') void model.exportNote('pdf')
+      else if (command === 'export-markdown') void model.exportNote('markdown')
+      else if (command === 'print') void model.exportNote('print')
+      else if (command === 'export-folder')
+        void model.exportFolder(model.selection.kind === 'folder' ? model.selection.id : '')
+      else if (command === 'export-vault') void model.exportFolder('')
     }
 
     // Browser-only wiring; runs after hydration (setup also runs during the server render).
     handle.queueTask(() => {
       const { signal } = handle
       const isMac = /Mac/.test(navigator.platform)
-      void model.restoreTabs()
+      // A `.md` opened from the OS before or while the window loaded waits in main until taken.
+      void model.restoreTabs().then(() => model.takeOpenRequest())
 
       const source = new EventSource(routes.events.href())
       source.addEventListener('open', () => model.setConnection('connected'))
@@ -97,6 +105,7 @@ export const Workspace = clientEntry(
         const change: VaultChangeEvent = JSON.parse(event.data)
         model.onVaultChange(change)
       })
+      source.addEventListener('open-request', () => void model.takeOpenRequest())
       signal.addEventListener('abort', () => source.close(), { once: true })
 
       window.boostFlushPendingSave = () => model.session.flush()

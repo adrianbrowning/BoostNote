@@ -487,6 +487,48 @@ export class WorkspaceModel extends TypedEventTarget<{
     if (id) await this.attempt(() => client.revealNote(id))
   }
 
+  /** File > Export / Print for the open note; its latest edits are saved first. */
+  async exportNote(format: 'html' | 'pdf' | 'markdown' | 'print'): Promise<void> {
+    const id = this.openId
+    if (!id) {
+      this.notify('error', 'Open a note to export it')
+      return
+    }
+    if (!(await this.leaveNote())) return
+    await this.attempt(async () => {
+      const { path } = await client.exportNote(id, format)
+      if (path) this.notify('info', `Exported to ${path}`)
+    })
+  }
+
+  /** Exports a folder (`''`: the whole vault) as HTML pages with an index. */
+  async exportFolder(folder: string): Promise<void> {
+    if (!(await this.leaveNote())) return
+    await this.attempt(async () => {
+      const { path } = await client.exportFolder(folder)
+      if (path) this.notify('info', `Exported to ${path}`)
+    })
+  }
+
+  /**
+   * A `.md` file opened from Finder/Explorer: switches to its folder as the vault (unless that is
+   * already open) and opens the note in a new tab. Called after hydration and on SSE `open-request`.
+   */
+  async takeOpenRequest(): Promise<void> {
+    await this.attempt(async () => {
+      const request = await client.takeOpenRequest()
+      if (!request) return
+      if (this.data.vault?.root !== request.vault) {
+        if (!(await this.leaveNote())) return
+        const result = await client.openVault(request.vault)
+        if (result.workspace) await this.#switched(result.workspace)
+      }
+      const tab = this.tabs.tabs.find((item) => item.path === request.id)
+      if (tab) await this.activateTab(tab.key)
+      else await this.openNote(request.id, { newTab: true })
+    })
+  }
+
   async toggleStar(): Promise<void> {
     const note = this.session.note
     if (!note) return
@@ -670,14 +712,14 @@ export class WorkspaceModel extends TypedEventTarget<{
     })
   }
 
-  #switched(data: WorkspaceData): void {
+  #switched(data: WorkspaceData): Promise<void> {
     this.session.close()
     this.data = data
     this.selection = { kind: 'all' }
     this.expanded.clear()
     this.importOpen = false
     this.setQuery('')
-    void this.restoreTabs()
+    return this.restoreTabs()
   }
 
   // ── Live updates ────────────────────────────────────────────────────────────────────────

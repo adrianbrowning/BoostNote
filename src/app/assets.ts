@@ -28,6 +28,8 @@ export const assets = createAssetServer({
 })
 
 export const scriptEntry = await assets.getScriptEntry('src/app/actions/public/entry.ts')
+/** Script of the hidden page that lays out mermaid diagrams for export. */
+export const mermaidRendererEntry = await assets.getScriptEntry('src/app/actions/public/mermaid-renderer.ts')
 export const baseStylesHref = await assets.getHref('src/app/ui/public/base.css')
 /** KaTeX's stylesheet (and, through it, its fonts): every page that shows the editor links it. */
 export const katexStylesHref = await assets.getHref('node_modules/katex/dist/katex.min.css')

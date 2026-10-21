@@ -30,6 +30,13 @@ export type MenuCommand =
   | 'toggle-properties'
   | 'preferences'
   | 'find'
+  /** File > Export: the open note as HTML / PDF / Markdown, printing it, the selected folder or the vault as HTML. */
+  | 'export-html'
+  | 'export-pdf'
+  | 'export-markdown'
+  | 'print'
+  | 'export-folder'
+  | 'export-vault'
 
 export interface MenuEvent {
   type: 'menu'
@@ -45,8 +52,13 @@ export interface VaultChangeEvent {
   id: string
 }
 
+/** The OS asked to open a `.md` file; the workspace takes it from `POST /api/open-request`. */
+export interface OpenRequestEvent {
+  type: 'open-request'
+}
+
 /** Union of every event pushed over `/events`. */
-export type AppEvent = MenuEvent | VaultChangeEvent
+export type AppEvent = MenuEvent | VaultChangeEvent | OpenRequestEvent
 
 export interface EventHub {
   /** Opens a new `text/event-stream` response. The client is dropped when `signal` aborts or the stream is cancelled. */

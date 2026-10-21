@@ -1,9 +1,11 @@
+import { statSync } from 'node:fs'
 import * as path from 'node:path'
 import { app, type BrowserWindow, dialog, globalShortcut, type OpenDialogOptions, shell } from 'electron'
 
 import { createAppRouter } from '../app/router.ts'
 import { findLegacyStorages } from '../migrate/index.ts'
 import { eventHub } from './events.ts'
+import { createExportServices } from './export.ts'
 import { installMenu } from './menu.ts'
 import { createPreferenceServices } from './preferences.ts'
 import { handleBoostProtocol, registerBoostScheme } from './protocol.ts'
@@ -25,6 +27,25 @@ registerBoostScheme()
 const settings = new SettingsStore(path.join(app.getPath('userData'), 'settings.json'))
 const vaults = new VaultSession({ settings, events: eventHub })
 const preferences = createPreferenceServices(toggleMainWindow)
+
+/** Existing `.md` files on a command line (Windows/Linux file associations, `electron . note.md`). */
+function markdownFilesIn(argv: string[], cwd: string): string[] {
+  return argv
+    .slice(1)
+    .filter((arg) => !arg.startsWith('-') && /\.md$/i.test(arg))
+    .map((arg) => path.resolve(cwd, arg))
+    .filter((file) => statSync(file, { throwIfNoEntry: false })?.isFile() ?? false)
+}
+
+// A `.md` file opened from the OS: its folder becomes the vault and the note opens in a tab (the
+// workspace takes the request). macOS delivers files (Finder, `open -a`, dock drops) through
+// `open-file`, possibly before `ready`.
+app.on('open-file', (event, file) => {
+  event.preventDefault()
+  vaults.requestOpen(file)
+  if (app.isReady()) showMainWindow()
+})
+for (const file of markdownFilesIn(process.argv, process.cwd())) vaults.requestOpen(file)
 
 let mainWindow: BrowserWindow | undefined
 /** Set once unsaved work has been dealt with; from then on quitting/closing proceeds. */
@@ -53,6 +74,7 @@ const router = createAppRouter({
   openExternal: (url) => shell.openExternal(url),
   showItemInFolder: (fullPath) => shell.showItemInFolder(fullPath),
   findLegacyStorages: () => findLegacyStorages({ appDataDir: path.join(app.getPath('appData'), 'Boostnote') }),
+  exports: createExportServices(liveWindow),
 })
 
 function showMainWindow(): void {
@@ -124,7 +146,10 @@ function guardClose(window: BrowserWindow): void {
 if (!app.requestSingleInstanceLock()) {
   app.quit()
 } else {
-  app.on('second-instance', showMainWindow)
+  app.on('second-instance', (_event, argv, workingDirectory) => {
+    for (const file of markdownFilesIn(argv, workingDirectory)) vaults.requestOpen(file)
+    showMainWindow()
+  })
   app.on('activate', showMainWindow)
   app.on('window-all-closed', () => {
     if (process.platform !== 'darwin') app.quit()

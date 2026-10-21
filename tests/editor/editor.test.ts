@@ -13,6 +13,7 @@ vi.mock('mermaid/dist/mermaid.esm.min.mjs', () => ({ default: mermaidMock }))
 import { createLivePreviewEditor, type LivePreviewEditor } from '../../src/editor/index.ts'
 import { continueMarkup } from '../../src/editor/language.ts'
 import { linkAt } from '../../src/editor/links.ts'
+import { setEditorFocused } from '../../src/editor/live-preview/selection.ts'
 import { renderMermaid } from '../../src/editor/render/mermaid.ts'
 import { docWithSelection, markdownState, runCommand } from './helpers.ts'
 
@@ -91,8 +92,8 @@ describe('createLivePreviewEditor', () => {
     const ids = mermaidMock.render.mock.calls.map(([id]) => id)
     expect(new Set(ids).size).toBe(ids.length)
 
-    // Cursor inside the diagram: the source is editable again, no widget.
-    editor.view.dispatch({ selection: { anchor: 15 } })
+    // Cursor inside the diagram of a focused editor: the source is editable again, no widget.
+    editor.view.dispatch({ selection: { anchor: 15 }, effects: setEditorFocused.of(true) })
     expect(parent.querySelectorAll('.cm-lp-mermaid')).toHaveLength(1)
     expect(parent.textContent).toContain('A --> B')
 
@@ -111,7 +112,7 @@ describe('createLivePreviewEditor', () => {
     editor.view.dispatch({ selection: { anchor: editor.view.state.doc.length } })
     expect(parent.querySelector('.cm-lp-math-block .katex')).not.toBeNull()
     expect(parent.querySelector('.cm-lp-h1')?.textContent).toBe('Title')
-    editor.view.dispatch({ selection: { anchor: 3 } })
+    editor.view.dispatch({ selection: { anchor: 3 }, effects: setEditorFocused.of(true) })
     expect(parent.querySelector('.cm-lp-h1')?.textContent).toBe('# Title')
   })
 

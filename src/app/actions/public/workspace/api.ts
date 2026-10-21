@@ -1,9 +1,11 @@
 import { routes } from '../../../routes.ts'
 import type {
+  ExportResult,
   ImportCandidate,
   ImportSummary,
   JsonValue,
   NoteDocument,
+  OpenRequest,
   PreferencesState,
   SaveConflictBody,
   UiPatch,
@@ -109,4 +111,9 @@ export const client = {
   openExternal: (url: string) => post<unknown>(api.openExternal.href(), { url }),
 
   savePreferences: (patch: UiPatch) => post<PreferencesState>(api.preferencesSave.href(), patch),
+
+  exportNote: (id: string, format: 'html' | 'pdf' | 'markdown' | 'print') =>
+    post<ExportResult>(api.exportNote.href(), { id, format }),
+  exportFolder: (folder: string) => post<ExportResult>(api.exportFolder.href(), { folder }),
+  takeOpenRequest: () => post<OpenRequest | null>(api.openRequest.href()),
 }

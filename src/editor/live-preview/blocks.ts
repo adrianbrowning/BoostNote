@@ -5,7 +5,7 @@ import type { SyntaxNode } from '@lezer/common'
 
 import { editorHost, editorTheme, isExternalUrl } from '../config.ts'
 import { renderInlineMarkdown } from '../render/inline.ts'
-import { selectionTouches } from './selection.ts'
+import { editorFocused, selectionTouches } from './selection.ts'
 import {
   CheckboxWidget,
   CodeLanguageWidget,
@@ -29,6 +29,7 @@ export const previewWidgets = StateField.define<DecorationSet>({
     if (
       tr.docChanged ||
       tr.selection ||
+      tr.state.field(editorFocused, false) !== tr.startState.field(editorFocused, false) ||
       syntaxTree(tr.state) !== syntaxTree(tr.startState) ||
       tr.state.facet(editorTheme) !== tr.startState.facet(editorTheme)
     ) {

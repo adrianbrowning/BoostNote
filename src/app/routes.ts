@@ -11,6 +11,8 @@ export const routes = route({
   vendor: get('/vendor/*path'),
   /** `GET /vault-assets/<note id>?src=<link as written in the note>`: a file the note links to. */
   vaultAssets: get('/vault-assets/*path'),
+  /** The hidden window that lays out mermaid diagrams for export (`src/main/export.ts`). */
+  mermaidRenderer: get('/export/mermaid'),
   api: route('/api', {
     workspace: get('/workspace'),
     search: get('/search'),
@@ -39,5 +41,9 @@ export const routes = route({
     openExternal: post('/open-external'),
     preferences: get('/preferences'),
     preferencesSave: post('/preferences'),
+    exportNote: post('/export/note'),
+    exportFolder: post('/export/folder'),
+    /** Takes the pending "open this file" request (a `.md` opened from Finder/Explorer or argv). */
+    openRequest: post('/open-request'),
   }),
 })

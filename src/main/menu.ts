@@ -9,10 +9,15 @@ const REPOSITORY_URL = 'https://github.com/adrianbrowning/BoostNote'
 export function installMenu(send: (command: MenuCommand, index?: number) => void): void {
   const isMac = process.platform === 'darwin'
   const revealLabel = isMac ? 'Reveal in Finder' : process.platform === 'win32' ? 'Show in Explorer' : 'Show in Folder'
-  const item = (label: string, command: keyof typeof ACCELERATORS): MenuItemConstructorOptions => ({
+  // Ids are the commands, so tests (and anything else) can find an item: `Menu.getApplicationMenu().getMenuItemById(command)`.
+  const command = (label: string, name: MenuCommand): MenuItemConstructorOptions => ({
+    id: name,
     label,
-    accelerator: ACCELERATORS[command],
-    click: () => send(command),
+    click: () => send(name),
+  })
+  const item = (label: string, name: keyof typeof ACCELERATORS): MenuItemConstructorOptions => ({
+    ...command(label, name),
+    accelerator: ACCELERATORS[name],
   })
   const preferences = item(isMac ? 'Settings…' : 'Preferences…', 'preferences')
 
@@ -52,7 +57,19 @@ export function installMenu(send: (command: MenuCommand, index?: number) => void
         item('New Folder…', 'new-folder'),
         { type: 'separator' },
         item('Open Folder…', 'open-folder'),
-        { label: 'Import Boostnote Storage…', click: () => send('import-storage') },
+        command('Import Boostnote Storage…', 'import-storage'),
+        {
+          label: 'Export',
+          submenu: [
+            command('Note as HTML…', 'export-html'),
+            command('Note as PDF…', 'export-pdf'),
+            command('Note as Markdown…', 'export-markdown'),
+            { type: 'separator' },
+            command('Folder as HTML…', 'export-folder'),
+            command('Vault as HTML…', 'export-vault'),
+          ],
+        },
+        item('Print…', 'print'),
         { type: 'separator' },
         item(revealLabel, 'reveal-note'),
         { type: 'separator' },

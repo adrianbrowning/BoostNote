@@ -1,13 +1,13 @@
 # Boostnote modernisation
 
-Boostnote (Electron 4, React/Redux, webpack/grunt/babel, Stylus, CSON storage) is being rebuilt on a
+Boostnote (Electron 4, React/Redux, a bundler + task-runner + Babel build, Stylus, CSON storage) is being rebuilt on a
 current, much smaller stack. The work lands as a stack of PRs on `adrianbrowning/BoostNote`, one per
 phase. The legacy code is deleted in phase 1; read it with `git show origin/master:<path>` (for
 example `browser/main/lib/dataApi/`, `browser/lib/markdown.js`, `tests/fixtures/`).
 
 ## Decisions
 
-- **No webpack, grunt, babel, Stylus, React or Redux.** The UI is [Remix 3](https://remix.run)
+- **No bundler, task runner, Babel, Stylus, React or Redux.** The UI is [Remix 3](https://remix.run)
   (`remix@3.0.0`): components are `function C(handle) { return () => <jsx/> }`, state lives in setup
   scope, `handle.update()` re-renders, events use `mix={on('click', …)}`. Remix 3 is not React and
   shares no APIs with Remix 2 / React Router; the installed docs are in `node_modules/remix/INDEX.md`.
@@ -35,8 +35,10 @@ example `browser/main/lib/dataApi/`, `browser/lib/markdown.js`, `tests/fixtures/
 - pnpm 10, Node ≥ 24, ESM everywhere, TypeScript strict (`tsc` type-checks only, `noEmit`).
 - Electron 45; packaging with electron-builder (`electron-builder.yml`), no auto-update.
 - Biome (`biome.json`) for lint + format; Vitest for unit tests (`happy-dom` where a DOM is needed);
-  Playwright `_electron` for end-to-end smoke tests (phase 6).
-- CI (`.github/workflows/ci.yml`): `pnpm check`, `pnpm typecheck`, `pnpm test` on macOS and Ubuntu.
+  Playwright `_electron` for end-to-end smoke tests (`pnpm test:e2e`, `tests/e2e`).
+- CI (`.github/workflows/ci.yml`): `pnpm check`, `pnpm typecheck`, `pnpm test`, `pnpm build` and the
+  e2e suite (under `xvfb-run` on Linux) on macOS and Ubuntu; `v*` tags also package installers (see
+  "Export and release (phase 6)").
 
 ### Loading TypeScript/JSX in the main process: `remix/node-tsx`, no transpile step
 
@@ -50,13 +52,16 @@ only add a second compiler and a `build/` directory without removing the runtime
 
 Consequences:
 
-- `pnpm build` does not emit files. It type-checks and then renders `/` with production settings and
-  fetches every asset the page references (`scripts/verify-assets.ts`), so broken browser code fails
-  before packaging.
+- `pnpm build` does not emit files. It type-checks and then renders `/` and `/export/mermaid` with
+  production settings and fetches every asset they reference (`scripts/verify-assets.ts`), so broken
+  browser code fails before packaging.
 - The packaged app ships `src/`, `tsconfig.json` (node-tsx and the asset server read its JSX settings)
-  and `remix.json`, and is packaged **without asar** (`asar: false`): inside an asar archive the app
-  was observed to hang before `ready`, most likely because the native oxc/lightningcss binaries behind
-  node-tsx and the asset server read real files rather than Electron's virtual asar filesystem.
+  and `remix.json`, and is packaged **without asar** (`asar: false`). Re-checked in phase 6 with
+  `asar: true` + `asarUnpack: ["**/*.node"]`: node-tsx loads the main process from the archive (Node's
+  `fs` is asar-aware), but the asset server resolves and compiles browser modules with native code
+  (oxc-resolver, oxc, lightningcss) that sees only the real filesystem, so nothing inside `app.asar`
+  exists for it, `getScriptEntry` in `assets.ts` fails and no window ever opens. Unpacking everything
+  the asset server reads (`src/` plus the browser packages) would amount to no asar.
 - In production (`app.isPackaged`) the asset server minifies and fingerprints URLs (immutable caching);
   in development (`pnpm dev`) it watches `src/` and serves source maps.
 
@@ -119,7 +124,9 @@ returns `{ view, setDoc(doc, { preserveSelection }), setTheme, focus, destroy }`
   and code fences unless the selection touches the construct (line-level markers: its line).
   `live-preview/blocks.ts` (state field, because block widgets span lines) replaces images, task
   markers, `---`, GFM tables, `$…$`/`$$…$$`/```` ```math ```` and ```` ```mermaid ```` with widgets while
-  the selection is outside them. Blocks inside a quote or list item stay as source.
+  the selection is outside them. Blocks inside a quote or list item stay as source. While the view is
+  unfocused (`live-preview/selection.ts` tracks focus in state via `EditorView.focusChangeEffect`) the
+  selection counts as absent, so the whole note renders, including the construct under the cursor.
 - **Syntax.** GFM via `@lezer/markdown` plus a small math extension (`syntax/math.ts`); `$5 and $6`
   stays text. Fenced code highlights with `@codemirror/language-data`, loaded on first use.
 - **Mermaid** is imported on first diagram (`render/mermaid.ts`), `securityLevel: 'strict'`, theme
@@ -192,6 +199,9 @@ JSON `{ error, message }`: `VaultError` `INVALID_PATH`/`NOT_A_VAULT` → 400, `N
 | `GET /api/import/candidates` · `POST /api/import/pick {purpose}` · `POST /api/import/run {source, target, dryRun, force}` | Importer: storages found on this machine, folder dialog, dry run / run → summary |
 | `POST /api/open-external {url}` | http(s) links only |
 | `GET /api/preferences` · `POST /api/preferences {…UiPatch}` | `{ ui, hotkeyRegistered }`; save validates every field, `409 HOTKEY_UNAVAILABLE` when the OS refuses the global hotkey (phase 5) |
+| `POST /api/export/note {id, format: html\|pdf\|markdown\|print}` · `POST /api/export/folder {folder}` | Export (phase 6) → `{ path }` (`null`: cancelled / printed) |
+| `POST /api/open-request` | Takes the pending "open this `.md`" request → `{ vault, id }` or `null` (phase 6) |
+| `GET /export/mermaid` | Hidden page that lays out mermaid diagrams for export (phase 6) |
 
 ### Editor integration and conflict rules
 
@@ -272,11 +282,13 @@ side; `SettingsStore.ui` normalises the stored section (invalid fields fall back
 
 Every app shortcut is a native menu accelerator (`ACCELERATORS` in
 `src/app/actions/public/workspace/shortcuts.ts`, shared by `src/main/menu.ts`): File (New Note ⌘N,
-New Folder ⇧⌘N, Open Folder ⌘O, Import, Reveal ⌥⌘R, Close Tab ⌘W, Reopen Closed Tab ⇧⌘T), Edit (roles,
+New Folder ⇧⌘N, Open Folder ⌘O, Import, Export ▸ Note as HTML/PDF/Markdown, Folder/Vault as HTML,
+Print ⌘P, Reveal ⌥⌘R, Close Tab ⌘W, Reopen Closed Tab ⇧⌘T), Edit (roles,
 Find… ⌘F → the editor's search panel), View (Toggle Sidebar ⇧⌘E, Toggle Note List ⇧⌘J, Toggle
 Properties ⇧⌘P, Back ⌘[, Forward ⌘], reload/devtools, zoom roles, full screen), Window (Next/Previous
 Tab Ctrl+Tab / Ctrl+⇧Tab, Select Tab ⌘1…⌘9), Help (GitHub, these notes, Report an Issue). Items reach
-the renderer as SSE `menu` events (`{ command, index? }`). The renderer binds none of these keys
+the renderer as SSE `menu` events (`{ command, index? }`); each item's `id` is its command, so
+`Menu.getApplicationMenu().getMenuItemById(command)` finds it (the e2e tests click items that way). The renderer binds none of these keys
 itself; a capture-phase `keydown` listener only stops their propagation (without `preventDefault`)
 so CodeMirror's own bindings (Mod-[ / Mod-] indent, Mod-F) don't act as well. Each shortcut thus fires
 exactly once, through the menu. Mouse back/forward buttons and Cmd/Ctrl/middle-click are handled in
@@ -287,6 +299,78 @@ the renderer (no menu equivalent).
 `excerptOf` (`src/vault/note.ts`) produces plain text: no leftover frontmatter, fenced code, math
 blocks, HTML tags/comments, images, link URLs, footnotes, table pipes or markdown markers; the first
 H1 is skipped, whitespace collapsed, at most 160 characters.
+
+## Export and release (phase 6)
+
+### Renderer (`src/markdown`)
+
+Plain Node, no Electron. `renderMarkdown(markdown, { resolveImage, rewriteLink, renderMermaid })`
+strips frontmatter and renders with markdown-it: GFM tables, strikethrough, linkify autolinks, task
+lists (disabled checkboxes, GitHub's classes), footnotes (`markdown-it-footnote`), GitHub-style
+heading ids (deduplicated `-1`, `-2`), math with the editor's rules (`src/markdown/math.ts` mirrors
+`src/editor/syntax/math.ts`: `$…$` not before a digit, `$$…$$`, ```` ```math ````) rendered by the
+editor's own KaTeX call, and fenced code highlighted server-side with the editor's parsers
+(`@codemirror/language-data` + `highlightCode`) and the same tag groups/colours as its highlight style.
+
+Sanitising: markdown-it runs with `html: true`, then `sanitize-html` applies an allow-list (no
+scripts, styles, frames, forms, event handlers or `javascript:`; `input` only as a disabled checkbox;
+classes limited to the ones the renderer emits; `text-align` the only style). Generated KaTeX,
+highlighted code and mermaid SVG are inserted *after* sanitising through slot tokens carrying a
+per-render random nonce, so a note cannot forge one. Relative image `src`s are resolved after
+sanitising too (`resolveImage`, async); relative link `href`s go through `rewriteLink`.
+
+`htmlDocument` wraps the body in a standalone page: inline CSS (the editor's light palette), KaTeX's
+stylesheet with its WOFF2 fonts inlined as `data:` URIs (only when the note has math), and a CSP meta
+tag that forbids scripts and any fetch except images. `noteToHtml` inlines a note's images
+(`vault.assetPath` → `data:` URI); `exportFolderHtml` writes one page per note at the same relative
+path, `.md` links rewritten to `.html`, plus an `index.html` listing (`_contents.html` when the folder
+has its own `index.md`, which then becomes `index.html`); `exportNoteMarkdown` copies the file and its
+`<stem>.assets/` (renamed after the new file name, links rewritten).
+
+### Mermaid, PDF and printing (`src/main/export.ts`)
+
+Mermaid needs a DOM to measure text. Main lazily opens a hidden, sandboxed window on
+`boost://app/export/mermaid`, whose only script (`public/mermaid-renderer.ts`) exposes
+`window.boostRenderMermaid(source)` built on the editor's `renderMermaid` (`securityLevel: 'strict'`,
+light theme), and calls it with `executeJavaScript`; errors come back as values and render as an error
+box. The window closes after a minute idle. PDF: the finished document is written to a temp file,
+loaded into a hidden window, `document.fonts.ready` is awaited, then `webContents.printToPDF` (A4,
+backgrounds). Print (⌘P) does the same with `webContents.print`, i.e. the system print dialog. Save
+dialogs (`dialog.showSaveDialog`, default folder Documents) and folder pickers run in main; all of
+this is `AppServices.exports`, faked in tests. The workspace saves the open note before exporting
+and shows "Exported to …"; folder exports create `<name> (HTML)` (or `… 2`) inside the chosen folder
+and reveal it. Sidebar folder menus have "Export as HTML…".
+
+### Opening `.md` files
+
+`electron-builder.yml` declares a `.md` file association (role Editor, rank Alternate). macOS
+delivers files through `open-file` (also before `ready`), Windows/Linux through argv (first launch)
+or `second-instance` argv. Main records the file (`VaultSession.requestOpen`) and pushes SSE
+`open-request`; the workspace takes it (`POST /api/open-request`) after hydrating and on that event,
+saves the open note, opens the file's folder as the vault unless it is already open, and opens the
+note in a new tab (or its existing tab). A request made before the window exists is therefore not lost.
+
+### End-to-end tests (`tests/e2e`, `pnpm test:e2e`)
+
+Playwright `_electron` launches the app from source with a temp vault and `--user-data-dir` profile
+(settings preset with `lastVault` and the global hotkey off) and waits for the SSE connection before
+sending menu commands. Native dialogs are answered by replacing `dialog.showSaveDialog` /
+`showOpenDialog` in main via `electronApp.evaluate`. Covered: a note renders mermaid SVG and KaTeX
+(fully rendered while unfocused); typing is saved to disk; an external write live-reloads; tabs survive
+a reload; importing the legacy fixture storage through the dialog; HTML export contains mermaid `<svg>`
+and KaTeX markup (and is screenshotted in a window); PDF export; a `.md` passed on argv and via
+`open-file`. `pnpm test` stays unit-only (Vitest excludes `tests/e2e`).
+
+### Packaging and release
+
+`pnpm dist` on macOS (arm64) builds `Boostnote-<version>-arm64.dmg` and `-mac.zip`; the app from the
+dmg launches (`app.isPackaged`), renders mermaid/KaTeX and exports PDF/HTML (phase 6 smoke run).
+No asar (see Toolchain). App id `io.boostnote.app`, product name Boostnote, existing icons from
+`resources/`. Local builds may pick up unrelated signing identities from the keychain; set
+`CSC_IDENTITY_AUTO_DISCOVERY=false` for an unsigned build. On `v*` tags CI builds macOS, Windows and
+Linux installers on their own runners (`release` job) and attaches them to a draft GitHub release
+(`publish` job). Signing is optional: `CSC_LINK`/`CSC_KEY_PASSWORD` secrets enable it, `APPLE_ID`,
+`APPLE_APP_SPECIFIC_PASSWORD`, `APPLE_TEAM_ID` notarisation; without them artifacts are unsigned.
 
 ## Phases (stack bottom → top)
 
@@ -302,8 +386,9 @@ H1 is skipped, whitespace collapsed, at most 160 characters.
    integration with autosave and live reload, note/folder CRUD with trash, in-app importer.
 5. `modernise/05-tabs-properties` — tabs with per-tab history, properties panel, preferences, native
    menus + shortcuts, global show/hide hotkey.
-6. `modernise/06-export-release` — HTML/PDF export, print, copy as markdown, Playwright smoke tests,
-   packaging verification, README/contributing rewrite.
+6. `modernise/06-export-release` — export renderer, HTML/PDF/Markdown export (notes, folders, vault),
+   print, `.md` file associations, unfocused fully rendered editor, Playwright smoke tests, packaging
+   verification and tag releases, README/contributing rewrite.
 
 ## Remix notes
 

@@ -17,9 +17,23 @@ files:
   - src/**/*
   - resources/app.png
   - "!**/*.test.*"
-# No asar: packaged inside an archive the app was observed to hang before `ready`, most likely because
-# the native oxc/lightningcss toolchain behind node-tsx and the asset server cannot read asar entries.
+# No asar. Tried with `asar: true` + `asarUnpack: ["**/*.node"]` (phase 6): node-tsx then loads the
+# main process from the archive fine (Node's fs is asar-aware), but the asset server resolves and
+# reads browser modules with native code (oxc-resolver, oxc, lightningcss) that sees only the real
+# filesystem, so nothing inside app.asar exists for it: resolution escapes the archive (or fails),
+# the top-level `getScriptEntry` in src/app/assets.ts never succeeds and the app never opens a
+# window. Unpacking everything the asset server reads (src/ and the browser packages) is no asar.
 asar: false
+
+# Opening a .md file (Finder "Open With", double-click, Explorer) opens its folder as a vault and the
+# note in a tab (`open-file` on macOS, argv on Windows/Linux; see src/main/main.ts).
+fileAssociations:
+  - ext: md
+    name: Markdown Document
+    description: Markdown note
+    mimeType: text/markdown
+    role: Editor
+    rank: Alternate
 
 mac:
   category: public.app-category.productivity

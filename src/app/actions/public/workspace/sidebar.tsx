@@ -39,6 +39,7 @@ export function Sidebar(handle: Handle<{ model: WorkspaceModel }>) {
     model.openMenu(x, y, [
       { kind: 'action', label: 'New Note', run: () => void model.newNote(folder.id) },
       { kind: 'action', label: 'New Folder…', run: () => void model.newFolder(folder.id) },
+      { kind: 'action', label: 'Export as HTML…', run: () => void model.exportFolder(folder.id) },
       ...(isRoot
         ? []
         : ([

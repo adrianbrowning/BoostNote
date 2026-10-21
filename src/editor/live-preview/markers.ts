@@ -3,7 +3,7 @@ import type { EditorState, Range } from '@codemirror/state'
 import { Decoration, type DecorationSet, type EditorView, ViewPlugin, type ViewUpdate } from '@codemirror/view'
 import type { SyntaxNode } from '@lezer/common'
 
-import { selectionTouches } from './selection.ts'
+import { editorFocused, selectionTouches } from './selection.ts'
 import { BulletWidget } from './widgets.ts'
 
 const hidden = Decoration.replace({})
@@ -180,6 +180,7 @@ export const livePreviewMarkers = ViewPlugin.fromClass(
         update.docChanged ||
         update.selectionSet ||
         update.viewportChanged ||
+        update.state.field(editorFocused, false) !== update.startState.field(editorFocused, false) ||
         syntaxTree(update.state) !== syntaxTree(update.startState)
       ) {
         this.decorations = buildForView(update.view)

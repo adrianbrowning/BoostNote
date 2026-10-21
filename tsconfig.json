@@ -16,6 +16,6 @@
     "jsxImportSource": "remix/component",
     "noEmit": true
   },
-  "include": ["src", "tests", "scripts", "vitest.config.ts"],
+  "include": ["src", "tests", "scripts", "vitest.config.ts", "playwright.config.ts"],
   "exclude": ["dist", "node_modules"]
 }

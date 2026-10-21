@@ -15,6 +15,7 @@ import { markdownSupport } from './language.ts'
 import { openLinkOnModClick } from './links.ts'
 import { previewWidgets } from './live-preview/blocks.ts'
 import { livePreviewMarkers } from './live-preview/markers.ts'
+import { editorFocusTracking, setEditorFocused } from './live-preview/selection.ts'
 import { pasteAndDrop } from './paste.ts'
 import { slashCommandMenu } from './slash.ts'
 import { editorStyles, themeExtension } from './theme.ts'
@@ -81,6 +82,7 @@ function livePreviewExtensions(): Extension {
     markdownSupport(),
     livePreviewMarkers,
     previewWidgets,
+    editorFocusTracking,
     editorStyles,
     history(),
     drawSelection(),
@@ -123,6 +125,8 @@ export function createLivePreviewEditor(opts: LivePreviewEditorOptions): LivePre
     setDoc(doc, setOpts) {
       if (!setOpts?.preserveSelection) {
         view.setState(createState(doc))
+        // A new state starts unfocused and setState doesn't re-notify focus, so restore it for a focused view.
+        if (view.hasFocus) view.dispatch({ effects: setEditorFocused.of(true) })
         return
       }
       const current = view.state.doc.toString()
