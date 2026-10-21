@@ -72,6 +72,12 @@ export interface WriteNoteInput {
   body: string
   /** Replaces the frontmatter; omit to keep the file's current frontmatter. */
   frontmatter?: Frontmatter
+  /**
+   * Hash the caller's copy was based on (`Note.hash`); `null` means the note must not exist. The
+   * file is checked on entry and again just before it is replaced, and the write fails with
+   * `CHANGED` if it differs. Omit to write unconditionally.
+   */
+  baseHash?: string | null
 }
 
 export interface CreateNoteOptions {
@@ -235,7 +241,13 @@ export class Vault {
   writeNote(id: string, input: WriteNoteInput): Promise<Note> {
     return this.#exclusive(async () => {
       const file = await resolveInside(this.root, noteSegments(id))
+      const assertBase = (raw: string | undefined) => {
+        if (input.baseHash === undefined) return
+        const hash = raw === undefined ? null : hashText(raw)
+        if (hash !== input.baseHash) throw new VaultError('CHANGED', `Note changed on disk: ${id}`)
+      }
       const previousRaw = await readOptional(file)
+      assertBase(previousRaw)
       const previous = previousRaw === undefined ? undefined : parseNoteText(previousRaw)
       const frontmatter = { ...(input.frontmatter ?? previous?.frontmatter ?? {}) }
       const now = new Date().toISOString()
@@ -245,7 +257,8 @@ export class Vault {
       }
       frontmatter.updated = now
       const raw = serializeNoteText(frontmatter, input.body, previous)
-      await writeFileAtomic(file, raw)
+      // An outside program may write between the read above and the rename; check again last.
+      await writeFileAtomic(file, raw, async () => assertBase(await readOptional(file)))
       return this.#track(id, file, raw)
     })
   }

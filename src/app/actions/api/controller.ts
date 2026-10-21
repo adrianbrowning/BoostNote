@@ -106,6 +106,14 @@ export function createApiController(services: AppServices) {
         ) {
           throw new HttpError(400, 'BAD_REQUEST', 'Missing or invalid "frontmatter"')
         }
+        const conflict = (current: Note) => {
+          const conflictBody: SaveConflictBody = {
+            error: 'CONFLICT',
+            message: 'The note changed on disk since it was loaded',
+            note: toNoteDocument(current),
+          }
+          return json(conflictBody, { status: 409 })
+        }
         return serializeSave(async () => {
           let current: Note | undefined
           try {
@@ -113,14 +121,7 @@ export function createApiController(services: AppServices) {
           } catch (error) {
             if (baseHash !== null || !(error instanceof VaultError && error.code === 'NOT_FOUND')) throw error
           }
-          if (current && current.hash !== baseHash) {
-            const conflict: SaveConflictBody = {
-              error: 'CONFLICT',
-              message: 'The note changed on disk since it was loaded',
-              note: toNoteDocument(current),
-            }
-            return json(conflict, { status: 409 })
-          }
+          if (current && current.hash !== baseHash) return conflict(current)
           // Values the client got as JSON and sent back unchanged keep their original YAML value
           // (JSON can't represent everything YAML can, e.g. `.nan`), so only real edits are written.
           const previous = current?.frontmatter ?? {}
@@ -134,8 +135,18 @@ export function createApiController(services: AppServices) {
                     return [key, unchanged ? original : value]
                   }),
                 )
-          const note = await vault.writeNote(id, { body: text, ...(next === undefined ? {} : { frontmatter: next }) })
-          return json(toNoteDocument(note))
+          try {
+            const note = await vault.writeNote(id, {
+              body: text,
+              baseHash,
+              ...(next === undefined ? {} : { frontmatter: next }),
+            })
+            return json(toNoteDocument(note))
+          } catch (error) {
+            // Another program wrote the file while this save was in flight; theirs is on disk.
+            if (error instanceof VaultError && error.code === 'CHANGED') return conflict(await vault.readNote(id))
+            throw error
+          }
         })
       }),
 

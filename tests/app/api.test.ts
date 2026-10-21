@@ -33,7 +33,13 @@ async function readJson<T>(response: Response): Promise<T> {
 
 describe('error mapping', () => {
   it('maps every VaultError code to an HTTP status', async () => {
-    expect(VAULT_ERROR_STATUS).toEqual({ INVALID_PATH: 400, NOT_FOUND: 404, EXISTS: 409, NOT_A_VAULT: 400 })
+    expect(VAULT_ERROR_STATUS).toEqual({
+      INVALID_PATH: 400,
+      NOT_FOUND: 404,
+      EXISTS: 409,
+      NOT_A_VAULT: 400,
+      CHANGED: 409,
+    })
     const response = errorResponse(new VaultError('EXISTS', 'Already exists: a.md'))
     expect(response.status).toBe(409)
     expect(await response.json()).toEqual({ error: 'EXISTS', message: 'Already exists: a.md' })
