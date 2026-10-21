@@ -4,6 +4,7 @@ import { getContext } from 'remix/middleware/async-context'
 
 import { baseStylesHref, scriptEntry } from '../assets.ts'
 import { CspNonce } from '../middleware/content-security-policy.ts'
+import { vendorImportMap } from '../vendor.ts'
 
 export interface DocumentProps {
   children?: RemixNode
@@ -28,7 +29,10 @@ export function Document(handle: Handle<DocumentProps>) {
           <title>{title}</title>
           <link rel="stylesheet" href={baseStylesHref} />
           {head}
-          <ImportMap value={importMap} nonce={nonce} />
+          <ImportMap
+            value={{ ...importMap, imports: { ...importMap.imports, ...vendorImportMap.imports } }}
+            nonce={nonce}
+          />
           {preloads.map((preloadHref) => (
             <link key={preloadHref} rel="modulepreload" href={preloadHref} />
           ))}

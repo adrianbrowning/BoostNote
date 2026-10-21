@@ -2,6 +2,8 @@ import * as path from 'node:path'
 import { createAssetServer } from 'remix/assets'
 import { loadConfig } from 'remix/cli'
 
+import { vendorSpecifiers } from './vendor.ts'
+
 /** Project root: the asset server resolves `remix.json` paths from here, in dev and in the packaged app. */
 export const rootDir = path.resolve(import.meta.dirname, '../..')
 
@@ -18,6 +20,8 @@ export const assets = createAssetServer({
   // Recompile browser sources as they change during `pnpm dev`; packaged sources never change.
   watch: isDevelopment,
   fingerprint: !isDevelopment,
+  // Served by `/vendor/*` and resolved through `vendorImportMap` (see vendor.ts).
+  scripts: { external: vendorSpecifiers },
   onError(error) {
     console.error('Failed to build client asset', error)
   },
@@ -25,3 +29,5 @@ export const assets = createAssetServer({
 
 export const scriptEntry = await assets.getScriptEntry('src/app/actions/public/entry.ts')
 export const baseStylesHref = await assets.getHref('src/app/ui/public/base.css')
+/** KaTeX's stylesheet (and, through it, its fonts): every page that shows the editor links it. */
+export const katexStylesHref = await assets.getHref('node_modules/katex/dist/katex.min.css')

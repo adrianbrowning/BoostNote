@@ -4,7 +4,9 @@
 // the first error. Run before packaging so broken client code never ships.
 process.env.NODE_ENV = 'production'
 
+// Dynamic so NODE_ENV is set before assets.ts reads it.
 const { router } = await import('../src/app/router.ts')
+const { assets, katexStylesHref } = await import('../src/app/assets.ts')
 const origin = 'http://app'
 
 const page = await router.fetch(new URL('/', origin))
@@ -17,6 +19,10 @@ for (const match of html.matchAll(/<script[^>]*type="importmap"[^>]*>([^<]*)<\/s
   const importMap = JSON.parse(match[1] ?? '{}') as { imports?: Record<string, string> }
   for (const url of Object.values(importMap.imports ?? {})) urls.add(url)
 }
+// The live-preview editor (and every language it lazy-loads) is not on `/` until the workspace lands.
+const editorGraph = await assets.getImportMap(['src/editor/index.ts'])
+for (const url of Object.values(editorGraph.imports ?? {})) urls.add(url)
+urls.add(katexStylesHref)
 
 for (const url of urls) {
   const response = await router.fetch(new URL(url, origin))
@@ -24,4 +30,4 @@ for (const url of urls) {
   await response.arrayBuffer()
 }
 
-console.log(`Rendered / and compiled ${urls.size} browser assets.`)
+console.log(`Rendered / and compiled ${urls.size} browser assets (including the editor).`)

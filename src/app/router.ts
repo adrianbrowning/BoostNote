@@ -3,9 +3,10 @@ import { render } from 'remix/middleware/render'
 import { createRouter, type MiddlewareContext } from 'remix/router'
 
 import controller from './actions/controller.tsx'
+import devController from './actions/dev/controller.tsx'
 import { assets } from './assets.ts'
 import { contentSecurityPolicy } from './middleware/content-security-policy.ts'
-import { routes } from './routes.ts'
+import { devRoutes, routes } from './routes.ts'
 
 // `asyncContext()` lets server components read request values (the CSP nonce) via `getContext()`.
 const middleware = [asyncContext(), contentSecurityPolicy(), render({ assets })] as const
@@ -23,3 +24,6 @@ export const router = createRouter<AppContext>({
 })
 
 router.map(routes, controller)
+
+// Developer harnesses (e.g. `/dev/editor`) exist only in the unpackaged app.
+if (process.env.NODE_ENV === 'development') router.map(devRoutes, devController)

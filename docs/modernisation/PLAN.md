@@ -75,7 +75,9 @@ Consequences:
 │   src/app/router.ts  (Remix router: asyncContext → CSP nonce → render middleware)        │
 │     ├─ GET /          server-rendered document (src/app/ui/document.tsx)                 │
 │     ├─ GET /assets/*  remix/assets: compiles src/**/public/**, src/editor/**, packages   │
-│     └─ GET /events    text/event-stream from the SSE hub                                 │
+│     ├─ GET /vendor/*  allow-listed package files served verbatim (mermaid's ESM build)  │
+│     ├─ GET /events    text/event-stream from the SSE hub                                 │
+│     └─ GET /dev/*     developer harnesses (/dev/editor), unpackaged app only           │
 │   src/vault (phase 2)  plain Node storage core, used by router controllers               │
 └──────────────────────────────────────────────────────────────────────────────────────────┘
                  ▲  boost://app/... (HTML, JS, CSS, fetch, forms)   │  SSE: event: menu …
@@ -101,6 +103,46 @@ App-level settings live in `<userData>/settings.json` (owned by main; phase 1 st
 bounds). `userData` is `<appData>/Boostnote Modern`, deliberately not legacy Boostnote's
 `<appData>/Boostnote`: sharing it would make both apps contend for the single-instance lock and let
 Chromium 140+ migrate the Electron 4 profile in place.
+
+## Editor (phase 3)
+
+`src/editor` is the live-preview editor: one CodeMirror 6 view whose document is the markdown source,
+browser-only and framework-agnostic. Public API (`src/editor/index.ts`):
+`createLivePreviewEditor({ parent, doc, theme, onChange, resolveAssetUrl, saveAsset, onOpenLink })`
+returns `{ view, setDoc(doc, { preserveSelection }), setTheme, focus, destroy }`.
+
+- **Live preview.** `live-preview/markers.ts` (view plugin, visible ranges only) styles headings,
+  quotes, lists, code and links and hides `#`, `*`/`_`, `` ` ``, `~~`, link brackets/URLs, `>`, escapes
+  and code fences unless the selection touches the construct (line-level markers: its line).
+  `live-preview/blocks.ts` (state field, because block widgets span lines) replaces images, task
+  markers, `---`, GFM tables, `$…$`/`$$…$$`/```` ```math ```` and ```` ```mermaid ```` with widgets while
+  the selection is outside them. Blocks inside a quote or list item stay as source.
+- **Syntax.** GFM via `@lezer/markdown` plus a small math extension (`syntax/math.ts`); `$5 and $6`
+  stays text. Fenced code highlights with `@codemirror/language-data`, loaded on first use.
+- **Mermaid** is imported on first diagram (`render/mermaid.ts`), `securityLevel: 'strict'`, theme
+  `default`/`dark` from `setTheme`, renders serialised, SVG cached by source + theme, errors shown in
+  the widget. Its self-contained ESM build (`mermaid/dist/mermaid.esm.min.mjs`) bundles lodash/UMD
+  shims (`typeof exports == "object" && exports`) that the asset server's CommonJS check rejects, and
+  `mermaid`'s main entry pulls in real CommonJS (dayjs). So the editor imports the bare specifier,
+  the asset server leaves it alone (`scripts.external`), `/vendor/mermaid/*` serves the allow-listed
+  dist files verbatim, and `Document` adds the specifier to its import map (`src/app/vendor.ts`).
+- **KaTeX** renders synchronously; pages that show the editor must link `katexStylesHref`
+  (`src/app/assets.ts`), whose fonts the asset server serves (`files.extensions` in `remix.json`).
+- **Editing.** `/` at line start or after whitespace opens the slash menu (autocomplete, filterable,
+  arrows/Enter/Esc). On an otherwise empty line the command converts the line in place; otherwise
+  it removes the `/query` and inserts the block after the current top-level block (Hubble semantics).
+  Mod-B/I/E/Shift-X toggle `**`/`*`/`` ` ``/`~~`, Mod-K links, Enter continues lists/tasks/quotes and
+  ends the list on an empty item, Tab/Shift-Tab nest list items by the sibling's marker width,
+  `( [ { "` auto-close, `` ` * _ ~ `` wrap a selection, Mod-F search. Pasted/dropped images go
+  through `saveAsset`; pasted HTML becomes GFM markdown (turndown + turndown-plugin-gfm).
+- **Themes.** Colours are CSS variables scoped to `.cm-editor` (values match `base.css`); hosts tune
+  `--editor-font`, `--editor-font-size`, `--editor-line-height`, `--editor-max-width`, `--editor-padding`.
+- **`setDoc`** without options resets the state (selection, history); with `preserveSelection` it
+  replaces only the changed middle so the selection maps through, isn't undoable, and doesn't call
+  `onChange`.
+- `GET /dev/editor` (development only) mounts the editor with in-memory callbacks next to its markdown
+  source; phase 4 replaces it with the workspace. `pnpm build` also compiles the editor's whole
+  graph, including every lazily loaded language.
 
 ## Phases (stack bottom → top)
 
@@ -146,7 +188,8 @@ Things about Remix 3 in this setup that are easy to get wrong:
 - **Asset server:** `allowFiles`/`mounts` come from `remix.json` via `loadConfig` from `remix/cli`;
   `rootDir` must be passed explicitly (the packaged app's cwd is `/`). Package files are served from
   `/assets/npm/.pnpm/...` (the asset server understands pnpm's store). New browser-side packages
-  (`@codemirror/*`, `@lezer/*`, `katex`, `mermaid`, …) must be added to `allowPackages`.
+  (`@codemirror/*`, `@lezer/*`, `katex`, …) must be added to `allowPackages`. The asset server rejects
+  anything that looks like CommonJS; such packages need an ESM build or `/vendor/*` (see Editor).
 - **Import maps:** Electron 45's Chromium supports multiple import maps natively, so `entry.ts` uses a
   plain dynamic `import()` instead of `remix/multiple-import-maps-polyfill`.
 - **`scriptEntry` is resolved once at startup** (top-level await in `assets.ts`); its preload list goes

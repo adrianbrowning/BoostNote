@@ -3,6 +3,7 @@ import { createController } from 'remix/router'
 import { eventHub } from '../../main/events.ts'
 import { assets } from '../assets.ts'
 import { routes } from '../routes.ts'
+import { serveVendorFile } from '../vendor.ts'
 import { HomePage } from './home-page.tsx'
 
 export default createController(routes, {
@@ -15,6 +16,9 @@ export default createController(routes, {
     },
     events(context) {
       return eventHub.subscribe(context.request.signal)
+    },
+    vendor(context) {
+      return serveVendorFile(context.request, context.params.path)
     },
   },
 })
