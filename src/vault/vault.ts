@@ -384,6 +384,9 @@ export class Vault {
         notesUpdated: 0,
       }
       const moved = new Map<string, string>()
+      // An unexpected error stops further renames, but links to the files already renamed are
+      // still rewritten below before it is rethrown, so the vault is never left with dangling links.
+      let fatal: { error: unknown } | undefined
       for (const rename of plan.renames) {
         try {
           noteSegments(rename.from)
@@ -407,11 +410,17 @@ export class Vault {
             report.titlesRemoved++
           }
         } catch (error) {
-          if (!(error instanceof VaultError)) throw error
+          if (!(error instanceof VaultError)) {
+            fatal = { error }
+            break
+          }
           report.skipped.push({ id: rename.from, reason: error.message })
         }
       }
-      if (moved.size === 0) return report
+      if (moved.size === 0) {
+        if (fatal) throw fatal.error
+        return report
+      }
       const movedAssets = new Map(
         [...moved].map(([from, to]) => [from.replace(/\.md$/, ASSETS_SUFFIX), to.replace(/\.md$/, ASSETS_SUFFIX)]),
       )
@@ -444,6 +453,7 @@ export class Vault {
         report.linksRewritten += rewritten
         report.notesUpdated++
       }
+      if (fatal) throw fatal.error
       return report
     })
   }
