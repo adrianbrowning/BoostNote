@@ -3,9 +3,9 @@ import * as os from 'node:os'
 import * as path from 'node:path'
 
 import { type AppRouter, createAppRouter } from '../../src/app/router.ts'
-import type { FolderPickerOptions } from '../../src/app/services.ts'
+import type { FolderPickerOptions, PreferenceServices } from '../../src/app/services.ts'
 import { createEventHub, type EventHub } from '../../src/main/events.ts'
-import { SettingsStore } from '../../src/main/settings.ts'
+import { SettingsStore, type UiPreferences } from '../../src/main/settings.ts'
 import { VaultSession } from '../../src/main/vault-session.ts'
 import type { LegacyStorageLocation } from '../../src/migrate/index.ts'
 import type { Vault } from '../../src/vault/index.ts'
@@ -25,6 +25,12 @@ export class TestApp {
   readonly opened: string[] = []
   readonly revealed: string[] = []
   readonly legacyStorages: LegacyStorageLocation[] = []
+  /** Preferences passed to `preferences.apply`, oldest first. */
+  readonly applied: UiPreferences[] = []
+  /** Accelerators the fake OS refuses to register. */
+  readonly takenHotkeys: string[] = []
+  /** The fake `PreferenceServices` (`registeredHotkey` is what the fake OS has registered). */
+  readonly preferences: { registeredHotkey: string | undefined } & PreferenceServices
 
   static async create(): Promise<TestApp> {
     return new TestApp(await mkdtemp(path.join(os.tmpdir(), 'boostnote-app-')))
@@ -34,9 +40,23 @@ export class TestApp {
     this.dir = dir
     this.settings = new SettingsStore(path.join(dir, 'userData', 'settings.json'))
     this.vaults = new VaultSession({ settings: this.settings, events: this.events, debounceMs: 20 })
+    const preferences = {
+      registeredHotkey: undefined as string | undefined,
+      apply: (ui: UiPreferences) => {
+        this.applied.push(ui)
+      },
+      setHotkey: (accelerator: string) => {
+        if (this.takenHotkeys.includes(accelerator)) return false
+        preferences.registeredHotkey = accelerator === '' ? undefined : accelerator
+        return true
+      },
+    }
+    this.preferences = preferences
     this.router = createAppRouter({
       events: this.events,
       vaults: this.vaults,
+      settings: this.settings,
+      preferences,
       pickFolder: async (options) => {
         this.pickerCalls.push(options)
         return this.picks.shift()

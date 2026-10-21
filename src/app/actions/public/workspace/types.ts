@@ -2,9 +2,17 @@
  * JSON shapes exchanged between the workspace client entry and the `/api` routes. Types only, so
  * both the browser modules and the main-process controllers import them.
  */
-import type { MenuCommand, VaultChangeEvent } from '../../../../main/events.ts'
+import type { MenuCommand, MenuEvent, VaultChangeEvent } from '../../../../main/events.ts'
+import type { PaneLayout, ThemePreference, UiPatch, UiPreferences } from '../../../../main/settings.ts'
 
-export type { MenuCommand, VaultChangeEvent }
+export type { MenuCommand, MenuEvent, PaneLayout, ThemePreference, UiPatch, UiPreferences, VaultChangeEvent }
+
+/** `GET`/`POST /api/preferences`. */
+export interface PreferencesState {
+  ui: UiPreferences
+  /** Whether `ui.globalHotkey` is registered with the OS right now. */
+  hotkeyRegistered: boolean
+}
 
 export type JsonValue = string | number | boolean | null | JsonValue[] | { [key: string]: JsonValue }
 

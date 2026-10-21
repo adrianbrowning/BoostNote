@@ -84,23 +84,90 @@ function readDate(value: unknown, fallback: Date): string {
   return fallback.toISOString()
 }
 
-function excerptOf(body: string): string {
-  const lines: string[] = []
+/** Length of a note-list excerpt, ellipsis included. */
+export const EXCERPT_LENGTH = 160
+
+const ENTITIES: Record<string, string> = { amp: '&', lt: '<', gt: '>', quot: '"', apos: "'", nbsp: ' ' }
+
+/** Removes block-level markers: quotes, headings, list bullets/numbers and task boxes. */
+function stripBlockMarkers(line: string): string {
+  let text = line
+  for (;;) {
+    const next = text
+      .replace(/^\s*>\s?/, '')
+      .replace(/^\s*#{1,6}(?:\s+|$)/, '')
+      .replace(/^\s*(?:[-*+]|\d{1,9}[.)])\s+/, '')
+      .replace(/^\s*\[[ xX]\]\s+/, '')
+    if (next === text) return text.replace(/\s+#+\s*$/, '')
+    text = next
+  }
+}
+
+/** Inline markdown → plain text: images and HTML dropped, links reduced to their text, markers removed. */
+function plainInline(text: string): string {
+  // Escaped punctuation is parked in the Private Use Area so no marker rule touches it.
+  return text
+    .replace(/\\([\\`*_{}[\]()#+\-.!|~<>$])/g, (_match, char: string) =>
+      String.fromCharCode(0xe000 + char.charCodeAt(0)),
+    )
+    .replace(/!\[[^\]]*\](?:\([^)]*\)|\[[^\]]*\])/g, ' ')
+    .replace(/\[\^[^\]]+\]/g, '')
+    .replace(/\[([^\]]*)\]\([^)]*\)/g, '$1')
+    .replace(/\[([^\]]+)\]\[[^\]]*\]/g, '$1')
+    .replace(/<[^>\n]*>/g, ' ')
+    .replace(/(`+)(.+?)\1/g, '$2')
+    .replace(/\$([^$\n]+)\$/g, '$1')
+    .replace(/(\*\*|__|~~|==)(.+?)\1/g, '$2')
+    .replace(/(?<![\w*])([*_])(?!\s)(.+?)(?<!\s)\1(?![\w*])/g, '$2')
+    .replace(/\|/g, ' ')
+    .replace(/&(amp|lt|gt|quot|apos|nbsp);/g, (_match, name: string) => ENTITIES[name] ?? '')
+    .replace(/[\ue000-\ue07f]/g, (char) => String.fromCharCode(char.charCodeAt(0) - 0xe000))
+}
+
+/**
+ * Plain-text preview of a body for the note list: no frontmatter (invalid YAML stays in the body),
+ * code blocks, math blocks, HTML, images, link URLs or markdown markers; the first H1 (the title in
+ * most notes) is skipped; whitespace collapsed; at most `EXCERPT_LENGTH` characters.
+ */
+export function excerptOf(body: string): string {
+  const text = body
+    .replace(/^\uFEFF?---[ \t]*\r?\n[\s\S]*?\r?\n(?:---|\.\.\.)[ \t]*(?:\r?\n|$)/, '')
+    .replace(/<!--[\s\S]*?-->/g, ' ')
+  const parts: string[] = []
   let length = 0
+  let fence: string | undefined
+  let math = false
   let skippedTitle = false
-  for (const line of body.split(/\r?\n/)) {
-    const text = stripInline(line.replace(/^\s*(?:#{1,6}\s+|[-*+]\s+(?:\[[ xX]\]\s+)?|\d+[.)]\s+|>\s?)/, ''))
-    if (text === '' || /^(?:`{3,}|~{3,}|-{3,}|\*{3,}|\|[-:| ]+\|?)$/.test(text)) continue
-    if (!skippedTitle && /^\s*#\s/.test(line)) {
+  for (const line of text.split(/\r?\n/)) {
+    const fenceMatch = /^\s*(?:>\s*)*(`{3,}|~{3,})/.exec(line)
+    if (fenceMatch?.[1]) {
+      const marker = fenceMatch[1]
+      if (fence === undefined) fence = marker
+      else if (marker[0] === fence[0] && marker.length >= fence.length) fence = undefined
+      continue
+    }
+    if (fence !== undefined) continue
+    if (/^\s*\$\$/.test(line)) {
+      if (!/^\s*\$\$.*\S.*\$\$\s*$/.test(line)) math = !math
+      continue
+    }
+    if (math) continue
+    if (!skippedTitle && /^ {0,3}#[ \t]/.test(line)) {
       skippedTitle = true
       continue
     }
-    lines.push(text)
-    length += text.length + 1
-    if (length >= 200) break
+    // Thematic breaks, setext underlines, table delimiter rows, link reference definitions.
+    if (/^ {0,3}(?:(?:[-*_][ \t]*){3,}|=+[ \t]*)$/.test(line)) continue
+    if (/^\s*\|?\s*:?-+:?\s*(?:\|\s*:?-+:?\s*)*\|?\s*$/.test(line) && line.includes('-')) continue
+    if (/^ {0,3}\[[^\]]+\]:\s*\S/.test(line)) continue
+    const plain = plainInline(stripBlockMarkers(line)).replace(/\s+/g, ' ').trim()
+    if (plain === '') continue
+    parts.push(plain)
+    length += plain.length + 1
+    if (length > EXCERPT_LENGTH) break
   }
-  const excerpt = lines.join(' ')
-  return excerpt.length > 200 ? `${excerpt.slice(0, 199)}…` : excerpt
+  const excerpt = parts.join(' ')
+  return excerpt.length > EXCERPT_LENGTH ? `${excerpt.slice(0, EXCERPT_LENGTH - 1).trimEnd()}…` : excerpt
 }
 
 /** Builds a `Note` from a parsed file. `stats` supplies date fallbacks for notes without frontmatter dates. */

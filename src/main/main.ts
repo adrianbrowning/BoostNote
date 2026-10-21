@@ -1,10 +1,11 @@
 import * as path from 'node:path'
-import { app, type BrowserWindow, dialog, type OpenDialogOptions, shell } from 'electron'
+import { app, type BrowserWindow, dialog, globalShortcut, type OpenDialogOptions, shell } from 'electron'
 
 import { createAppRouter } from '../app/router.ts'
 import { findLegacyStorages } from '../migrate/index.ts'
 import { eventHub } from './events.ts'
 import { installMenu } from './menu.ts'
+import { createPreferenceServices } from './preferences.ts'
 import { handleBoostProtocol, registerBoostScheme } from './protocol.ts'
 import { SettingsStore } from './settings.ts'
 import { VaultSession } from './vault-session.ts'
@@ -23,6 +24,7 @@ registerBoostScheme()
 
 const settings = new SettingsStore(path.join(app.getPath('userData'), 'settings.json'))
 const vaults = new VaultSession({ settings, events: eventHub })
+const preferences = createPreferenceServices(toggleMainWindow)
 
 let mainWindow: BrowserWindow | undefined
 /** Set once unsaved work has been dealt with; from then on quitting/closing proceeds. */
@@ -35,6 +37,8 @@ function liveWindow(): BrowserWindow | undefined {
 const router = createAppRouter({
   events: eventHub,
   vaults,
+  settings,
+  preferences,
   async pickFolder({ title, buttonLabel, createDirectory, defaultPath }) {
     const options: OpenDialogOptions = {
       title,
@@ -62,6 +66,18 @@ function showMainWindow(): void {
   if (window.isMinimized()) window.restore()
   window.show()
   window.focus()
+}
+
+/** The global hotkey: hides the app when it is in front, otherwise brings it (back) to the front. */
+function toggleMainWindow(): void {
+  const window = liveWindow()
+  if (window?.isVisible() && window.isFocused()) {
+    if (process.platform === 'darwin') app.hide()
+    else window.hide()
+    return
+  }
+  showMainWindow()
+  if (process.platform === 'darwin') app.focus({ steal: true })
 }
 
 /**
@@ -126,11 +142,18 @@ if (!app.requestSingleInstanceLock()) {
       app.quit()
     })
   })
+  app.on('will-quit', () => globalShortcut.unregisterAll())
 
   // No top-level `await` here: Electron emits `ready` only after the ESM entry graph has evaluated.
   void app.whenReady().then(async () => {
     handleBoostProtocol(router)
-    installMenu((command) => eventHub.broadcast({ type: 'menu', command }))
+    installMenu((command, index) =>
+      eventHub.broadcast({ type: 'menu', command, ...(index === undefined ? {} : { index }) }),
+    )
+    // Theme before the window exists (its background colour follows it).
+    const ui = settings.ui
+    preferences.apply(ui)
+    if (!preferences.setHotkey(ui.globalHotkey)) console.warn(`Could not register the hotkey ${ui.globalHotkey}`)
     // Reopen the last vault first, so the first page already shows it.
     await vaults.restore().catch((error: unknown) => console.error('Could not reopen the last vault', error))
     showMainWindow()

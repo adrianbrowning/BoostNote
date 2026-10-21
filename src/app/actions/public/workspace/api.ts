@@ -4,7 +4,9 @@ import type {
   ImportSummary,
   JsonValue,
   NoteDocument,
+  PreferencesState,
   SaveConflictBody,
+  UiPatch,
   WorkspaceData,
 } from './types.ts'
 
@@ -105,4 +107,6 @@ export const client = {
     post<ImportSummary>(api.importRun.href(), input),
 
   openExternal: (url: string) => post<unknown>(api.openExternal.href(), { url }),
+
+  savePreferences: (patch: UiPatch) => post<PreferencesState>(api.preferencesSave.href(), patch),
 }
