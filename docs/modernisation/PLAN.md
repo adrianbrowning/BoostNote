@@ -193,6 +193,7 @@ JSON `{ error, message }`: `VaultError` `INVALID_PATH`/`NOT_A_VAULT` → 400, `N
 | `GET /api/notes/read?id=` | `NoteDocument`: summary + `frontmatter` + `body` + `hash` |
 | `POST /api/notes/save {id, body, baseHash, frontmatter?}` | Writes if the file's hash is still `baseHash` (`null`: must not exist); 409 `CONFLICT` with the disk version otherwise |
 | `POST /api/notes/create {folder}` · `rename {id, name}` · `move {id, folder}` · `delete {id}` · `reveal {id}` | Note CRUD (delete → trash), Reveal in Finder |
+| `POST /api/links/plan {moves}` · `POST /api/links/apply {moves}` | After a rename/move: links in other notes to the old place, dry run / rewrite → `{ notes: [{ id, title, links }], total }` (phase 10) |
 | `POST /api/folders/create {parent, name}` · `rename` · `move` · `delete` · `color {id, color\|null}` | Folder CRUD and colour |
 | `POST /api/trash/restore {id}` · `empty` | Trash |
 | `POST /api/assets?note=&ext=` (raw body, ≤ 50 MB) | Editor `saveAsset` → `{ href: "./<stem>.assets/<hash>.<ext>" }` |
@@ -400,11 +401,10 @@ The file name **is** the note's name (as in Obsidian/Hubble); the first `# H1` i
   stem; user-named files (`Craig.md` starting `# 2026-09-18`) are listed as skipped. Originals sort
   before their `-2` duplicates so they keep the plain name. Apply renames each file (assets folder
   and own links follow, as `renameNote`), removes a frontmatter `title` equal to the new stem
-  (in-place YAML edit), then rewrites relative links in every note (not `.trash`) that point at a
-  renamed note or into its assets (`./x.md`, `../dir/x.md`, `%`-encoded, `#anchor`/`?query` kept;
-  new links `%20`-encoded; code blocks and code spans untouched). Renames that no longer apply are
-  reported as skipped. The workspace saves the open note first, rebases tabs old id → new id and
-  reloads the open note. `slugify` survives only for this recognition.
+  (in-place YAML edit), then rewrites incoming links with the shared pass of Link updates (phase 10),
+  without asking (the plan dialog is the confirmation). Renames that no longer apply are reported as
+  skipped. The workspace saves the open note first, rebases tabs old id → new id and reloads the open
+  note. `slugify` survives only for this recognition.
 
 ## Update notice (phase 8)
 
@@ -430,6 +430,33 @@ Notice only: no electron-updater, no downloads, no installs.
 - **Releasing:** bump `version` in `package.json`, commit, tag `vX.Y.Z` and push the tag; CI builds a
   **draft** release — publish it. The notice only sees published releases.
 
+## Link updates (phase 10)
+
+Renaming or moving a note or folder asks each time whether to update links pointing at it (Obsidian
+style).
+
+- **Moves** (`LinkMove`, `src/vault/links.ts`): `{ from, to, kind: 'note' | 'folder' }`, ids before →
+  after. A note move also covers its `<stem>.assets/`; a folder move is a path-prefix map over every
+  note, asset and subfolder under it. The most specific (longest) prefix wins.
+- **Vault:** `planLinkUpdates(moves)` (dry run, writes nothing) and `applyLinkUpdates(moves)` →
+  `{ notes: [{ id, title, links }], total }`, run under the vault's mutation queue. One private pass
+  (`#rewriteIncomingLinks`, also used by `applyTitleRenames`) resolves every relative link of every
+  indexed note (so never `.trash`) against its folder and maps targets through the moves; `#anchor` /
+  `?query` kept, `./` kept where the result stays below the note's folder, paths `%20`-encoded, fenced
+  code and code spans untouched. Writes are atomic and tracked by hash (no self-events). A moved note
+  (or a note inside a moved folder) is skipped for its own move: the move already re-based its links.
+- **Moves re-base the moved notes themselves** (no question asked): `renameNote`/`moveNote` re-base the
+  note's relative links on its new folder, and links to itself or its assets follow; a folder
+  rename/move does the same for every note inside it, so links out of the folder gain/lose `../` and
+  links between notes inside it stay valid.
+- **Workspace:** after a successful inline rename, Rename…, Move to…, drag onto a folder, or a folder
+  rename/move, the model calls `POST /api/links/plan`; with `total > 0` it shows "Update links? N links
+  in M notes point to “old name”." with the notes listed (scrolls past eight). **Update links**
+  (focused, Enter) flushes the open note's pending save, calls `POST /api/links/apply`, reloads the open
+  note through the live-reload path if it was rewritten (`setDoc` with `preserveSelection` when clean,
+  the conflict bar when dirty), refreshes the lists and shows "Updated N links". **Don’t update** (Esc)
+  writes nothing. With nothing to update no dialog appears.
+
 ## Phases (stack bottom → top)
 
 1. `modernise/01-foundation` — toolchain, Electron 45 shell, `boost://` → Remix router,
@@ -449,6 +476,9 @@ Notice only: no electron-updater, no downloads, no installs.
    verification and tag releases, README/contributing rewrite.
 7. `modernise/07-note-names` — the file name is the note's name: shared file-name sanitiser, inline
    rename in the editor header, readable importer names, File › Rename Files From Titles….
+8. `modernise/08-update-notice` — release check and status-bar update notice.
+9. `modernise/09-rename-tasks` — inline-rename typing fix, import dialog fix, task progress bar.
+10. `modernise/10-link-updates` — ask-each-time link updates after renaming/moving notes and folders.
 
 ## Remix notes
 

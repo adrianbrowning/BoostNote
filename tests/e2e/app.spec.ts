@@ -268,3 +268,83 @@ test('exports a note to PDF', async ({ app }) => {
   expect((await readFile(target)).subarray(0, 5).toString()).toBe('%PDF-')
   await expect(page.getByText(`Exported to ${target}`)).toBeVisible()
 })
+
+test.describe('link updates after a rename', () => {
+  const LINKER = '# Linker\n\n[s](../second.md#top) and ![a](../second.assets/a.png)\n'
+
+  const renameOpenNote = async (page: Page, name: string) => {
+    await page.locator('[data-note="second.md"]').click()
+    await expect(page.locator('[data-note-title]')).toHaveText('second')
+    await page.locator('[data-rename-note]').click()
+    await expect(page.locator('[data-note-title-input]')).toBeFocused()
+    await page.keyboard.type(name, { delay: 20 })
+    await page.keyboard.press('Enter')
+    await expect(page.locator('[data-note-title]')).toHaveText(name)
+  }
+
+  test('asks, then rewrites the links on Update links (Enter)', async ({ app }) => {
+    const { page, vault } = app
+    await writeFiles(vault, { 'work/linker.md': LINKER, 'second.assets/a.png': 'A' })
+    await expect(page.locator('[data-note="work/linker.md"]')).toBeAttached({ timeout: 15_000 })
+    await renameOpenNote(page, 'Renamed second')
+
+    const dialog = page.getByRole('dialog', { name: 'Update links?' })
+    await expect(dialog).toContainText('2 links in 1 note point to “second”.')
+    await expect(dialog.locator('[data-link-notes] li')).toHaveText([/linker\s*2 links/])
+    await expect(dialog.getByRole('button', { name: 'Update links' })).toBeFocused()
+    await page.keyboard.press('Enter')
+    await expect(dialog).toBeHidden()
+    await expect(page.getByText('Updated 2 links')).toBeVisible()
+    expect(await readFile(path.join(vault, 'work/linker.md'), 'utf8')).toBe(
+      '# Linker\n\n[s](../Renamed%20second.md#top) and ![a](../Renamed%20second.assets/a.png)\n',
+    )
+  })
+
+  test('leaves the linking file byte-identical on Don’t update (Escape)', async ({ app }) => {
+    const { page, vault } = app
+    await writeFiles(vault, { 'work/linker.md': LINKER })
+    await expect(page.locator('[data-note="work/linker.md"]')).toBeAttached({ timeout: 15_000 })
+    const before = await readFile(path.join(vault, 'work/linker.md'))
+    await renameOpenNote(page, 'Kept links')
+
+    const dialog = page.getByRole('dialog', { name: 'Update links?' })
+    await expect(dialog).toContainText('2 links in 1 note point to “second”.')
+    await expect(dialog.getByRole('button', { name: 'Don’t update' })).toBeVisible()
+    await page.keyboard.press('Escape')
+    await expect(dialog).toBeHidden()
+    await expect(page.locator('[data-note-title]')).toHaveText('Kept links')
+    expect((await readFile(path.join(vault, 'work/linker.md'))).equals(before)).toBe(true)
+  })
+
+  test('renaming a folder rewrites links in the open note, which reloads and keeps saving', async ({ app }) => {
+    const { page, vault } = app
+    await writeFiles(vault, { 'index.md': '# Index\n\n[t](./work/third.md)\n' })
+    await expect(page.locator('[data-note="index.md"]')).toBeAttached({ timeout: 15_000 })
+    await page.locator('[data-note="index.md"]').click()
+    await expect(page.locator('[data-note-title]')).toHaveText('index')
+
+    await page.locator('[data-folder="work"]').click({ button: 'right' })
+    await page.getByRole('menuitem', { name: 'Rename…' }).click()
+    const prompt = page.getByRole('dialog', { name: 'Rename folder' })
+    await expect(prompt.locator('input[name="value"]')).toBeFocused()
+    await page.keyboard.type('Projects', { delay: 20 })
+    await page.keyboard.press('Enter')
+
+    const dialog = page.getByRole('dialog', { name: 'Update links?' })
+    await expect(dialog).toContainText('1 link in 1 note points to “work”.')
+    await dialog.getByRole('button', { name: 'Update links' }).click()
+    await expect(dialog).toBeHidden()
+    await expect
+      .poll(() => readFile(path.join(vault, 'index.md'), 'utf8'))
+      .toBe('# Index\n\n[t](./Projects/third.md)\n')
+
+    // The editor took the rewritten text: a further edit saves on top of it (no conflict).
+    await editor(page).click()
+    await page.keyboard.press('ControlOrMeta+End')
+    await page.keyboard.type('\nMore.', { delay: 20 })
+    await expect
+      .poll(() => readFile(path.join(vault, 'index.md'), 'utf8'), { timeout: 10_000 })
+      .toMatch(/\n# Index\n\n\[t\]\(\.\/Projects\/third\.md\)\n+More\.$/)
+    await expect(page.locator('[data-conflict]')).toHaveCount(0)
+  })
+})

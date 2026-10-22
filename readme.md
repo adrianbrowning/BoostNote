@@ -23,7 +23,7 @@ choose, so any editor, `git` or sync tool works with them. The background and de
 - **Live reload.** Edit a note in another app and it updates; edits on both sides end in a conflict
   bar instead of silent data loss.
 - **Organise:** folder tree with colours, tags, starred notes, full-text search, sort, a Trash with
-  restore, drag and drop.
+  restore, drag and drop. Renaming or moving a note or folder offers to update the links to it.
 - **Tabs** with per-tab back/forward, restored per vault. A **properties panel** for frontmatter.
 - **Export:** a note as standalone HTML (math, diagrams and images included, no scripts), PDF, or
   Markdown with its assets; print; a folder or the whole vault as a static HTML site.

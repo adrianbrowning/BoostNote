@@ -7,6 +7,8 @@ import { type Tab, Tabs } from './tabs.ts'
 import type {
   FolderSummary,
   JsonValue,
+  LinkMove,
+  LinkUpdate,
   NoteSummary,
   PaneLayout,
   PreferencesState,
@@ -70,6 +72,15 @@ export type Dialog =
       value: string
       confirm: string
       resolve(value: string | null): void
+    }
+  | {
+      kind: 'links'
+      title: string
+      message: string
+      notes: LinkUpdate[]
+      confirm: string
+      cancel: string
+      resolve(ok: boolean): void
     }
 
 export interface Notice {
@@ -458,6 +469,7 @@ export class WorkspaceModel extends TypedEventTarget<{
     this.#rebaseTabs((path) => (path === id ? renamed.id : path))
     if (this.openId === id) this.session.relocated(renamed)
     await this.refresh()
+    void this.#offerLinkUpdates({ from: id, to: renamed.id, kind: 'note' })
   }
 
   setTitleRenamesOpen(open: boolean): void {
@@ -491,6 +503,39 @@ export class WorkspaceModel extends TypedEventTarget<{
       if (this.openId === id) this.session.relocated(moved)
       await this.refresh()
       this.notify('info', `Moved to ${this.folderName(folder)}`)
+      void this.#offerLinkUpdates({ from: id, to: moved.id, kind: 'note' })
+    })
+  }
+
+  /**
+   * After the app renamed/moved a note or folder: when other notes still link to its old place,
+   * asks whether to update those links, and rewrites them on "Update links" (the open note's
+   * pending edits are saved first; if it was rewritten it reloads like any outside change).
+   */
+  async #offerLinkUpdates(move: LinkMove): Promise<void> {
+    await this.attempt(async () => {
+      const plan = await client.planLinkUpdates([move])
+      if (plan.total === 0) return
+      const name = move.from.slice(move.from.lastIndexOf('/') + 1).replace(/\.md$/, '')
+      const links = plan.total === 1 ? '1 link' : `${plan.total} links`
+      const notes = plan.notes.length === 1 ? '1 note' : `${plan.notes.length} notes`
+      const { promise, resolve } = Promise.withResolvers<boolean>()
+      this.#showDialog({
+        kind: 'links',
+        title: 'Update links?',
+        message: `${links} in ${notes} ${plan.total === 1 ? 'points' : 'point'} to “${name}”.`,
+        notes: plan.notes,
+        confirm: 'Update links',
+        cancel: 'Don’t update',
+        resolve: this.#closing(resolve),
+      })
+      if (!(await promise)) return
+      await this.session.flush()
+      const report = await client.applyLinkUpdates([move])
+      const openId = this.openId
+      if (openId !== null && report.notes.some((note) => note.id === openId)) await this.session.externalChange()
+      await this.refresh()
+      this.notify('info', `Updated ${report.total === 1 ? '1 link' : `${report.total} links`}`)
     })
   }
 
@@ -683,6 +728,7 @@ export class WorkspaceModel extends TypedEventTarget<{
       const openId = this.openId
       if (affectsOpen && openId) this.session.relocated(await client.readNote(rebase(openId)))
       await this.refresh()
+      void this.#offerLinkUpdates({ from: id, to: next, kind: 'folder' })
     })
   }
 
@@ -902,7 +948,7 @@ export class WorkspaceModel extends TypedEventTarget<{
   #showDialog(dialog: Dialog): void {
     this.closeMenu()
     const previous = this.dialog
-    if (previous?.kind === 'confirm') previous.resolve(false)
+    if (previous?.kind === 'confirm' || previous?.kind === 'links') previous.resolve(false)
     else previous?.resolve(null)
     this.dialog = dialog
     this.changed()
