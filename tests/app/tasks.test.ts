@@ -23,8 +23,13 @@ describe('taskProgress', () => {
       '- [] no space inside',
       '- []',
       '-[ ] no space after bullet',
-      'text - [ ] mid-line',
       '- [ ]not separated',
+      '`- [x] in inline code`',
+      'Example:',
+      '',
+      '    - [x] indented code block',
+      '\t- [ ] tab-indented code block',
+      '',
       '```md',
       '- [x] inside a fence',
       '```',
@@ -32,8 +37,9 @@ describe('taskProgress', () => {
       '- [ ] tilde fence',
       '~~~',
       '- [ ] counted',
+      '    - [x] nested four spaces deep, inside the list',
     ].join('\n')
-    expect(taskProgress(body)).toEqual({ total: 1, completed: 0, percent: 0 })
+    expect(taskProgress(body)).toEqual({ total: 2, completed: 1, percent: 50 })
   })
 
   it('rounds down like the legacy bar and reports 0 for no tasks', () => {
