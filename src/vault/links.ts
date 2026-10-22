@@ -65,8 +65,13 @@ export function rewriteRelativeLinks(markdown: string, map: (relPath: string) =>
         const destination = bracketed ? raw.slice(1, -1) : raw
         if (!isRelative(destination)) return whole
         const suffixIndex = destination.search(/[#?]/)
-        const pathPart = suffixIndex === -1 ? destination : destination.slice(0, suffixIndex)
-        const suffix = suffixIndex === -1 ? '' : destination.slice(suffixIndex)
+        let pathPart = suffixIndex === -1 ? destination : destination.slice(0, suffixIndex)
+        let suffix = suffixIndex === -1 ? '' : destination.slice(suffixIndex)
+        // `note.md/#anchor` (common in notes copied from GitHub) is a link to `note.md`.
+        if (/\.md\/$/i.test(pathPart)) {
+          pathPart = pathPart.slice(0, -1)
+          suffix = `/${suffix}`
+        }
         if (pathPart === '') return whole
         const next = map(safeDecode(pathPart))
         if (next === undefined) return whole

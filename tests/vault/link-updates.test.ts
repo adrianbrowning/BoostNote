@@ -106,6 +106,17 @@ describe('link updates after renaming a note', () => {
     expect(await read('notes/b.md')).toBe('see [a](Alpha%20One.md)\n')
     expect(await read('.trash/old.md')).toBe('[a](notes/a.md)\n')
   })
+
+  it('follows `note.md/#anchor` links (as copied from GitHub), keeping their form; folder links stay', async () => {
+    await put('book.md', '[curry](notes/a.md/#user-content-curry) [q](./notes/a.md/?x=1) [dir](notes/)\n')
+    await vault.refresh()
+    await vault.renameNote('notes/a.md', 'Alpha One')
+    const plan = await planThenApply([{ from: 'notes/a.md', to: 'notes/Alpha One.md', kind: 'note' }])
+    expect(plan.notes.find((note) => note.id === 'book.md')).toEqual({ id: 'book.md', title: 'book', links: 2 })
+    expect(await read('book.md')).toBe(
+      '[curry](notes/Alpha%20One.md/#user-content-curry) [q](./notes/Alpha%20One.md/?x=1) [dir](notes/)\n',
+    )
+  })
 })
 
 describe('link updates after moving a note to another folder', () => {

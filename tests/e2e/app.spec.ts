@@ -121,6 +121,19 @@ test('shows task progress and updates it when a checkbox is ticked', async ({ ap
   await expect(bar).toBeHidden()
 })
 
+test('Cmd-click on a `note.md/#anchor` link opens the note', async ({ app }) => {
+  const { page, vault } = app
+  await writeFiles(vault, { 'book.md': 'See [the second chapter](second.md/#user-content-intro) for more.\n' })
+  await expect(page.locator('[data-note="book.md"]')).toBeAttached({ timeout: 15_000 })
+  await page.locator('[data-note="book.md"]').click()
+  await expect(page.locator('[data-note-title]')).toHaveText('book')
+  await page
+    .locator('[data-editor] .cm-lp-link')
+    .first()
+    .click({ modifiers: ['ControlOrMeta'] })
+  await expect(page.locator('[data-note-title]')).toHaveText('second')
+})
+
 test('renames a new note by typing into the header', async ({ app }) => {
   const { page, vault } = app
   await app.clickMenu('new-note')

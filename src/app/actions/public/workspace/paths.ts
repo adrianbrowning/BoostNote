@@ -19,7 +19,8 @@ export function folderChain(folder: string): string[] {
  */
 export function resolveNoteLink(fromId: string, href: string): string | undefined {
   if (/^[a-z][a-z\d+.-]*:/i.test(href) || href.startsWith('/') || href.startsWith('#')) return undefined
-  let target = href.replace(/[?#].*$/, '')
+  // `note.md/#anchor` (as in notes copied from GitHub) opens `note.md`.
+  let target = href.replace(/[?#].*$/, '').replace(/(\.md)\/$/i, '$1')
   try {
     target = decodeURIComponent(target)
   } catch {
