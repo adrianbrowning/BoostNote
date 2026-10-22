@@ -130,7 +130,7 @@ test('renames a new note by typing into the header', async ({ app }) => {
   await expect(field).toBeFocused()
   // Real key presses, one input event each (fill() sets the value at once and missed a bug where
   // every keystroke was reverted).
-  await page.keyboard.type('Weekly plan', { delay: 20 })
+  await page.keyboard.type('Weekly plan')
   await expect(field).toHaveValue('Weekly plan')
   await page.keyboard.press('Enter')
   await expect(page.locator('[data-note-title]')).toHaveText('Weekly plan')
