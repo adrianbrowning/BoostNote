@@ -9,8 +9,8 @@ import {
   type OpenDialogOptions,
   shell,
 } from 'electron'
-
 import { createAppRouter } from '../app/router.ts'
+import { type CliTarget, defaultShimDirs, installShim, loginShellPath, windowsCommands } from '../cli/install.ts'
 import { findLegacyStorages } from '../migrate/index.ts'
 import { eventHub } from './events.ts'
 import { createExportServices } from './export.ts'
@@ -193,6 +193,7 @@ if (!app.requestSingleInstanceLock()) {
     installMenu(
       (command, index) => eventHub.broadcast({ type: 'menu', command, ...(index === undefined ? {} : { index }) }),
       () => void checkForUpdatesNow(),
+      () => void installCommandLineTool(),
     )
     // Theme before the window exists (its background colour follows it).
     const ui = settings.ui
@@ -205,14 +206,16 @@ if (!app.requestSingleInstanceLock()) {
   })
 }
 
+function showMessage(options: MessageBoxOptions) {
+  const window = liveWindow()
+  return window ? dialog.showMessageBox(window, options) : dialog.showMessageBox(options)
+}
+
 /** Help › Check for Updates…: checks now and reports the result in a message box. */
 async function checkForUpdatesNow(): Promise<void> {
   const result = await updater.checkNow()
-  const window = liveWindow()
-  const show = (options: MessageBoxOptions) =>
-    window ? dialog.showMessageBox(window, options) : dialog.showMessageBox(options)
   if (result.status === 'update') {
-    const { response } = await show({
+    const { response } = await showMessage({
       type: 'info',
       buttons: ['Download', 'Later'],
       defaultId: 0,
@@ -222,8 +225,45 @@ async function checkForUpdatesNow(): Promise<void> {
     })
     if (response === 0) await shell.openExternal(result.url)
   } else if (result.status === 'current') {
-    await show({ type: 'info', message: 'Boostnote is up to date.', detail: `Version ${app.getVersion()}` })
+    await showMessage({ type: 'info', message: 'Boostnote is up to date.', detail: `Version ${app.getVersion()}` })
   } else {
-    await show({ type: 'warning', message: 'Could not check for updates.', detail: result.message })
+    await showMessage({ type: 'warning', message: 'Could not check for updates.', detail: result.message })
+  }
+}
+
+/**
+ * Install Command Line Tool…: writes the `boostnote` shim (macOS/Linux) running src/cli on this app's
+ * binary, and says where it went and whether that folder is on PATH. Windows gets the command to use.
+ */
+async function installCommandLineTool(): Promise<void> {
+  const target: CliTarget = {
+    executable: process.execPath,
+    entry: path.join(app.getAppPath(), 'src', 'cli', 'index.js'),
+  }
+  if (process.platform === 'win32') {
+    await showMessage({
+      type: 'info',
+      message: 'Run the Boostnote command line with the app’s own runtime:',
+      detail: windowsCommands(target),
+    })
+    return
+  }
+  try {
+    const pathEnv = await loginShellPath(process.env.SHELL, process.env.PATH ?? '')
+    const result = await installShim(target, defaultShimDirs(), pathEnv)
+    const dir = path.dirname(result.file)
+    await showMessage({
+      type: 'info',
+      message: `Installed the boostnote command at ${result.file}.`,
+      detail: result.onPath
+        ? 'Open a new terminal and try: boostnote search <words>\nRun it again here if you move the app.'
+        : `${dir} is not on your PATH. Add it (for example, export PATH="${dir}:$PATH" in your shell profile) or run ${result.file} directly.`,
+    })
+  } catch (error) {
+    await showMessage({
+      type: 'warning',
+      message: 'Could not install the command line tool.',
+      detail: error instanceof Error ? error.message : String(error),
+    })
   }
 }

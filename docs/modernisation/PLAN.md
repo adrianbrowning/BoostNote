@@ -457,6 +457,55 @@ style).
   the conflict bar when dirty), refreshes the lists and shows "Updated N links". **Don’t update** (Esc)
   writes nothing. With nothing to update no dialog appears.
 
+## CLI and MCP (phase 11)
+
+`boostnote` gives scripts and AI agents read + write access to a vault without the app. Nothing is
+deleted for good: `trash` moves a note to `.trash/` (restorable), there is no empty-trash command.
+
+- **One command layer** (`src/cli/commands.ts`, plain Node): each operation takes an open `Vault`
+  (`openVault`, no watcher) and returns plain JSON data; errors are `CommandError`s (`USAGE`,
+  `NOT_FOUND`, `CONFLICT`, `AMBIGUOUS`, `INVALID`, `EXISTS`) mapped from `VaultError`. Both the CLI
+  (`src/cli/main.ts`, `runCli(argv, io)`) and the MCP server (`src/cli/mcp.ts`, `createMcpServer(vault)`)
+  call it, so they behave alike and `boostnote --json` prints exactly what the MCP tools return.
+- **Operations:** `list` (folder, `--recursive`, tag, starred, sort, limit), `search` (the index's
+  `search`; id, title, excerpt, score), `read` (document with frontmatter, body and `hash`; `--raw`
+  the file), `create`, `write` (body only, frontmatter kept), `append`, `set-props` / MCP
+  `update_properties { set, remove }` (`writeNote` with the edited frontmatter, so YAML of keys not
+  named keeps its bytes; `created` is always kept by the vault), `rename` / `move` (then
+  `applyLinkUpdates` for the move, as the app's "Update links"; `--no-update-links` reports
+  `planLinkUpdates`' count instead), `trash`, `restore`, `tags`, `folders`, `tasks` (the app's
+  `taskProgress`). All writes go through the vault (atomic, traversal-safe, serialised).
+- **Conflicts:** `write --base-hash` passes `baseHash` to `writeNote` (checked on entry and just
+  before the rename); `append`/`set-props` always write against the hash they just read and also
+  take `--base-hash`. A mismatch is `CONFLICT` (exit 3) with the current hash in the details.
+- **Ids:** vault-relative POSIX paths, `.md` optional; else a bare name matching one note's file stem
+  or title (exact, then case-insensitive). Several matches → `AMBIGUOUS` listing them (exit 1).
+- **Vault selection** (`src/cli/vault-dir.ts`): `--vault`, else `$BOOSTNOTE_VAULT`, else `lastVault`
+  from `<appData>/Boostnote Modern/settings.json` (read with the app's `SettingsStore`, never written;
+  appData resolved per platform like Electron does). None → usage error.
+- **Arguments:** a small parser instead of `util.parseArgs`, so markdown such as `- [ ] task` is an
+  argument and `--body "- item"` works. Bodies come from `--body` or piped stdin; stdin is read only
+  when it is a pipe or a file (never blocks on a terminal). Exit codes: 0 ok, 1 error, 2 usage,
+  3 conflict, 4 not found.
+- **MCP** (`@modelcontextprotocol/sdk` 1.x, `McpServer` + stdio): 14 tools mirroring the commands
+  with zod input schemas and read-only/destructive annotations; results are the JSON text, errors
+  `isError` with `CODE: message` (+ details). Server instructions and the write tools' descriptions
+  say to read first and pass `baseHash`. Notes are resources `boostnote://note/{+id}` (id segments
+  URI-encoded, `text/markdown`, the raw file). Each call starts with `vault.refresh()` so changes by
+  the app, git or an editor are seen. The protocol owns stdout; logs go to stderr.
+- **Running it:** `src/cli/index.js` registers `remix/node-tsx` and imports `main.ts`, like
+  `src/main/index.js`. Checkout: `pnpm cli …` or `node src/cli/index.js …` (`bin.boostnote` in
+  package.json). Packaged: `ELECTRON_RUN_AS_NODE=1 <app binary> <app>/src/cli/index.js …` (asar is
+  off, so the sources and `node_modules` are on disk; the RunAsNode fuse is left at its default).
+- **Install Command Line Tool…** (id `install-cli`; macOS app menu, Help on Linux;
+  `src/cli/install.ts`): writes a `#!/bin/sh` shim that `exec`s the current app binary that way into
+  `/usr/local/bin` when writable, else `~/.local/bin` (created). It never replaces a `boostnote` it
+  did not write (marker comment) and reports whether the folder is on the login shell's PATH (Dock
+  apps get a minimal `PATH`, so it asks `$SHELL -ilc`). Rerun it after moving the app. Windows
+  ("Command Line Tool…") shows the PowerShell/cmd command instead.
+- **With the app running:** CLI/MCP writes are external writes to the app: its watcher reloads the
+  open note (clean) or shows the conflict bar (dirty). Nothing new was needed.
+
 ## Phases (stack bottom → top)
 
 1. `modernise/01-foundation` — toolchain, Electron 45 shell, `boost://` → Remix router,
@@ -479,6 +528,8 @@ style).
 8. `modernise/08-update-notice` — release check and status-bar update notice.
 9. `modernise/09-rename-tasks` — inline-rename typing fix, import dialog fix, task progress bar.
 10. `modernise/10-link-updates` — ask-each-time link updates after renaming/moving notes and folders.
+11. `modernise/11-cli-mcp` — `boostnote` command line and MCP server over the vault, Install Command
+    Line Tool… menu item.
 
 ## Remix notes
 

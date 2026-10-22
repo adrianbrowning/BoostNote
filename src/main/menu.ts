@@ -7,14 +7,24 @@ const REPOSITORY_URL = 'https://github.com/adrianbrowning/BoostNote'
 
 /**
  * Installs the application menu. App commands are forwarded to the renderer as SSE `menu` events;
- * "Check for Updates…" runs in main (`checkForUpdates`).
+ * "Check for Updates…" and "Install Command Line Tool…" run in main.
  */
-export function installMenu(send: (command: MenuCommand, index?: number) => void, checkForUpdates: () => void): void {
+export function installMenu(
+  send: (command: MenuCommand, index?: number) => void,
+  checkForUpdates: () => void,
+  installCommandLineTool: () => void,
+): void {
   const isMac = process.platform === 'darwin'
   const updates: MenuItemConstructorOptions = {
     id: 'check-updates',
     label: 'Check for Updates…',
     click: checkForUpdates,
+  }
+  // Windows gets the command to run instead of an installed shim.
+  const commandLineTool: MenuItemConstructorOptions = {
+    id: 'install-cli',
+    label: process.platform === 'win32' ? 'Command Line Tool…' : 'Install Command Line Tool…',
+    click: installCommandLineTool,
   }
   const revealLabel = isMac ? 'Reveal in Finder' : process.platform === 'win32' ? 'Show in Explorer' : 'Show in Folder'
   // Ids are the commands, so tests (and anything else) can find an item: `Menu.getApplicationMenu().getMenuItemById(command)`.
@@ -45,6 +55,7 @@ export function installMenu(send: (command: MenuCommand, index?: number) => void
             submenu: [
               { role: 'about' },
               updates,
+              commandLineTool,
               { type: 'separator' },
               preferences,
               { type: 'separator' },
@@ -150,7 +161,7 @@ export function installMenu(send: (command: MenuCommand, index?: number) => void
           click: () => void shell.openExternal(`${REPOSITORY_URL}/blob/master/docs/modernisation/PLAN.md`),
         },
         { label: 'Report an Issue', click: () => void shell.openExternal(`${REPOSITORY_URL}/issues`) },
-        ...(isMac ? [] : [{ type: 'separator' } as const, updates, { role: 'about' } as const]),
+        ...(isMac ? [] : [{ type: 'separator' } as const, updates, commandLineTool, { role: 'about' } as const]),
       ],
     },
   ]
