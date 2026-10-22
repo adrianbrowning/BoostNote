@@ -42,6 +42,7 @@ src/vault/     storage core (plain Node, no Electron)
 src/editor/    CodeMirror 6 live-preview editor (browser-only, framework-agnostic)
 src/markdown/  Markdown → standalone HTML for export, PDF and printing
 src/migrate/   legacy CSON storage importer + CLI
+src/cli/       boostnote command line + MCP server (one command layer over src/vault)
 tests/         unit tests; tests/e2e Playwright smoke tests
 ```
 
