@@ -30,6 +30,9 @@ export const routes = route({
     /** File › Rename Files From Titles…: `GET` the plan (dry run), `POST …/apply` to run (part of) it. */
     titleRenamesPlan: get('/notes/title-renames'),
     titleRenamesApply: post('/notes/title-renames/apply'),
+    /** After a rename/move: `{ moves }` → links elsewhere still pointing at the old place (dry run / rewrite). */
+    linksPlan: post('/links/plan'),
+    linksApply: post('/links/apply'),
     folderCreate: post('/folders/create'),
     folderRename: post('/folders/rename'),
     folderMove: post('/folders/move'),

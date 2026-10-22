@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 
 import type {
   ImportSummary,
+  LinkUpdateReport,
   NoteDocument,
   SaveConflictBody,
   TitleRenamePlan,
@@ -246,6 +247,46 @@ describe('notes', () => {
 
     expect((await app.post(api.titleRenamesApply.href(), { renames: 'all' })).status).toBe(400)
     expect((await app.post(api.titleRenamesApply.href(), { renames: [{ from: 'x.md' }] })).status).toBe(400)
+  })
+
+  it('plans link updates after a rename without writing, and applies them on request', async () => {
+    await writeFile(path.join(vault.root, 'target.md'), '# Target\n')
+    await writeFile(path.join(vault.root, 'linker.md'), '[t](./target.md#x)\n')
+    await vault.refresh()
+    await app.post(api.noteRename.href(), { id: 'target.md', name: 'New name' })
+    const moves = [{ from: 'target.md', to: 'New name.md', kind: 'note' }]
+
+    const plan = await readJson<LinkUpdateReport>(await app.post(api.linksPlan.href(), { moves }))
+    expect(plan).toEqual({ notes: [{ id: 'linker.md', title: 'linker', links: 1 }], total: 1 })
+    expect(await readFile(path.join(vault.root, 'linker.md'), 'utf8')).toBe('[t](./target.md#x)\n')
+
+    const applied = await readJson<LinkUpdateReport>(await app.post(api.linksApply.href(), { moves }))
+    expect(applied).toEqual(plan)
+    expect(await readFile(path.join(vault.root, 'linker.md'), 'utf8')).toBe('[t](./New%20name.md#x)\n')
+  })
+
+  it('validates link update moves', async () => {
+    const invalid = [
+      {},
+      { moves: 'all' },
+      { moves: [] },
+      { moves: [{ from: 'a.md', to: 'b.md' }] },
+      { moves: [{ from: 'a.md', to: 'b.md', kind: 'file' }] },
+      { moves: [{ from: 'a.md', kind: 'note' }] },
+      { moves: [null] },
+    ]
+    for (const body of invalid) {
+      const response = await app.post(api.linksPlan.href(), body)
+      expect(response.status).toBe(400)
+      expect(await response.json()).toMatchObject({ error: 'BAD_REQUEST' })
+    }
+    const traversal = await app.post(api.linksApply.href(), {
+      moves: [{ from: '../outside.md', to: 'b.md', kind: 'note' }],
+    })
+    expect(traversal.status).toBe(400)
+    expect(await traversal.json()).toMatchObject({ error: 'INVALID_PATH' })
+    const root = await app.post(api.linksPlan.href(), { moves: [{ from: '', to: 'x', kind: 'folder' }] })
+    expect(root.status).toBe(400)
   })
 })
 

@@ -1,6 +1,23 @@
 import * as path from 'node:path'
 
-import { encodeLinkPath, safeDecode } from './paths.ts'
+import { ASSETS_SUFFIX, encodeLinkPath, safeDecode } from './paths.ts'
+
+/**
+ * A note or folder that was renamed or moved, by id. A note move also covers its `<stem>.assets/`
+ * folder; a folder move covers every note, asset and subfolder under it.
+ */
+export interface LinkMove {
+  from: string
+  to: string
+  kind: 'note' | 'folder'
+}
+
+interface MovedPrefix {
+  from: string
+  to: string
+  /** Only the path itself moved (a note file), not paths under it. */
+  exact: boolean
+}
 
 /**
  * Inline code spans (group 1, matched only to be skipped), then markdown link/image destinations
@@ -60,25 +77,78 @@ export function rewriteRelativeLinks(markdown: string, map: (relPath: string) =>
   )
 }
 
+/** The paths `moves` relocate, longest first, so the most specific move wins. */
+function movedPrefixes(moves: readonly LinkMove[]): MovedPrefix[] {
+  return moves
+    .flatMap((move): MovedPrefix[] =>
+      move.kind === 'note'
+        ? [
+            { from: move.from, to: move.to, exact: true },
+            {
+              from: move.from.replace(/\.md$/, ASSETS_SUFFIX),
+              to: move.to.replace(/\.md$/, ASSETS_SUFFIX),
+              exact: false,
+            },
+          ]
+        : [{ from: move.from, to: move.to, exact: false }],
+    )
+    .sort((a, b) => b.from.length - a.from.length)
+}
+
+/** Where the vault path `target` is after the moves, or `undefined` when none of them moved it. */
+function movedTarget(target: string, prefixes: readonly MovedPrefix[]): string | undefined {
+  for (const prefix of prefixes) {
+    if (target === prefix.from || (!prefix.exact && target.startsWith(`${prefix.from}/`))) {
+      return prefix.to + target.slice(prefix.from.length)
+    }
+  }
+  return undefined
+}
+
 /**
- * Rewrites a note's relative links after it moved from `fromId` to `toId`: links into its own
- * `<stem>.assets/` follow the renamed assets directory, and other relative links are re-based on
- * the new folder. Links that would leave the vault are left alone.
+ * Rewrites a note's relative links after it moved from `fromId` to `toId` as part of `moves`
+ * (by default just itself): links to anything that moved too (the note itself, its assets folder,
+ * a moved folder's contents) follow it, and the other relative links are re-based on the new
+ * folder. Links that would leave the vault are left alone.
  */
-export function rebaseNoteLinks(markdown: string, fromId: string, toId: string): string {
+export function rebaseNoteLinks(
+  markdown: string,
+  fromId: string,
+  toId: string,
+  moves: readonly LinkMove[] = [{ from: fromId, to: toId, kind: 'note' }],
+): string {
+  if (fromId === toId) return markdown
   const fromDir = path.posix.dirname(fromId)
   const toDir = path.posix.dirname(toId)
-  const fromAssets = `${path.posix.join(fromDir, path.posix.basename(fromId, '.md'))}.assets`
-  const toAssets = `${path.posix.join(toDir, path.posix.basename(toId, '.md'))}.assets`
-  if (fromDir === toDir && fromAssets === toAssets) return markdown
+  const prefixes = movedPrefixes(moves)
   return rewriteRelativeLinks(markdown, (relPath) => {
-    let target = path.posix.normalize(path.posix.join(fromDir, relPath))
-    if (target === '..' || target.startsWith('../')) return undefined
-    if (target === fromAssets || target.startsWith(`${fromAssets}/`))
-      target = toAssets + target.slice(fromAssets.length)
-    const relative = path.posix.relative(toDir, target)
+    const old = path.posix.normalize(path.posix.join(fromDir, relPath))
+    if (old === '..' || old.startsWith('../')) return undefined
+    const relative = path.posix.relative(toDir, movedTarget(old, prefixes) ?? old)
+    if (relative === '') return undefined
     const next = relative.startsWith('../') ? relative : `./${relative}`
     const current = relPath.startsWith('./') || relPath.startsWith('../') ? relPath : `./${relPath}`
     return path.posix.normalize(next) === path.posix.normalize(current) ? undefined : next
   })
+}
+
+/**
+ * Rewrites the relative links of a note in folder `dir` that point at (or into) something `moves`
+ * relocated. `./` is kept where the link had it; returns the new body and how many links changed.
+ */
+export function rewriteMovedLinks(
+  markdown: string,
+  dir: string,
+  moves: readonly LinkMove[],
+): { body: string; links: number } {
+  const prefixes = movedPrefixes(moves)
+  let links = 0
+  const body = rewriteRelativeLinks(markdown, (relPath) => {
+    const next = movedTarget(path.posix.normalize(path.posix.join(dir, relPath)), prefixes)
+    if (next === undefined) return undefined
+    links++
+    const relative = path.posix.relative(dir, next)
+    return relPath.startsWith('./') && !relative.startsWith('../') ? `./${relative}` : relative
+  })
+  return { body, links }
 }

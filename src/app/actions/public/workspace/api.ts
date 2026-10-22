@@ -4,6 +4,8 @@ import type {
   ImportCandidate,
   ImportSummary,
   JsonValue,
+  LinkMove,
+  LinkUpdateReport,
   NoteDocument,
   OpenRequest,
   PreferencesState,
@@ -89,6 +91,9 @@ export const client = {
   revealNote: (id: string) => post<unknown>(api.noteReveal.href(), { id }),
   planTitleRenames: () => request<TitleRenamePlan>(api.titleRenamesPlan.href()),
   applyTitleRenames: (renames: TitleRename[]) => post<TitleRenameReport>(api.titleRenamesApply.href(), { renames }),
+  /** Links in other notes to the old place of renamed/moved notes or folders (dry run / rewrite). */
+  planLinkUpdates: (moves: LinkMove[]) => post<LinkUpdateReport>(api.linksPlan.href(), { moves }),
+  applyLinkUpdates: (moves: LinkMove[]) => post<LinkUpdateReport>(api.linksApply.href(), { moves }),
 
   createFolder: (parent: string, name: string) => post<{ id: string }>(api.folderCreate.href(), { parent, name }),
   renameFolder: (id: string, name: string) => post<{ id: string }>(api.folderRename.href(), { id, name }),

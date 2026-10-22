@@ -98,12 +98,13 @@ export function ContextMenuView(handle: Handle<{ model: WorkspaceModel }>) {
   }
 }
 
-/** The open prompt/confirm/choose dialog (`model.dialog`). */
+/** The open prompt/confirm/choose/link-update dialog (`model.dialog`). */
 export function DialogView(handle: Handle<{ model: WorkspaceModel }>) {
   return () => {
     const dialog = handle.props.model.dialog
     if (!dialog) return null
-    const cancel = () => (dialog.kind === 'confirm' ? dialog.resolve(false) : dialog.resolve(null))
+    const cancel = () =>
+      dialog.kind === 'confirm' || dialog.kind === 'links' ? dialog.resolve(false) : dialog.resolve(null)
     return (
       <div
         mix={[
@@ -127,13 +128,23 @@ export function DialogView(handle: Handle<{ model: WorkspaceModel }>) {
               on('submit', (event) => {
                 event.preventDefault()
                 const data = new FormData(event.currentTarget)
-                if (dialog.kind === 'confirm') dialog.resolve(true)
+                if (dialog.kind === 'confirm' || dialog.kind === 'links') dialog.resolve(true)
                 else dialog.resolve(String(data.get('value') ?? ''))
               }),
             ]}
           >
             <h2 mix={dialogTitleStyle}>{dialog.title}</h2>
-            {dialog.kind === 'confirm' ? <p>{dialog.message}</p> : null}
+            {dialog.kind === 'confirm' || dialog.kind === 'links' ? <p>{dialog.message}</p> : null}
+            {dialog.kind === 'links' ? (
+              <ul mix={linkNotesStyle} aria-label="Notes with links" data-link-notes>
+                {dialog.notes.map((note) => (
+                  <li key={note.id} title={note.id}>
+                    <span>{note.title}</span>
+                    <span mix={linkCountStyle}>{note.links === 1 ? '1 link' : `${note.links} links`}</span>
+                  </li>
+                ))}
+              </ul>
+            ) : null}
             {dialog.kind === 'prompt' ? (
               <label mix={fieldStyle}>
                 <span>{dialog.label}</span>
@@ -174,7 +185,7 @@ export function DialogView(handle: Handle<{ model: WorkspaceModel }>) {
             ) : null}
             <div mix={actionsStyle}>
               <button type="button" mix={[button, on('click', cancel)]}>
-                Cancel
+                {dialog.kind === 'links' ? dialog.cancel : 'Cancel'}
               </button>
               <button
                 type="submit"
@@ -182,7 +193,8 @@ export function DialogView(handle: Handle<{ model: WorkspaceModel }>) {
                   button,
                   dialog.kind === 'confirm' && dialog.danger ? dangerButton : primaryButton,
                   ref((node) => {
-                    if (dialog.kind === 'confirm' && node instanceof HTMLElement) node.focus()
+                    if ((dialog.kind === 'confirm' || dialog.kind === 'links') && node instanceof HTMLElement)
+                      node.focus()
                   }),
                 ]}
               >
@@ -271,6 +283,29 @@ const dialogStyle = css({
 const dialogTitleStyle = css({ fontSize: '15px', fontWeight: 600 })
 
 const fieldStyle = css({ display: 'grid', gap: '4px', fontSize: '12px' })
+
+/** At most eight rows visible; longer lists scroll. */
+const linkNotesStyle = css({
+  margin: 0,
+  padding: '4px 0',
+  listStyle: 'none',
+  maxHeight: 'calc(8 * 26px + 8px)',
+  overflowY: 'auto',
+  border: '1px solid var(--border)',
+  borderRadius: '6px',
+  '& > li': {
+    display: 'flex',
+    justifyContent: 'space-between',
+    gap: '12px',
+    height: '26px',
+    alignItems: 'center',
+    padding: '0 10px',
+    fontSize: '13px',
+  },
+  '& > li > span:first-child': { overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' },
+})
+
+const linkCountStyle = css({ flexShrink: 0, color: 'var(--text-muted)', fontSize: '12px' })
 
 const actionsStyle = css({ display: 'flex', justifyContent: 'flex-end', gap: '8px' })
 

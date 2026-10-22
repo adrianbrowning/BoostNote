@@ -16,7 +16,7 @@ import {
 import { isNodeError, VaultError } from './errors.ts'
 import { exists, writeFileAtomic } from './files.ts'
 import { type Frontmatter, parseNoteText, serializeNoteText } from './frontmatter.ts'
-import { rebaseNoteLinks, rewriteRelativeLinks } from './links.ts'
+import { type LinkMove, rebaseNoteLinks, rewriteMovedLinks } from './links.ts'
 import { findH1, hashText, type Note, type NoteMeta, toNote } from './note.ts'
 import {
   ASSETS_SUFFIX,
@@ -116,6 +116,22 @@ export interface TitleRenameReport {
   linksRewritten: number
   /** Notes whose links were rewritten. */
   notesUpdated: number
+}
+
+/** A note whose links to moved notes/folders are (or would be) rewritten. */
+export interface LinkUpdate {
+  id: string
+  title: string
+  /** Links in it that point at (or into) a moved note or folder. */
+  links: number
+}
+
+/** Result of `planLinkUpdates` (what would change) and `applyLinkUpdates` (what changed). */
+export interface LinkUpdateReport {
+  /** Sorted by id. */
+  notes: LinkUpdate[]
+  /** Links in all `notes`. */
+  total: number
 }
 
 interface KnownFile {
@@ -421,41 +437,32 @@ export class Vault {
         if (fatal) throw fatal.error
         return report
       }
-      const movedAssets = new Map(
-        [...moved].map(([from, to]) => [from.replace(/\.md$/, ASSETS_SUFFIX), to.replace(/\.md$/, ASSETS_SUFFIX)]),
+      const links = await this.#rewriteIncomingLinks(
+        [...moved].map(([from, to]): LinkMove => ({ from, to, kind: 'note' })),
+        true,
       )
-      for (const meta of this.index.all()) {
-        const file = await resolveInside(this.root, noteSegments(meta.id))
-        const raw = await readOptional(file)
-        if (raw === undefined) continue
-        const text = parseNoteText(raw)
-        const dir = meta.folder
-        let rewritten = 0
-        const body = rewriteRelativeLinks(text.body, (relPath) => {
-          const target = path.posix.normalize(path.posix.join(dir, relPath))
-          let next = moved.get(target)
-          if (next === undefined) {
-            const segments = target.split('/')
-            for (let end = 1; end <= segments.length && next === undefined; end++) {
-              const to = movedAssets.get(segments.slice(0, end).join('/'))
-              if (to !== undefined) next = [to, ...segments.slice(end)].join('/')
-            }
-          }
-          if (next === undefined) return undefined
-          rewritten++
-          const relative = path.posix.relative(dir, next)
-          return relPath.startsWith('./') && !relative.startsWith('../') ? `./${relative}` : relative
-        })
-        if (body === text.body) continue
-        const next = raw.slice(0, raw.length - text.body.length) + body
-        await writeFileAtomic(file, next)
-        await this.#track(meta.id, file, next)
-        report.linksRewritten += rewritten
-        report.notesUpdated++
-      }
+      report.linksRewritten = links.total
+      report.notesUpdated = links.notes.length
       if (fatal) throw fatal.error
       return report
     })
+  }
+
+  /**
+   * Dry run of `applyLinkUpdates`: the notes with relative links that still point at the old
+   * place of a note or folder the app just renamed/moved (`moves`, ids before → after), with the
+   * number of such links in each. Nothing is written.
+   */
+  planLinkUpdates(moves: readonly LinkMove[]): Promise<LinkUpdateReport> {
+    return this.#exclusive(() => this.#rewriteIncomingLinks(checkMoves(moves), false))
+  }
+
+  /**
+   * Rewrites the links `planLinkUpdates` finds to point at the new places (`#fragment`/`?query`
+   * and a leading `./` are kept; links in code are not touched). Returns what was written.
+   */
+  applyLinkUpdates(moves: readonly LinkMove[]): Promise<LinkUpdateReport> {
+    return this.#exclusive(() => this.#rewriteIncomingLinks(checkMoves(moves), true))
   }
 
   /** Moves a note into `folder`, keeping its file name unless taken (then ` 2`, …). */
@@ -756,6 +763,10 @@ export class Vault {
     return this.#track(toId, to, next)
   }
 
+  /**
+   * Moves a folder; the relative links of the notes in it are re-based on their new place (links
+   * between notes inside the folder, and into their assets, follow the move).
+   */
   async #relocateFolder(id: string, toId: string): Promise<string> {
     if (id === '') throw new VaultError('INVALID_PATH', 'Cannot move the vault root')
     const from = await this.#existingFolder(id)
@@ -763,7 +774,21 @@ export class Vault {
     if (id === toId) return id
     await this.#existingFolder(noteFolder(toId))
     if (!(await sameOrMissing(from, to))) throw new VaultError('EXISTS', `Already exists: ${toId}`)
+    const inside = this.index
+      .all()
+      .map((meta) => meta.id)
+      .filter((noteId) => noteId.startsWith(`${id}/`))
     await rename(from, to)
+    const moves: LinkMove[] = [{ from: id, to: toId, kind: 'folder' }]
+    for (const fromId of inside) {
+      const noteId = toId + fromId.slice(id.length)
+      const file = await resolveInside(this.root, noteSegments(noteId))
+      const raw = await readOptional(file)
+      if (raw === undefined) continue
+      const text = parseNoteText(raw)
+      const body = rebaseNoteLinks(text.body, fromId, noteId, moves)
+      if (body !== text.body) await writeFileAtomic(file, raw.slice(0, raw.length - text.body.length) + body)
+    }
     const moveKey = (key: string) => (key === id || key.startsWith(`${id}/`) ? toId + key.slice(id.length) : key)
     this.#config.folders = Object.fromEntries(
       Object.entries(this.#config.folders).map(([key, folder]) => [moveKey(key), folder]),
@@ -772,6 +797,37 @@ export class Vault {
     await writeConfig(this.root, this.#config)
     await this.#scan(false)
     return toId
+  }
+
+  /**
+   * The incoming-link pass shared by `applyTitleRenames` and `plan`/`applyLinkUpdates`: finds (and
+   * with `write`, rewrites) relative links in every note that point at the old place of a moved
+   * note, its assets or a moved folder's contents. A moved note's own move is skipped for its own
+   * links — moving it already re-based them. Trashed notes are not in the index, so not touched.
+   */
+  async #rewriteIncomingLinks(moves: readonly LinkMove[], write: boolean): Promise<LinkUpdateReport> {
+    const report: LinkUpdateReport = { notes: [], total: 0 }
+    if (moves.length === 0) return report
+    for (const meta of this.index.all()) {
+      const applicable = moves.filter((move) =>
+        move.kind === 'note' ? move.to !== meta.id : !meta.id.startsWith(`${move.to}/`),
+      )
+      if (applicable.length === 0) continue
+      const file = await resolveInside(this.root, noteSegments(meta.id))
+      const raw = await readOptional(file)
+      if (raw === undefined) continue
+      const text = parseNoteText(raw)
+      const { body, links } = rewriteMovedLinks(text.body, meta.folder, applicable)
+      if (links === 0 || body === text.body) continue
+      if (write) {
+        const next = raw.slice(0, raw.length - text.body.length) + body
+        await writeFileAtomic(file, next)
+        await this.#track(meta.id, file, next)
+      }
+      report.notes.push({ id: meta.id, title: meta.title, links })
+      report.total += links
+    }
+    return report
   }
 
   /**
@@ -841,6 +897,21 @@ export class Vault {
 
 function assetsDirOf(noteFile: string): string {
   return noteFile.replace(/\.md$/, ASSETS_SUFFIX)
+}
+
+/** Validates link-update moves (note or non-root folder ids) and drops the no-op ones. */
+function checkMoves(moves: readonly LinkMove[]): LinkMove[] {
+  for (const move of moves) {
+    if (move.kind === 'note') {
+      noteSegments(move.from)
+      noteSegments(move.to)
+    } else {
+      if (move.from === '' || move.to === '') throw new VaultError('INVALID_PATH', 'Cannot move the vault root')
+      folderSegments(move.from)
+      folderSegments(move.to)
+    }
+  }
+  return moves.filter((move) => move.from !== move.to)
 }
 
 async function readOptional(file: string): Promise<string | undefined> {

@@ -6,9 +6,19 @@ import type { MenuCommand, MenuEvent, VaultChangeEvent } from '../../../../main/
 import type { PaneLayout, ThemePreference, UiPatch, UiPreferences } from '../../../../main/settings.ts'
 import type { UpdateInfo } from '../../../../main/updates.ts'
 import type { OpenRequest } from '../../../../main/vault-session.ts'
-import type { TitleRename, TitleRenamePlan, TitleRenameReport } from '../../../../vault/index.ts'
+import type {
+  LinkMove,
+  LinkUpdate,
+  LinkUpdateReport,
+  TitleRename,
+  TitleRenamePlan,
+  TitleRenameReport,
+} from '../../../../vault/index.ts'
 
 export type {
+  LinkMove,
+  LinkUpdate,
+  LinkUpdateReport,
   MenuCommand,
   MenuEvent,
   OpenRequest,

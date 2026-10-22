@@ -3,7 +3,7 @@ import { isDeepStrictEqual } from 'node:util'
 import { createController } from 'remix/router'
 
 import { migrateStorage } from '../../../migrate/index.ts'
-import { type Note, type TitleRename, type Vault, VaultError } from '../../../vault/index.ts'
+import { type LinkMove, type Note, type TitleRename, type Vault, VaultError } from '../../../vault/index.ts'
 import { errorResponse, HttpError, json, readJsonObject, requireString } from '../../http.ts'
 import { routes } from '../../routes.ts'
 import type { AppServices } from '../../services.ts'
@@ -21,6 +21,19 @@ function requireVault(services: AppServices): Vault {
   const vault = services.vaults.current
   if (!vault) throw new HttpError(409, 'NO_VAULT', 'No vault is open')
   return vault
+}
+
+/** The `moves` of a `/api/links/*` body: `[{ from, to, kind: 'note' | 'folder' }]`. */
+function readMoves(body: Record<string, unknown>): LinkMove[] {
+  if (!Array.isArray(body.moves) || body.moves.length === 0) {
+    throw new HttpError(400, 'BAD_REQUEST', 'Missing or invalid "moves"')
+  }
+  return body.moves.map((item: unknown) => {
+    const move = typeof item === 'object' && item !== null ? (item as Record<string, unknown>) : {}
+    if (move.kind !== 'note' && move.kind !== 'folder')
+      throw new HttpError(400, 'BAD_REQUEST', 'Missing or invalid "kind"')
+    return { from: requireString(move.from, 'from'), to: requireString(move.to, 'to'), kind: move.kind }
+  })
 }
 
 /** Runs an action and turns expected failures into JSON error responses. */
@@ -197,6 +210,16 @@ export function createApiController(services: AppServices) {
           }
         })
         return json(await vault.applyTitleRenames({ renames }))
+      }),
+
+      linksPlan: guarded(async ({ request }: { request: Request }) => {
+        const vault = requireVault(services)
+        return json(await vault.planLinkUpdates(readMoves(await readJsonObject(request))))
+      }),
+
+      linksApply: guarded(async ({ request }: { request: Request }) => {
+        const vault = requireVault(services)
+        return json(await vault.applyLinkUpdates(readMoves(await readJsonObject(request))))
       }),
 
       folderCreate: guarded(async ({ request }: { request: Request }) => {

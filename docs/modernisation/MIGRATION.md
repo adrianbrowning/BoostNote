@@ -124,5 +124,3 @@ in the vault; they do not flow back to the legacy storage.
   (`Common Lisp` → `common-lisp`), which some highlighters may not recognise.
 - Legacy storages synced to multiple machines are imported as they are on this machine; run the
   importer once and sync the vault instead.
-- Moving or renaming a note in the app rewrites the links *in* that note, but not links *to* it from
-  other notes (only **Rename Files From Titles…** rewrites incoming links).

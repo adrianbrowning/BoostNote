@@ -5,12 +5,15 @@
 export type { FolderConfig, TrashEntry, TrashKind, VaultConfig } from './config.ts'
 export { VaultError, type VaultErrorCode } from './errors.ts'
 export { type Frontmatter, type NoteText, parseNoteText, serializeNoteText } from './frontmatter.ts'
+export type { LinkMove } from './links.ts'
 export { type Note, type NoteMeta, noteTitle } from './note.ts'
 export { noteFileName } from './paths.ts'
 export type { SearchHit } from './search.ts'
 export {
   type CreateNoteOptions,
   type FolderNode,
+  type LinkUpdate,
+  type LinkUpdateReport,
   type OpenVaultOptions,
   openVault,
   type TitleRename,
