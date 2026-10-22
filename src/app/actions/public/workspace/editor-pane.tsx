@@ -9,6 +9,7 @@ import { parentOf, resolveNoteLink } from './paths.ts'
 import { PropertiesPanel } from './properties.tsx'
 import { button, emptyState, emptyTitle, iconButton, input, muted, primaryButton } from './styles.ts'
 import { TabStrip } from './tab-strip.tsx'
+import { type TaskProgress, taskProgress } from './tasks.ts'
 
 /**
  * The open note: its name (the file name, or the frontmatter `title` when it has one), renamed in
@@ -17,6 +18,14 @@ import { TabStrip } from './tab-strip.tsx'
  */
 export function EditorPane(handle: Handle<{ model: WorkspaceModel }>) {
   const session = () => handle.props.model.session
+  // Task progress of the open note's body; recomputed on each edit, re-rendered only when it moves.
+  let progress: TaskProgress = taskProgress(session().body)
+  const updateProgress = (body: string) => {
+    const next = taskProgress(body)
+    if (next.total === progress.total && next.completed === progress.completed) return
+    progress = next
+    void handle.update()
+  }
 
   const onOpenLink = (href: string) => {
     const { model } = handle.props
@@ -40,7 +49,10 @@ export function EditorPane(handle: Handle<{ model: WorkspaceModel }>) {
       parent,
       doc: session().body,
       theme: theme(),
-      onChange: (doc) => session().edit(doc),
+      onChange: (doc) => {
+        session().edit(doc)
+        updateProgress(doc)
+      },
       resolveAssetUrl: (relPath) => {
         const id = session().note?.id
         return id === undefined ? relPath : vaultAssetUrl(id, relPath)
@@ -57,6 +69,7 @@ export function EditorPane(handle: Handle<{ model: WorkspaceModel }>) {
       'doc',
       (event) => {
         instance.setDoc(event.body, { preserveSelection: event.preserveSelection })
+        updateProgress(event.body)
       },
       { signal },
     )
@@ -172,7 +185,9 @@ export function EditorPane(handle: Handle<{ model: WorkspaceModel }>) {
             node.select()
           }),
           on('input', (event) => {
+            // Controlled input: re-render with the new value or Remix restores the old one.
             draft = event.currentTarget.value
+            void handle.update()
           }),
           on('keydown', (event) => {
             if (event.key === 'Enter') {
@@ -283,6 +298,24 @@ export function EditorPane(handle: Handle<{ model: WorkspaceModel }>) {
           </header>
         ) : null}
         {note ? conflictBar() : null}
+        {note && progress.total > 0 ? (
+          <div
+            mix={progressStyle}
+            role="progressbar"
+            aria-label="Tasks done"
+            aria-valuemin={0}
+            aria-valuemax={progress.total}
+            aria-valuenow={progress.completed}
+            aria-valuetext={`${progress.completed} of ${progress.total} tasks done`}
+            title={`${progress.completed} of ${progress.total} tasks done`}
+            data-task-progress={progress.percent}
+          >
+            <div mix={progressFillStyle} style={{ width: `${progress.percent}%` }} />
+            <span mix={progressTextStyle}>
+              {progress.completed}/{progress.total} · {progress.percent}%
+            </span>
+          </div>
+        ) : null}
         {note ? null : (
           <div mix={emptyState}>
             {model.data.notes.length === 0 ? (
@@ -366,6 +399,31 @@ const renameErrorStyle = css({ color: 'var(--danger)', fontSize: '12px' })
 const pathStyle = css({ fontSize: '11px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' })
 
 const starButtonStyle = css({ fontSize: '16px', '&[aria-pressed="true"]': { color: '#e8b923' } })
+
+const progressStyle = css({
+  position: 'relative',
+  height: '16px',
+  background: 'var(--bg-hover)',
+  borderBottom: '1px solid var(--border)',
+  overflow: 'hidden',
+})
+
+const progressFillStyle = css({
+  position: 'absolute',
+  inset: '0 auto 0 0',
+  background: 'var(--accent)',
+  opacity: 0.75,
+  transition: 'width 150ms ease-out',
+})
+
+const progressTextStyle = css({
+  position: 'relative',
+  display: 'block',
+  fontSize: '11px',
+  lineHeight: '16px',
+  textAlign: 'center',
+  fontVariantNumeric: 'tabular-nums',
+})
 
 const barStyle = css({
   display: 'flex',
