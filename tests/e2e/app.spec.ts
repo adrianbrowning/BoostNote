@@ -28,6 +28,7 @@ test.use({
     'diagram.md': DIAGRAM,
     'second.md': '# Second\n\nPlain text.\n',
     'work/third.md': '# Third\n',
+    'tasks.md': '# Tasks\n\n- [x] one\n- [ ] two\n- [ ] three\n',
   },
 })
 
@@ -104,6 +105,44 @@ test('renames the open note in place from the editor header', async ({ app }) =>
   await field.press('Enter')
   await expect(page.locator('[data-note-title]')).toHaveText('Diagrams')
   await expect.poll(() => readFile(path.join(vault, 'diagram.md'), 'utf8')).toContain('title: Diagrams')
+})
+
+test('shows task progress and updates it when a checkbox is ticked', async ({ app }) => {
+  const { page, vault } = app
+  await page.locator('[data-note="tasks.md"]').click()
+  const bar = page.getByRole('progressbar', { name: 'Tasks done' })
+  await expect(bar).toHaveAttribute('data-task-progress', '33')
+  await expect(bar).toContainText('1/3 · 33%')
+  await page.locator('[data-editor] .cm-lp-checkbox').nth(1).click()
+  await expect(bar).toContainText('2/3 · 66%')
+  await expect.poll(() => readFile(path.join(vault, 'tasks.md'), 'utf8')).toContain('- [x] two')
+  // No tasks, no bar.
+  await page.locator('[data-note="second.md"]').click()
+  await expect(bar).toBeHidden()
+})
+
+test('renames a new note by typing into the header', async ({ app }) => {
+  const { page, vault } = app
+  await app.clickMenu('new-note')
+  await expect(page.locator('[data-note-title]')).toHaveText('Untitled')
+  await page.locator('[data-rename-note]').click()
+  const field = page.locator('[data-note-title-input]')
+  await expect(field).toBeFocused()
+  // Real key presses, one input event each (fill() sets the value at once and missed a bug where
+  // every keystroke was reverted).
+  await page.keyboard.type('Weekly plan', { delay: 20 })
+  await expect(field).toHaveValue('Weekly plan')
+  await page.keyboard.press('Enter')
+  await expect(page.locator('[data-note-title]')).toHaveText('Weekly plan')
+  await expect(page.locator('[role="tab"][aria-selected="true"]')).toHaveAttribute('data-tab', 'Weekly plan.md')
+  await expect
+    .poll(() =>
+      readFile(path.join(vault, 'Weekly plan.md'), 'utf8').then(
+        () => true,
+        () => false,
+      ),
+    )
+    .toBe(true)
 })
 
 test('renames slug-named files from their titles', async ({ app }) => {
