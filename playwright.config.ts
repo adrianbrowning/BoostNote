@@ -13,6 +13,13 @@ export default defineConfig({
   timeout: 90_000,
   expect: { timeout: 10_000 },
   retries: process.env.CI ? 1 : 0,
-  reporter: process.env.CI ? [['list'], ['html', { open: 'never' }]] : 'list',
+  // A test that passes only on its retry is still a failure in CI: retries must not hide races.
+  failOnFlakyTests: !!process.env.CI,
+  // `test-results/results.json` holds every failure's message and location, so a failed run can be
+  // read (`jq`) instead of run again; traces of failed tests sit next to it.
+  reporter: process.env.CI
+    ? [['list'], ['html', { open: 'never' }], ['json', { outputFile: 'test-results/results.json' }]]
+    : [['list'], ['json', { outputFile: 'test-results/results.json' }]],
+  use: { trace: 'retain-on-failure' },
   outputDir: 'test-results',
 })

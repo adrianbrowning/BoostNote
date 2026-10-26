@@ -29,9 +29,21 @@ pnpm check && pnpm typecheck && pnpm test && pnpm build
 pnpm test:e2e   # launches Electron windows; on Linux run it under xvfb-run
 ```
 
-CI runs the same on macOS and Ubuntu. Add or update tests with your change, and update
+`pnpm install` also installs a pre-commit hook (`.githooks/pre-commit`: `pnpm check` and
+`pnpm typecheck`). CI runs all of the above on macOS and Ubuntu; in CI a test that passes only on
+its retry fails the run. A failed e2e run leaves `test-results/results.json` (every failure's
+message and location) and traces of the failed tests, so read those before running it again.
+
+To try a change on real notes, run the app on a copy: `pnpm smoke --vault-copy ~/MyVault
+[--steps steps.ts] [--shot /tmp/shot.png]` (`--steps` gets the launched app, as in
+`tests/e2e/fixtures.ts`). The copy and a temp profile go to a temp folder; the source is only read.
+
+A CI job shown as `cancelled` with no steps run never got a runner (GitHub-hosted macOS runners can
+queue for a long time); re-run it with `gh run rerun <run-id> --failed`.
+
+Add or update tests with your change, and update
 [docs/modernisation/PLAN.md](docs/modernisation/PLAN.md) when you change architecture or behaviour
-it describes.
+it describes. Reviews follow [CODING_STANDARDS.md](CODING_STANDARDS.md).
 
 ## Project layout
 

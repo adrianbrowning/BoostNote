@@ -10,6 +10,7 @@ jobs:
   verify:
     name: Check, typecheck, test (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
     strategy:
       fail-fast: false
       matrix:
@@ -30,6 +31,8 @@ jobs:
   e2e:
     name: End-to-end (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
+    # A hung Electron teardown should fail the job, not hold the runner for GitHub's 6-hour default.
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
@@ -69,6 +72,7 @@ jobs:
     if: startsWith(github.ref, 'refs/tags/v')
     needs: [verify, e2e]
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
     strategy:
       fail-fast: false
       matrix:
@@ -104,6 +108,7 @@ jobs:
     name: Draft release
     needs: release
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     permissions:
       contents: write
     steps:

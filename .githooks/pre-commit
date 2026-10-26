@@ -1,0 +1,6 @@
+#!/bin/sh
+# Installed by `pnpm install` (the `prepare` script sets core.hooksPath to .githooks).
+# Fast checks only; tests and e2e run in CI and before you push.
+set -e
+pnpm check
+pnpm typecheck
