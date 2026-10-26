@@ -6,6 +6,11 @@ export function parentOf(id: string): string {
   return slash === -1 ? '' : id.slice(0, slash)
 }
 
+/** Last segment of a vault id or an OS path (`/` or `\` separated). */
+export function baseName(file: string): string {
+  return file.replace(/[\\/]+$/, '').replace(/^.*[\\/]/, '')
+}
+
 /** `work/a` → `['work', 'work/a']`: the folder and its ancestors, root excluded. */
 export function folderChain(folder: string): string[] {
   const chain: string[] = []

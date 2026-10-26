@@ -9,6 +9,7 @@ export const VAULT_ERROR_STATUS: Record<VaultErrorCode, number> = {
   EXISTS: 409,
   NOT_A_VAULT: 400,
   CHANGED: 409,
+  TOO_LARGE: 413,
 }
 
 const MIGRATION_ERROR_STATUS: Record<MigrationError['code'], number> = {

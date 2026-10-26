@@ -2,6 +2,7 @@ import { routes } from '../../../routes.ts'
 import type {
   ExportResult,
   ImportCandidate,
+  ImportFilesReport,
   ImportSummary,
   JsonValue,
   LinkMove,
@@ -117,6 +118,8 @@ export const client = {
   pickImportFolder: (purpose: 'source' | 'target') => post<{ path: string | null }>(api.importPick.href(), { purpose }),
   runImport: (input: { source: string; target: string; dryRun: boolean; force: boolean }) =>
     post<ImportSummary>(api.importRun.href(), input),
+  /** Copies dropped `.md` files/folders (absolute paths) into `folder`. */
+  importFiles: (paths: string[], folder: string) => post<ImportFilesReport>(api.importFiles.href(), { paths, folder }),
 
   openExternal: (url: string) => post<unknown>(api.openExternal.href(), { url }),
 

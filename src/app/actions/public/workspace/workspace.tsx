@@ -2,6 +2,7 @@ import type { Handle } from 'remix/component'
 import { clientEntry, css, on, ref } from 'remix/component'
 
 import { routes } from '../../../routes.ts'
+import { installDropImport } from './drop-import.ts'
 import { EditorPane } from './editor-pane.tsx'
 import { ImportDialog } from './import-dialog.tsx'
 import { PANE_LIMITS } from './layout.ts'
@@ -113,6 +114,7 @@ export const Workspace = clientEntry(
         model.onUpdate({ version, url })
       })
       signal.addEventListener('abort', () => source.close(), { once: true })
+      installDropImport(model, signal)
 
       window.boostFlushPendingSave = () => model.session.flush()
       document.addEventListener(

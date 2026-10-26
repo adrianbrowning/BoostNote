@@ -2,7 +2,7 @@ import { TypedEventTarget } from 'remix/component'
 
 import { ApiError, client } from './api.ts'
 import { NoteSession } from './note-session.ts'
-import { folderChain, parentOf } from './paths.ts'
+import { baseName, folderChain, parentOf } from './paths.ts'
 import { type Tab, Tabs } from './tabs.ts'
 import type {
   FolderSummary,
@@ -86,6 +86,8 @@ export type Dialog =
 export interface Notice {
   kind: 'error' | 'info'
   text: string
+  /** Lines listed under the text (what an import skipped). */
+  details?: string[]
 }
 
 /** Folder colours offered in the folder menu (legacy Boostnote's palette). */
@@ -632,6 +634,53 @@ export class WorkspaceModel extends TypedEventTarget<{
     })
   }
 
+  /** Where dropped files go when not dropped onto a folder row: the selected folder, else the root. */
+  get dropFolder(): string {
+    return this.selection.kind === 'folder' ? this.selection.id : ''
+  }
+
+  /**
+   * Drag and drop: copies `.md` files and folders (absolute paths from the preload) into `folder`.
+   * A single dropped note opens in a new tab; the notice sums up the import and lists what was skipped.
+   */
+  async importPaths(paths: string[], folder: string): Promise<void> {
+    if (!this.data.vault) {
+      this.notify('error', 'Open a vault first, then drop Markdown files onto it.')
+      return
+    }
+    if (paths.length === 0) {
+      this.notify('error', 'Only files and folders from disk can be dropped here.')
+      return
+    }
+    await this.attempt(async () => {
+      const report = await client.importFiles(paths, folder)
+      await this.refresh()
+      const details = [
+        ...report.skipped.map((skip) => `Skipped ${baseName(skip.source)}: ${skip.reason}`),
+        ...report.unresolved.map((link) => `${baseName(link.id)}: link “${link.link}” left as is (${link.reason})`),
+      ]
+      const imported = report.notes.length
+      if (imported === 0) {
+        const only = report.skipped.length === 1 ? report.skipped[0] : undefined
+        this.notify(
+          'info',
+          only ? `Nothing imported: ${baseName(only.source)} is ${only.reason}` : 'Nothing imported',
+          details,
+        )
+        return
+      }
+      const first = report.notes[0]
+      if (paths.length === 1 && imported === 1 && first) await this.openNote(first.id, { newTab: true })
+      const extras = [`${report.assets} ${report.assets === 1 ? 'image' : 'images'} copied`]
+      if (report.skipped.length > 0) extras.push(`${report.skipped.length} skipped`)
+      this.notify(
+        'info',
+        `Imported ${imported} ${imported === 1 ? 'note' : 'notes'} into ${this.folderName(folder)} (${extras.join(', ')})`,
+        details,
+      )
+    })
+  }
+
   async toggleStar(): Promise<void> {
     const note = this.session.note
     if (!note) return
@@ -969,10 +1018,13 @@ export class WorkspaceModel extends TypedEventTarget<{
     this.changed()
   }
 
-  notify(kind: Notice['kind'], text: string): void {
+  notify(kind: Notice['kind'], text: string, details: string[] = []): void {
     clearTimeout(this.#noticeTimer)
-    this.notice = { kind, text }
-    this.#noticeTimer = setTimeout(() => this.dismissNotice(), kind === 'error' ? 8000 : 3000)
+    this.notice = details.length > 0 ? { kind, text, details } : { kind, text }
+    // A notice with details stays until dismissed: it is read, not glanced at.
+    if (details.length === 0) {
+      this.#noticeTimer = setTimeout(() => this.dismissNotice(), kind === 'error' ? 8000 : 3000)
+    }
     this.changed()
   }
 

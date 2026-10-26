@@ -1,5 +1,5 @@
 import { randomBytes } from 'node:crypto'
-import { lstat, mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises'
+import { copyFile, lstat, mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises'
 import * as path from 'node:path'
 
 import { isNodeError } from './errors.ts'
@@ -20,6 +20,19 @@ export async function writeFileAtomic(
   try {
     await writeFile(temp, data)
     await beforeReplace?.()
+    await rename(temp, file)
+  } catch (error) {
+    await rm(temp, { force: true })
+    throw error
+  }
+}
+
+/** Copies `source` to `file` through a hidden temp file next to `file` (see `writeFileAtomic`). */
+export async function copyFileAtomic(source: string, file: string): Promise<void> {
+  await mkdir(path.dirname(file), { recursive: true })
+  const temp = path.join(path.dirname(file), `.${path.basename(file)}.${randomBytes(6).toString('hex')}.tmp`)
+  try {
+    await copyFile(source, temp)
     await rename(temp, file)
   } catch (error) {
     await rm(temp, { force: true })

@@ -7,6 +7,7 @@ import type { PaneLayout, ThemePreference, UiPatch, UiPreferences } from '../../
 import type { UpdateInfo } from '../../../../main/updates.ts'
 import type { OpenRequest } from '../../../../main/vault-session.ts'
 import type {
+  ImportFilesReport,
   LinkMove,
   LinkUpdate,
   LinkUpdateReport,
@@ -16,6 +17,7 @@ import type {
 } from '../../../../vault/index.ts'
 
 export type {
+  ImportFilesReport,
   LinkMove,
   LinkUpdate,
   LinkUpdateReport,

@@ -6,6 +6,8 @@ import type { SettingsStore, WindowBounds } from './settings.ts'
 
 const DEFAULT_SIZE = { width: 1080, height: 720 }
 const iconPath = path.resolve(import.meta.dirname, '../../resources/app.png')
+/** Gives dropped files their paths (drag-and-drop import); see the file for why it is the only preload. */
+const preloadPath = path.resolve(import.meta.dirname, 'preload.cjs')
 
 /** Saved bounds, minus a position that no longer lands on any connected display. */
 function restoreBounds(saved: WindowBounds | undefined): WindowBounds {
@@ -39,6 +41,7 @@ export function createMainWindow({ settings, isQuitting }: MainWindowOptions): B
     icon: iconPath,
     backgroundColor: nativeTheme.shouldUseDarkColors ? '#1e2124' : '#ffffff',
     webPreferences: {
+      preload: preloadPath,
       contextIsolation: true,
       sandbox: true,
       nodeIntegration: false,

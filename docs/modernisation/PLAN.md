@@ -15,8 +15,8 @@ example `browser/main/lib/dataApi/`, `browser/lib/markdown.js`, `tests/fixtures/
   and answers every request with `router.fetch(request)`. Pages are server-rendered with
   `remix/component/server`; interactive pieces are `clientEntry(...)` components hydrated by `run()`.
   Browser JS/CSS is compiled on demand by the `remix/assets` server mounted on the same router.
-- **Secure renderer.** `contextIsolation: true`, `sandbox: true`, `nodeIntegration: false`, no
-  preload. Every page carries a nonce-based Content-Security-Policy. All disk access happens in main.
+- **Secure renderer.** `contextIsolation: true`, `sandbox: true`, `nodeIntegration: false`, one
+  minimal preload for drop import only (see "Drop import (phase 12)"). Every page carries a nonce-based Content-Security-Policy. All disk access happens in main.
 - **Browser ↔ main is plain HTTP** on `boost://app/...` (fetch, forms, Remix frames). Main pushes
   (menu commands, later file changes) through one Server-Sent Events route, `GET /events`.
 - **One live editor/viewer:** CodeMirror 6 live preview (Obsidian/Typora style). Markdown text is the
@@ -88,7 +88,7 @@ Consequences:
 └──────────────────────────────────────────────────────────────────────────────────────────┘
                  ▲  boost://app/... (HTML, JS, CSS, fetch, forms)   │  SSE: event: menu …
                  │                                                  ▼
-┌──────────────── Renderer (sandboxed Chromium, no Node, no preload) ──────────────────────┐
+┌──────────────── Renderer (sandboxed Chromium, no Node, 1-function preload) ──────────────┐
 │  HTML from the router → entry.ts runs remix/component run() → hydrates clientEntry()s    │
 │  (one Workspace entry: sidebar, note list, CodeMirror 6 editor, status bar)             │
 └──────────────────────────────────────────────────────────────────────────────────────────┘
@@ -506,6 +506,63 @@ deleted for good: `trash` moves a note to `.trash/` (restorable), there is no em
 - **With the app running:** CLI/MCP writes are external writes to the app: its watcher reloads the
   open note (clean) or shows the conflict bar (dirty). Nothing new was needed.
 
+## Drop import (phase 12)
+
+Drag `.md`/`.markdown` files and folders from Finder/Explorer onto the window to **copy** them into
+the vault. The originals are only read: never moved, renamed or changed.
+
+- **Targets** (`src/app/actions/public/workspace/drop-import.ts`, `sidebar.tsx`): a sidebar folder
+  row takes the drop for that folder (highlighted on dragover, like note/folder drags); anywhere else
+  (note list, editor, empty state) uses the folder selected in the sidebar, else the vault root. Only
+  drags carrying OS files (`dataTransfer.types` has `Files`) are handled; note → folder, folder →
+  folder and tab drags are untouched. A window-level capture-phase `drop` listener runs before
+  CodeMirror, so a `.md` dropped on the editor is imported rather than pasted as text; a drop of
+  nothing but images onto the editor is left to the editor (stored as assets of the open note, as
+  before). No vault open → "Open a vault first".
+- **Paths: the one preload** (`src/main/preload.cjs`). Folder drops and the images next to a dropped
+  note need real file-system paths. A sandboxed, context-isolated renderer cannot read them from a
+  `File` (`File.path` is gone since Electron 32), and `webUtils.getPathForFile` exists only on the
+  preload side, so there is no way to do this through the router. The preload (CommonJS, as
+  sandboxed preloads must be) exposes exactly `window.boostnote.pathsForFiles(files): string[]` and
+  nothing else; `sandbox`, `contextIsolation` and `nodeIntegration: false` stay as they were. The
+  renderer posts the paths to `POST /api/import-files { paths, folder }`.
+- **Route checks** (`readImportPaths` in the API controller): 1–200 paths, each an absolute string
+  without NUL that exists and is a regular file or a directory; then `vault.importFiles(paths, folder)`
+  (the folder id is validated by the vault). Reply `201` with the report.
+- **`Vault.importFiles(sources, folder, limits?)`** (`src/vault/import-files.ts` plans, `vault.ts`
+  writes; under `#exclusive`, atomic writes, `#track`ed so no self-events). Planning reads everything
+  first and writes nothing, so a refused import (over 2000 files or 512 MB: `TOO_LARGE`, `413`)
+  leaves no partial copy.
+  - Names: `noteFileName(stem)`, unique ignoring case in the target folder (` 2`, ` 3`…, also
+    against `<stem>.assets`); `.markdown` becomes `.md`. A folder becomes a new folder of the same
+    (sanitised, unique) name with its Markdown files in their sub-folders; dot-entries and `*.assets`
+    folders are not walked, symlinks are skipped, folders without notes are not created.
+  - Content: the source's bytes, frontmatter included; no frontmatter is added. The file's mtime
+    (and atime) are copied from the source. Only rewritten links change the text (frontmatter
+    untouched, the body via `rewriteRelativeLinks`, so code spans/blocks are skipped and `%20`,
+    `<dest>`, `./`, `../`, `#fragment` work as for link updates).
+  - Links: a relative link (markdown or `src`/`href`) to another note of the same drop → its new
+    path; to an existing file under what was dropped (the file's folder for a dropped file, the
+    dropped folder for a folder) that is not a `.md` → copied to `<stem>.assets/<sha256-12>.<ext>`
+    (same naming as `saveAsset`) and linked as `./<stem>.assets/…`. Web links, absolute paths,
+    missing files, files outside the drop and `.md` files not in the drop stay as written and are
+    listed in `report.unresolved`.
+  - Skips (`report.skipped`): non-Markdown files (unless a note linked to them), missing paths, a
+    source directly in the target folder ("already in …", nothing written: dropping a vault note on
+    its own folder is a no-op; onto another folder it is copied like any file), a folder containing
+    the target.
+- **After the import** (`WorkspaceModel.importPaths`): lists refresh; a single dropped file that
+  became one note opens in a new tab; the notice says "Imported N notes into <folder> (M images
+  copied, K skipped)" and lists skips and links left alone (a notice with details stays until
+  dismissed).
+- **Tests:** `tests/vault/import-files.test.ts` (names, bytes, mtime, assets, links, folders, skips,
+  no-op, limits, nothing written outside the vault), route checks in `tests/app/api.test.ts`,
+  `tests/e2e/drop.spec.ts`. Playwright cannot perform an OS drag, so the e2e tests put real `File`s
+  from a file input (`setInputFiles`) into a `DataTransfer` and dispatch `dragover`/`drop`: the real
+  handler, the real preload (`webUtils.getPathForFile` returns the files' paths) and the real route
+  run. A folder cannot be put in a file input, so folder drops are covered by the vault/route tests
+  and the manual smoke run, not by e2e.
+
 ## Phases (stack bottom → top)
 
 1. `modernise/01-foundation` — toolchain, Electron 45 shell, `boost://` → Remix router,
@@ -530,6 +587,8 @@ deleted for good: `trash` moves a note to `.trash/` (restorable), there is no em
 10. `modernise/10-link-updates` — ask-each-time link updates after renaming/moving notes and folders.
 11. `modernise/11-cli-mcp` — `boostnote` command line and MCP server over the vault, Install Command
     Line Tool… menu item.
+12. `modernise/12-drop-import` — drag and drop `.md` files and folders into the vault (copies, with
+    linked images and links between dropped notes), the one-function preload.
 
 ## Remix notes
 

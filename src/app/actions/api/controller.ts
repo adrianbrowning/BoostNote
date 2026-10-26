@@ -1,3 +1,4 @@
+import { stat } from 'node:fs/promises'
 import * as path from 'node:path'
 import { isDeepStrictEqual } from 'node:util'
 import { createController } from 'remix/router'
@@ -14,6 +15,8 @@ import { importSummary, toJsonValue, toNoteDocument, workspaceData } from './wor
 
 /** Largest asset the editor may upload (pasted screenshots, dropped images). */
 export const MAX_ASSET_BYTES = 50 * 1024 * 1024
+/** Most entries one drop may carry (folders count once; their contents are capped by the vault). */
+export const MAX_IMPORT_PATHS = 200
 
 const FOLDER_COLOR = /^#[0-9a-f]{3,8}$/i
 
@@ -34,6 +37,29 @@ function readMoves(body: Record<string, unknown>): LinkMove[] {
       throw new HttpError(400, 'BAD_REQUEST', 'Missing or invalid "kind"')
     return { from: requireString(move.from, 'from'), to: requireString(move.to, 'to'), kind: move.kind }
   })
+}
+
+/**
+ * The `paths` of `POST /api/import-files`: absolute paths of existing files or folders (the
+ * renderer got them from the dropped `File`s through the preload). Anything else is a `400`.
+ */
+async function readImportPaths(value: unknown): Promise<string[]> {
+  if (!Array.isArray(value) || value.length === 0) throw new HttpError(400, 'BAD_REQUEST', 'Missing or invalid "paths"')
+  if (value.length > MAX_IMPORT_PATHS) {
+    throw new HttpError(413, 'TOO_LARGE', `Too many files dropped at once (at most ${MAX_IMPORT_PATHS})`)
+  }
+  const paths: string[] = []
+  for (const item of value) {
+    if (typeof item !== 'string' || item === '' || item.includes('\0') || !path.isAbsolute(item)) {
+      throw new HttpError(400, 'BAD_REQUEST', `Not an absolute path: ${JSON.stringify(item)}`)
+    }
+    const stats = await stat(item).catch(() => undefined)
+    if (!stats) throw new HttpError(404, 'NOT_FOUND', `Not found: ${item}`)
+    if (!stats.isFile() && !stats.isDirectory())
+      throw new HttpError(400, 'BAD_REQUEST', `Not a file or folder: ${item}`)
+    paths.push(path.normalize(item))
+  }
+  return paths
 }
 
 /** Runs an action and turns expected failures into JSON error responses. */
@@ -297,6 +323,14 @@ export function createApiController(services: AppServices) {
               },
         )
         return json({ path: folder ?? null })
+      }),
+
+      importFiles: guarded(async ({ request }: { request: Request }) => {
+        const vault = requireVault(services)
+        const body = await readJsonObject(request)
+        const folder = requireString(body.folder, 'folder', { allowEmpty: true })
+        const paths = await readImportPaths(body.paths)
+        return json(await vault.importFiles(paths, folder), { status: 201 })
       }),
 
       importRun: guarded(async ({ request }: { request: Request }) => {
