@@ -1,6 +1,7 @@
 import { TypedEventTarget } from 'remix/component'
 
 import { ApiError, client } from './api.ts'
+import type { DropTicket } from './drop-import.ts'
 import { NoteSession } from './note-session.ts'
 import { baseName, folderChain, parentOf } from './paths.ts'
 import { type Tab, Tabs } from './tabs.ts'
@@ -640,20 +641,20 @@ export class WorkspaceModel extends TypedEventTarget<{
   }
 
   /**
-   * Drag and drop: copies `.md` files and folders (absolute paths from the preload) into `folder`.
+   * Drag and drop: copies the `.md` files and folders behind a preload drop ticket into `folder`.
    * A single dropped note opens in a new tab; the notice sums up the import and lists what was skipped.
    */
-  async importPaths(paths: string[], folder: string): Promise<void> {
+  async importDropped(drop: DropTicket | undefined, folder: string): Promise<void> {
     if (!this.data.vault) {
       this.notify('error', 'Open a vault first, then drop Markdown files onto it.')
       return
     }
-    if (paths.length === 0) {
+    if (!drop || drop.count === 0) {
       this.notify('error', 'Only files and folders from disk can be dropped here.')
       return
     }
     await this.attempt(async () => {
-      const report = await client.importFiles(paths, folder)
+      const report = await client.importFiles(drop.ticket, folder)
       await this.refresh()
       const details = [
         ...report.skipped.map((skip) => `Skipped ${baseName(skip.source)}: ${skip.reason}`),
@@ -670,7 +671,7 @@ export class WorkspaceModel extends TypedEventTarget<{
         return
       }
       const first = report.notes[0]
-      if (paths.length === 1 && imported === 1 && first) await this.openNote(first.id, { newTab: true })
+      if (drop.count === 1 && imported === 1 && first) await this.openNote(first.id, { newTab: true })
       const extras = [`${report.assets} ${report.assets === 1 ? 'image' : 'images'} copied`]
       if (report.skipped.length > 0) extras.push(`${report.skipped.length} skipped`)
       this.notify(

@@ -2,9 +2,15 @@ import type { WorkspaceModel } from './model.ts'
 
 declare global {
   interface Window {
-    /** Exposed by the preload (`src/main/preload.cjs`): the file-system paths of dropped `File`s. */
-    boostnote?: { pathsForFiles(files: File[]): string[] }
+    /** Exposed by the preload (`src/main/preload.cjs`): a one-time import ticket for dropped `File`s. */
+    boostnote?: { grantDroppedFiles(files: File[]): Promise<DropTicket> }
   }
+}
+
+export interface DropTicket {
+  ticket: string
+  /** How many dropped items are files or folders on disk. */
+  count: number
 }
 
 /** True when a drag carries files from the OS (not one of the app's own note/folder/tab drags). */
@@ -12,11 +18,13 @@ export function carriesFiles(data: DataTransfer | null | undefined): boolean {
   return data?.types.includes('Files') ?? false
 }
 
-/** Copies the files of an OS drop into `folder` (`model.importPaths`; the paths come from the preload). */
+/** Copies the files of an OS drop into `folder` (`model.importDropped`, with a ticket from the preload). */
 export function importDrop(model: WorkspaceModel, data: DataTransfer, folder: string): void {
   const files = [...data.files]
-  const paths = window.boostnote?.pathsForFiles(files).filter((file) => file !== '') ?? []
-  void model.importPaths(paths, folder)
+  void (window.boostnote?.grantDroppedFiles(files) ?? Promise.resolve(undefined)).then(
+    (drop) => model.importDropped(drop, folder),
+    (error: unknown) => model.notify('error', error instanceof Error ? error.message : String(error)),
+  )
 }
 
 /**

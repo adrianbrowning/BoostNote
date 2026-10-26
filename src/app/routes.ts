@@ -43,7 +43,7 @@ export const routes = route({
     assetUpload: post('/assets'),
     importCandidates: get('/import/candidates'),
     importPick: post('/import/pick'),
-    /** Drag and drop: `{ paths, folder }` (absolute paths of `.md` files and folders) → copies in the vault. */
+    /** Drag and drop: `{ ticket, folder }` (a one-time ticket main granted for the dropped files) → copies in the vault. */
     importFiles: post('/import-files'),
     importRun: post('/import/run'),
     openExternal: post('/open-external'),

@@ -5,10 +5,12 @@ import {
   type BrowserWindow,
   dialog,
   globalShortcut,
+  ipcMain,
   type MessageBoxOptions,
   type OpenDialogOptions,
   shell,
 } from 'electron'
+import { DropGrants } from '../app/drop-grants.ts'
 import { createAppRouter } from '../app/router.ts'
 import { type CliTarget, defaultShimDirs, installShim, loginShellPath, windowsCommands } from '../cli/install.ts'
 import { findLegacyStorages } from '../migrate/index.ts'
@@ -72,6 +74,18 @@ function liveWindow(): BrowserWindow | undefined {
   return mainWindow && !mainWindow.isDestroyed() ? mainWindow : undefined
 }
 
+const drops = new DropGrants()
+// The preload sends the paths of really dropped files; only the app window's own page may do so.
+ipcMain.handle('drop:grant', (event, paths: unknown) => {
+  const window = liveWindow()
+  if (!window || event.sender !== window.webContents || event.senderFrame !== window.webContents.mainFrame) {
+    throw new Error('Drops are only accepted from the app window')
+  }
+  if (!event.senderFrame.url.startsWith('boost://app/')) throw new Error('Drops are only accepted from app pages')
+  if (!Array.isArray(paths) || !paths.every((item) => typeof item === 'string')) throw new Error('Invalid drop')
+  return { ticket: drops.grant(paths), count: paths.length }
+})
+
 const router = createAppRouter({
   events: eventHub,
   vaults,
@@ -91,6 +105,7 @@ const router = createAppRouter({
   openExternal: (url) => shell.openExternal(url),
   showItemInFolder: (fullPath) => shell.showItemInFolder(fullPath),
   findLegacyStorages: () => findLegacyStorages({ appDataDir: path.join(app.getPath('appData'), 'Boostnote') }),
+  drops,
   exports: createExportServices(liveWindow),
   updates: updater,
 })
