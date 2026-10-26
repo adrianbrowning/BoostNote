@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { cp, mkdir, mkdtemp, realpath, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import * as path from 'node:path'
 import { test as base, type ElectronApplication, _electron as electron, type Page } from '@playwright/test'
@@ -31,16 +31,25 @@ export async function writeFiles(root: string, files: VaultFiles): Promise<void>
   }
 }
 
+export interface LaunchOptions {
+  /** Written outside the vault (under `<dir>/loose/`) and passed on the command line. */
+  openFiles?: VaultFiles
+  /** Copies this folder into the temp vault (before `files` are written); the folder is only read. */
+  vaultCopyOf?: string
+}
+
 /**
  * Launches the app from source on a temp profile (`--user-data-dir`) whose settings reopen a temp
  * vault, with the global hotkey off so tests never fight a running Boostnote for it. `openFiles` are
- * written outside the vault (under `<dir>/loose/`) and passed on the command line, like a file
- * association does on Windows/Linux.
+ * passed on the command line, like a file association does on Windows/Linux. The temp vault is a
+ * copy (`vaultCopyOf`), so a real vault is never opened.
  */
-export async function launchApp(files: VaultFiles, openFiles: VaultFiles = {}): Promise<AppHandle> {
+export async function launchApp(files: VaultFiles, options: LaunchOptions = {}): Promise<AppHandle> {
+  const { openFiles = {}, vaultCopyOf } = options
   const root = await mkdtemp(path.join(tmpdir(), 'boostnote-e2e-'))
   const vault = path.join(root, 'vault')
   const userDataDir = path.join(root, 'profile')
+  if (vaultCopyOf !== undefined) await cp(await realpath(vaultCopyOf), vault, { recursive: true })
   await writeFiles(vault, files)
   await writeFiles(path.join(root, 'loose'), openFiles)
   await mkdir(userDataDir, { recursive: true })

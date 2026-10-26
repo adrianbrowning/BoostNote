@@ -30,7 +30,9 @@
     "dist": "pnpm build && electron-builder --publish never",
     "migrate": "node --import remix/node-tsx src/migrate/cli.ts",
     "cli": "node src/cli/index.js",
-    "test:e2e": "playwright test"
+    "test:e2e": "playwright test",
+    "smoke": "node --import remix/node-tsx scripts/smoke.ts",
+    "prepare": "git config core.hooksPath .githooks || true"
   },
   "pnpm": {
     "onlyBuiltDependencies": [

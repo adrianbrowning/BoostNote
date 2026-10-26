@@ -235,7 +235,7 @@ test('exports a note to HTML with mermaid SVG and KaTeX markup', async ({ app })
 })
 
 test('opens a loose .md file from the command line and through open-file', async () => {
-  const app = await launchApp({ 'inside.md': '# Inside\n' }, { 'readme.md': '# Loose readme\n' })
+  const app = await launchApp({ 'inside.md': '# Inside\n' }, { openFiles: { 'readme.md': '# Loose readme\n' } })
   try {
     const { page, dir } = app
     // argv: the file's folder becomes the vault and the note opens in a tab.
