@@ -3,6 +3,7 @@ import type { SettingsStore, UiPreferences } from '../main/settings.ts'
 import type { UpdateInfo } from '../main/updates.ts'
 import type { VaultSession } from '../main/vault-session.ts'
 import type { LegacyStorageLocation } from '../migrate/index.ts'
+import type { DropGrants } from './drop-grants.ts'
 
 export interface FolderPickerOptions {
   title: string
@@ -62,6 +63,8 @@ export interface AppServices {
   showItemInFolder(fullPath: string): void
   /** Legacy Boostnote storages on this machine (prefills the importer). */
   findLegacyStorages(): Promise<LegacyStorageLocation[]>
+  /** Tickets for dragged-in files, granted by main from the preload's IPC (see `DropGrants`). */
+  drops: Pick<DropGrants, 'take'>
   exports: ExportServices
   updates: UpdateServices
 }

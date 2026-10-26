@@ -2,6 +2,7 @@ import { mkdir, mkdtemp, rm } from 'node:fs/promises'
 import * as os from 'node:os'
 import * as path from 'node:path'
 
+import { DropGrants } from '../../src/app/drop-grants.ts'
 import { type AppRouter, createAppRouter } from '../../src/app/router.ts'
 import type { FolderPickerOptions, PreferenceServices, SaveFileOptions } from '../../src/app/services.ts'
 import { createEventHub, type EventHub } from '../../src/main/events.ts'
@@ -26,6 +27,8 @@ export class TestApp {
   readonly opened: string[] = []
   readonly revealed: string[] = []
   readonly legacyStorages: LegacyStorageLocation[] = []
+  /** Stands in for main's drop tickets: `drops.grant(paths)` is what the preload's IPC does. */
+  readonly drops = new DropGrants()
   /** Preferences passed to `preferences.apply`, oldest first. */
   readonly applied: UiPreferences[] = []
   /** Accelerators the fake OS refuses to register. */
@@ -83,6 +86,7 @@ export class TestApp {
         this.revealed.push(fullPath)
       },
       findLegacyStorages: async () => this.legacyStorages,
+      drops: this.drops,
       updates: this.updates,
       exports: {
         saveFile: async (options) => {

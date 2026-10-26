@@ -40,8 +40,9 @@ function readMoves(body: Record<string, unknown>): LinkMove[] {
 }
 
 /**
- * The `paths` of `POST /api/import-files`: absolute paths of existing files or folders (the
- * renderer got them from the dropped `File`s through the preload). Anything else is a `400`.
+ * The paths behind a drop ticket of `POST /api/import-files`: absolute paths of existing files or
+ * folders. Main granted the ticket for paths the preload read from really dropped `File`s, so the
+ * page never names a path itself; the paths are checked again here. Anything else is a `400`.
  */
 async function readImportPaths(value: unknown): Promise<string[]> {
   if (!Array.isArray(value) || value.length === 0) throw new HttpError(400, 'BAD_REQUEST', 'Missing or invalid "paths"')
@@ -329,8 +330,11 @@ export function createApiController(services: AppServices) {
         const vault = requireVault(services)
         const body = await readJsonObject(request)
         const folder = requireString(body.folder, 'folder', { allowEmpty: true })
-        const paths = await readImportPaths(body.paths)
-        return json(await vault.importFiles(paths, folder), { status: 201 })
+        const paths = services.drops.take(requireString(body.ticket, 'ticket'))
+        if (paths === undefined) {
+          throw new HttpError(403, 'FORBIDDEN', 'This drop has expired or was already imported; drop the files again')
+        }
+        return json(await vault.importFiles(await readImportPaths(paths), folder), { status: 201 })
       }),
 
       importRun: guarded(async ({ request }: { request: Request }) => {

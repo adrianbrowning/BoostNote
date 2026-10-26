@@ -523,12 +523,19 @@ the vault. The originals are only read: never moved, renamed or changed.
   note need real file-system paths. A sandboxed, context-isolated renderer cannot read them from a
   `File` (`File.path` is gone since Electron 32), and `webUtils.getPathForFile` exists only on the
   preload side, so there is no way to do this through the router. The preload (CommonJS, as
-  sandboxed preloads must be) exposes exactly `window.boostnote.pathsForFiles(files): string[]` and
-  nothing else; `sandbox`, `contextIsolation` and `nodeIntegration: false` stay as they were. The
-  renderer posts the paths to `POST /api/import-files { paths, folder }`.
-- **Route checks** (`readImportPaths` in the API controller): 1–200 paths, each an absolute string
-  without NUL that exists and is a regular file or a directory; then `vault.importFiles(paths, folder)`
-  (the folder id is validated by the vault). Reply `201` with the report.
+  sandboxed preloads must be) exposes exactly `window.boostnote.grantDroppedFiles(files)` and
+  nothing else; `sandbox`, `contextIsolation` and `nodeIntegration: false` stay as they were.
+- **Drop tickets, not paths.** The preload sends the paths over IPC (`drop:grant`) straight to
+  main, which accepts them only from the app window's main frame on `boost://app/`, stores them as
+  a one-time ticket (60 s, `src/app/drop-grants.ts`) and returns `{ ticket, count }`. The page then
+  posts `POST /api/import-files { ticket, folder }`. Page script therefore never names a path:
+  it can only get tickets for `File`s that carry a path, which come from the user (a drop, a file
+  picker or a paste of copied files); `new File(...)` has none. Unknown, used or expired tickets
+  get `403`.
+- **Route checks** (`readImportPaths` in the API controller), on the ticket's paths: 1–200 paths,
+  each an absolute string without NUL that exists and is a regular file or a directory; then
+  `vault.importFiles(paths, folder)` (the folder id is validated by the vault). Reply `201` with
+  the report.
 - **`Vault.importFiles(sources, folder, limits?)`** (`src/vault/import-files.ts` plans, `vault.ts`
   writes; under `#exclusive`, atomic writes, `#track`ed so no self-events). Planning reads everything
   first and writes nothing, so a refused import (over 2000 files or 512 MB: `TOO_LARGE`, `413`)
@@ -551,7 +558,7 @@ the vault. The originals are only read: never moved, renamed or changed.
     source directly in the target folder ("already in …", nothing written: dropping a vault note on
     its own folder is a no-op; onto another folder it is copied like any file), a folder containing
     the target.
-- **After the import** (`WorkspaceModel.importPaths`): lists refresh; a single dropped file that
+- **After the import** (`WorkspaceModel.importDropped`): lists refresh; a single dropped file that
   became one note opens in a new tab; the notice says "Imported N notes into <folder> (M images
   copied, K skipped)" and lists skips and links left alone (a notice with details stays until
   dismissed).
