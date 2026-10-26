@@ -1,6 +1,5 @@
-import { createHash } from 'node:crypto'
 import { type Dirent, type FSWatcher, type Stats, watch } from 'node:fs'
-import { lstat, mkdir, readdir, readFile, realpath, rename, rm, stat } from 'node:fs/promises'
+import { lstat, mkdir, readdir, readFile, realpath, rename, rm, stat, utimes } from 'node:fs/promises'
 import * as path from 'node:path'
 
 import {
@@ -14,12 +13,14 @@ import {
   writeTrashIndex,
 } from './config.ts'
 import { isNodeError, VaultError } from './errors.ts'
-import { exists, writeFileAtomic } from './files.ts'
+import { copyFileAtomic, exists, writeFileAtomic } from './files.ts'
 import { type Frontmatter, parseNoteText, serializeNoteText } from './frontmatter.ts'
+import { type ImportFilesReport, type ImportLimits, planImport } from './import-files.ts'
 import { type LinkMove, rebaseNoteLinks, rewriteMovedLinks } from './links.ts'
 import { findH1, hashText, type Note, type NoteMeta, toNote } from './note.ts'
 import {
   ASSETS_SUFFIX,
+  assetFileName,
   encodeLinkPath,
   folderSegments,
   isHiddenName,
@@ -140,7 +141,6 @@ interface KnownFile {
   size: number
 }
 
-const ASSET_EXTENSION = /^[a-z0-9]{1,10}$/
 /** Delay of the reconcile that follows starting the watcher (covers events lost during start-up). */
 const WATCHER_SETTLE_MS = 1000
 
@@ -656,13 +656,35 @@ export class Vault {
   saveAsset(noteId: string, bytes: Uint8Array, ext: string): Promise<string> {
     return this.#exclusive(async () => {
       const file = await resolveInside(this.root, noteSegments(noteId))
-      const normalized = ext.replace(/^\./, '').toLowerCase()
-      const extension = ASSET_EXTENSION.test(normalized) ? normalized : 'bin'
-      const name = `${createHash('sha256').update(bytes).digest('hex').slice(0, 12)}.${extension}`
+      const name = assetFileName(bytes, ext)
       const target = path.join(assetsDirOf(file), name)
       await resolveInside(this.root, path.relative(this.root, target).split(path.sep))
       if (!(await exists(target))) await writeFileAtomic(target, bytes)
       return `./${encodeLinkPath(noteStem(noteId))}${ASSETS_SUFFIX}/${name}`
+    })
+  }
+
+  /**
+   * Copies Markdown files and folders from outside (or inside) the vault into `folder` — the
+   * sources are only read. See `planImport` for names, links and what is skipped. Each note keeps
+   * its bytes (bar rewritten links) and its modification time; no frontmatter is added.
+   */
+  importFiles(sources: readonly string[], folder: string, limits?: Partial<ImportLimits>): Promise<ImportFilesReport> {
+    return this.#exclusive(async () => {
+      const dir = await this.#existingFolder(folder)
+      const plan = await planImport({ sources, folder, dir, ...(limits ? { limits } : {}) })
+      for (const note of plan.notes) {
+        const file = await resolveInside(this.root, noteSegments(note.id))
+        for (const asset of note.assets) {
+          const target = path.join(assetsDirOf(file), asset.name)
+          await resolveInside(this.root, path.relative(this.root, target).split(path.sep))
+          if (!(await exists(target))) await copyFileAtomic(asset.source, target)
+        }
+        await writeFileAtomic(file, note.data)
+        await utimes(file, note.atime, note.mtime)
+        await this.#track(note.id, file, note.text)
+      }
+      return plan.report
     })
   }
 

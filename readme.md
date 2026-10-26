@@ -28,6 +28,10 @@ choose, so any editor, `git` or sync tool works with them. The background and de
 - **Export:** a note as standalone HTML (math, diagrams and images included, no scripts), PDF, or
   Markdown with its assets; print; a folder or the whole vault as a static HTML site.
 - **Open `.md` files** from Finder/Explorer: the file's folder opens as a vault.
+- **Drop `.md` files and folders** onto the app to copy them into the vault: onto a folder in the
+  sidebar, or anywhere else for the selected folder. Images and files they link to are copied into
+  the note's `.assets/` folder, links between dropped notes are kept working, and the originals are
+  never moved or changed.
 - **Preferences:** light/dark/system theme, editor font, size and width, spellcheck, a global
   show/hide hotkey. Every command has a native menu item and shortcut.
 
@@ -141,7 +145,8 @@ See [contributing.md](contributing.md) for the workflow and project layout.
   answers each request with `router.fetch()`: server-rendered pages, a JSON API, browser modules
   compiled on demand by `remix/assets`, and one Server-Sent Events stream for pushes (menu commands,
   file changes).
-- **Sandboxed renderer:** `contextIsolation`, `sandbox`, no Node, no preload, a nonce-based CSP.
+- **Sandboxed renderer:** `contextIsolation`, `sandbox`, no Node, a nonce-based CSP. Its one preload
+  exposes a single function that turns dropped files into their paths (for drop import).
 - `src/vault` — storage core (notes, frontmatter, folders, assets, trash, watcher, search index).
 - `src/editor` — the CodeMirror 6 live-preview editor. `src/markdown` — the export renderer
   (markdown-it, KaTeX, server-side highlighting, sanitising; mermaid laid out in a hidden window).

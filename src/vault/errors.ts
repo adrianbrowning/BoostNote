@@ -9,6 +9,8 @@ export type VaultErrorCode =
   | 'NOT_A_VAULT'
   /** The note on disk no longer matches the `baseHash` a write was based on. */
   | 'CHANGED'
+  /** An import would copy more files or bytes than allowed. */
+  | 'TOO_LARGE'
 
 /** Error thrown by vault operations; `code` lets callers (router controllers) map it to an HTTP status. */
 export class VaultError extends Error {

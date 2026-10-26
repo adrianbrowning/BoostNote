@@ -1,8 +1,9 @@
 import { mkdir, readFile, symlink, writeFile } from 'node:fs/promises'
 import * as path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-
+import { MAX_IMPORT_PATHS } from '../../src/app/actions/api/controller.ts'
 import type {
+  ImportFilesReport,
   ImportSummary,
   LinkUpdateReport,
   NoteDocument,
@@ -42,6 +43,7 @@ describe('error mapping', () => {
       EXISTS: 409,
       NOT_A_VAULT: 400,
       CHANGED: 409,
+      TOO_LARGE: 413,
     })
     const response = errorResponse(new VaultError('EXISTS', 'Already exists: a.md'))
     expect(response.status).toBe(409)
@@ -372,6 +374,47 @@ describe('vaults', () => {
     expect((await app.post(api.openExternal.href(), { url: 'file:///etc/passwd' })).status).toBe(400)
     expect((await app.post(api.openExternal.href(), { url: 'javascript:alert(1)' })).status).toBe(400)
     expect(app.opened).toEqual(['https://example.com/a'])
+  })
+})
+
+describe('drop import', () => {
+  it('copies dropped files into the folder and answers with the report', async () => {
+    const vault = await app.openVault()
+    await vault.createFolder('', 'work')
+    const loose = path.join(app.dir, 'loose')
+    await mkdir(loose)
+    await writeFile(path.join(loose, 'pic.png'), 'PNG')
+    await writeFile(path.join(loose, 'Dropped.md'), '![p](pic.png)\n')
+    const response = await app.post(api.importFiles.href(), { paths: [path.join(loose, 'Dropped.md')], folder: 'work' })
+    expect(response.status).toBe(201)
+    const report = await readJson<ImportFilesReport>(response)
+    expect(report).toMatchObject({ folder: 'work', notes: [{ id: 'work/Dropped.md' }], assets: 1, links: 1 })
+    expect(await readFile(path.join(vault.root, 'work', 'Dropped.md'), 'utf8')).toMatch(
+      /^!\[p\]\(\.\/Dropped\.assets\//,
+    )
+    expect(await readFile(path.join(loose, 'Dropped.md'), 'utf8')).toBe('![p](pic.png)\n')
+  })
+
+  it('validates the paths before touching the vault', async () => {
+    await app.openVault()
+    const loose = path.join(app.dir, 'a.md')
+    await writeFile(loose, 'a')
+    const post = (body: unknown) => app.post(api.importFiles.href(), body)
+    const relative = await post({ paths: ['a.md'], folder: '' })
+    expect(relative.status).toBe(400)
+    expect(await relative.json()).toMatchObject({ error: 'BAD_REQUEST' })
+    expect((await post({ paths: [path.join(app.dir, 'missing.md')], folder: '' })).status).toBe(404)
+    expect((await post({ paths: [], folder: '' })).status).toBe(400)
+    expect((await post({ paths: [loose] })).status).toBe(400)
+    const tooMany = await post({ paths: Array.from({ length: MAX_IMPORT_PATHS + 1 }, () => loose), folder: '' })
+    expect(tooMany.status).toBe(413)
+    expect((await post({ paths: [loose], folder: '../out' })).status).toBe(400)
+    expect(app.vaults.current?.index.all()).toEqual([])
+  })
+
+  it('needs an open vault', async () => {
+    const response = await app.post(api.importFiles.href(), { paths: [app.dir], folder: '' })
+    expect(response.status).toBe(409)
   })
 })
 

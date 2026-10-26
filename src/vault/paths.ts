@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto'
 import { realpath } from 'node:fs/promises'
 import * as path from 'node:path'
 
@@ -8,6 +9,15 @@ export const TRASH_DIR = '.trash'
 /** Directory (relative to the vault root) that holds vault config and reports. */
 export const CONFIG_DIR = '.boostnote'
 export const ASSETS_SUFFIX = '.assets'
+
+const ASSET_EXTENSION = /^[a-z0-9]{1,10}$/
+
+/** Name of an asset file: `<sha256-12>.<ext>` (`ext` lower-cased; `bin` when it is not a plain extension). */
+export function assetFileName(bytes: Uint8Array, ext: string): string {
+  const normalized = ext.replace(/^\./, '').toLowerCase()
+  const extension = ASSET_EXTENSION.test(normalized) ? normalized : 'bin'
+  return `${createHash('sha256').update(bytes).digest('hex').slice(0, 12)}.${extension}`
+}
 
 /** True for entries the vault never treats as notes or folders: dot-entries and `*.assets` dirs. */
 export function isHiddenName(name: string): boolean {

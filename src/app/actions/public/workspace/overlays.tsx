@@ -208,7 +208,7 @@ export function DialogView(handle: Handle<{ model: WorkspaceModel }>) {
   }
 }
 
-/** The transient notice (`model.notice`): errors of failed operations, confirmations of moves. */
+/** The transient notice (`model.notice`): errors of failed operations, confirmations of moves and imports. */
 export function NoticeView(handle: Handle<{ model: WorkspaceModel }>) {
   return () => {
     const { model } = handle.props
@@ -216,7 +216,16 @@ export function NoticeView(handle: Handle<{ model: WorkspaceModel }>) {
     if (!notice) return null
     return (
       <div role={notice.kind === 'error' ? 'alert' : 'status'} mix={noticeStyle} data-kind={notice.kind} data-notice>
-        <span>{notice.text}</span>
+        <div mix={noticeBodyStyle}>
+          <span>{notice.text}</span>
+          {notice.details ? (
+            <ul mix={noticeDetailsStyle} data-notice-details>
+              {notice.details.map((line, index) => (
+                <li key={String(index)}>{line}</li>
+              ))}
+            </ul>
+          ) : null}
+        </div>
         <button type="button" mix={[dismissStyle, on('click', () => model.dismissNotice())]} aria-label="Dismiss">
           ×
         </button>
@@ -324,6 +333,18 @@ const noticeStyle = css({
   background: 'var(--bg)',
   boxShadow: 'var(--shadow)',
   '&[data-kind="error"]': { borderColor: 'var(--danger)' },
+})
+
+const noticeBodyStyle = css({ display: 'flex', flexDirection: 'column', gap: '4px', minWidth: 0 })
+
+const noticeDetailsStyle = css({
+  margin: 0,
+  paddingLeft: '16px',
+  maxHeight: '160px',
+  overflowY: 'auto',
+  fontSize: '12px',
+  color: 'var(--text-muted)',
+  overflowWrap: 'anywhere',
 })
 
 const dismissStyle = css({ border: 0, background: 'transparent', cursor: 'pointer', color: 'var(--text-muted)' })

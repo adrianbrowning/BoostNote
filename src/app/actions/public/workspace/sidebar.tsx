@@ -1,6 +1,7 @@
 import type { Handle } from 'remix/component'
 import { css, on } from 'remix/component'
 
+import { carriesFiles, importDrop } from './drop-import.ts'
 import type { MenuEntry, Selection, WorkspaceModel } from './model.ts'
 import { iconButton, muted, paneHeading } from './styles.ts'
 import type { FolderSummary } from './types.ts'
@@ -58,13 +59,14 @@ export function Sidebar(handle: Handle<{ model: WorkspaceModel }>) {
     void handle.update()
   }
 
-  /** Drag-over/drop handlers that make a folder row accept notes and other folders. */
+  /** Drag-over/drop handlers that make a folder row accept notes, other folders and files from the OS. */
   const dropHandlers = (folderId: string) => [
     on<HTMLElement, 'dragover'>('dragover', (event) => {
       const types = event.dataTransfer?.types ?? []
-      if (!types.includes(NOTE_DRAG_TYPE) && !types.includes(FOLDER_DRAG_TYPE)) return
+      const files = carriesFiles(event.dataTransfer)
+      if (!files && !types.includes(NOTE_DRAG_TYPE) && !types.includes(FOLDER_DRAG_TYPE)) return
       event.preventDefault()
-      if (event.dataTransfer) event.dataTransfer.dropEffect = 'move'
+      if (event.dataTransfer) event.dataTransfer.dropEffect = files ? 'copy' : 'move'
       setDropTarget(folderId)
     }),
     on<HTMLElement, 'dragleave'>('dragleave', () => setDropTarget(null)),
@@ -72,6 +74,10 @@ export function Sidebar(handle: Handle<{ model: WorkspaceModel }>) {
       event.preventDefault()
       setDropTarget(null)
       const { model } = handle.props
+      if (event.dataTransfer && carriesFiles(event.dataTransfer)) {
+        importDrop(model, event.dataTransfer, folderId)
+        return
+      }
       const note = event.dataTransfer?.getData(NOTE_DRAG_TYPE)
       const folder = event.dataTransfer?.getData(FOLDER_DRAG_TYPE)
       if (note) void model.moveNote(note, folderId)

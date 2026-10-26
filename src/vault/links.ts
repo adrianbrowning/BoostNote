@@ -51,9 +51,14 @@ function mapOutsideCode(markdown: string, transform: (line: string) => string): 
 /**
  * Rewrites relative link destinations outside code blocks and code spans. `map` receives the
  * decoded path (no `#fragment`/`?query`) and returns a replacement path, or `undefined` to keep
- * the link as is.
+ * the link as is. `onOther` sees the destinations that are not relative paths (URLs, absolute
+ * paths; not same-note `#anchors`), which are always kept.
  */
-export function rewriteRelativeLinks(markdown: string, map: (relPath: string) => string | undefined): string {
+export function rewriteRelativeLinks(
+  markdown: string,
+  map: (relPath: string) => string | undefined,
+  onOther?: (destination: string) => void,
+): string {
   return mapOutsideCode(markdown, (line) =>
     line.replace(
       LINK,
@@ -63,7 +68,10 @@ export function rewriteRelativeLinks(markdown: string, map: (relPath: string) =>
         const raw = mdDest ?? htmlDest ?? ''
         const bracketed = raw.startsWith('<') && raw.endsWith('>')
         const destination = bracketed ? raw.slice(1, -1) : raw
-        if (!isRelative(destination)) return whole
+        if (!isRelative(destination)) {
+          if (!destination.startsWith('#')) onOther?.(destination)
+          return whole
+        }
         const suffixIndex = destination.search(/[#?]/)
         let pathPart = suffixIndex === -1 ? destination : destination.slice(0, suffixIndex)
         let suffix = suffixIndex === -1 ? '' : destination.slice(suffixIndex)
