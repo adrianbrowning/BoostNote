@@ -2,5 +2,13 @@
 # Installed by `pnpm install` (the `prepare` script sets core.hooksPath to .githooks).
 # Fast checks only; tests and e2e run in CI and before you push.
 set -e
-pnpm check
-pnpm typecheck
+if command -v pnpm >/dev/null 2>&1; then
+  run() { pnpm "$@"; }
+elif command -v corepack >/dev/null 2>&1; then
+  run() { corepack pnpm "$@"; }
+else
+  echo "pre-commit: pnpm is not on PATH (try 'corepack enable'); skip with git commit --no-verify" >&2
+  exit 1
+fi
+run check
+run typecheck
