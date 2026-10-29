@@ -8,7 +8,7 @@ example `browser/main/lib/dataApi/`, `browser/lib/markdown.js`, `tests/fixtures/
 ## Decisions
 
 - **No bundler, task runner, Babel, Stylus, React or Redux.** The UI is [Remix 3](https://remix.run)
-  (`remix@3.0.0`): components are `function C(handle) { return () => <jsx/> }`, state lives in setup
+  (`remix@3.1.0`): components are `function C(handle) { return () => <jsx/> }`, state lives in setup
   scope, `handle.update()` re-renders, events use `mix={on('click', …)}`. Remix 3 is not React and
   shares no APIs with Remix 2 / React Router; the installed docs are in `node_modules/remix/INDEX.md`.
 - **The router runs in the Electron main process.** Main registers the privileged `boost://` scheme
