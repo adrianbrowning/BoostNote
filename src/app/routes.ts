@@ -53,5 +53,9 @@ export const routes = route({
     exportFolder: post('/export/folder'),
     /** Takes the pending "open this file" request (a `.md` opened from Finder/Explorer or argv). */
     openRequest: post('/open-request'),
+    /** A reader tab's outside `.md` (`{ name, body, frontmatter }`, read again each time), by its `ReaderGrants` ticket. */
+    readerRead: get('/reader/:ticket'),
+    /** The reader tab closed: revokes its ticket. */
+    readerClose: post('/reader/:ticket/close'),
   }),
 })

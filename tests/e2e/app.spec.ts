@@ -1,4 +1,4 @@
-import { readFile, rm, writeFile } from 'node:fs/promises'
+import { readFile, realpath, rm, writeFile } from 'node:fs/promises'
 import * as path from 'node:path'
 import type { Page } from '@playwright/test'
 
@@ -240,37 +240,112 @@ test('exports a note to HTML with mermaid SVG and KaTeX markup', async ({ app })
 })
 
 test('opens .md files from the command line and through open-file in the vault that holds them', async () => {
-  const app = await launchApp({ 'inside.md': '# Inside\n' }, { openFiles: { 'readme.md': '# Loose readme\n' } })
+  const app = await launchApp(
+    { 'inside.md': '# Inside\n', 'other/b.md': '# Bee\n', 'c.md': '# Cee\n', 'd.md': '# Dee\n' },
+    { openFiles: { 'readme.md': '# Loose readme\n' } },
+  )
+  try {
+    const { page } = app
+    const openFiles = (...files: string[]) =>
+      app.electronApp.evaluate(({ app: electronApp }, targets) => {
+        for (const target of targets) electronApp.emit('open-file', { preventDefault() {} }, target)
+      }, files)
+    await expect(page.locator('[data-reader-tab="readme.md"]')).toBeVisible({ timeout: 20_000 })
+
+    // macOS Finder / `open -a` (`open-file`), in a subfolder of the open vault: a note of that vault.
+    await openFiles(path.join(app.vault, 'other', 'b.md'))
+    await expect(page.locator('[data-note-title]')).toHaveText('b', { timeout: 20_000 })
+    await expect(page.locator('[role="tab"][aria-selected="true"]')).toHaveAttribute('data-tab', 'other/b.md')
+
+    // Two open-file events back to back: both open, in order (each one also sends its own SSE event).
+    await openFiles(path.join(app.vault, 'c.md'), path.join(app.vault, 'd.md'))
+    await expect(page.locator('[data-note-title]')).toHaveText('d', { timeout: 20_000 })
+    await expect(page.locator('[role="tab"][aria-selected="true"]')).toHaveAttribute('data-tab', 'd.md')
+    await expect(page.locator('[role="tab"][data-tab="c.md"]')).toBeVisible()
+  } finally {
+    await app.electronApp.close()
+    await rm(app.dir, { recursive: true, force: true })
+  }
+})
+
+test('opens a .md outside every vault read-only in a reader tab, without touching the vault', async () => {
+  const app = await launchApp(
+    { 'inside.md': '# Inside\n' },
+    { openFiles: { 'readme.md': '# Loose readme\n\nSome *text*.\n' } },
+  )
   try {
     const { page, dir } = app
     const openFiles = (...files: string[]) =>
       app.electronApp.evaluate(({ app: electronApp }, targets) => {
         for (const target of targets) electronApp.emit('open-file', { preventDefault() {} }, target)
       }, files)
-    // argv, outside every known vault: the file's folder becomes the vault and the note opens in a tab.
-    await expect(page.locator('[data-note-title]')).toHaveText('readme', { timeout: 20_000 })
-    await expect(page.locator('[role="tab"][aria-selected="true"]')).toHaveAttribute('data-tab', 'readme.md')
-    await expect(page.locator('[data-note="readme.md"]')).toBeVisible()
+    const readme = path.join(dir, 'loose', 'readme.md')
+    const reader = page.locator('[role="tab"][data-reader-tab="readme.md"]')
 
-    // macOS Finder / `open -a` (`open-file`), in a subfolder of the open vault: a note of that vault.
-    await writeFiles(path.join(dir, 'loose'), { 'other/b.md': '# Bee\n' })
-    await openFiles(path.join(dir, 'loose', 'other', 'b.md'))
-    await expect(page.locator('[data-note-title]')).toHaveText('b', { timeout: 20_000 })
-    await expect(page.locator('[role="tab"][aria-selected="true"]')).toHaveAttribute('data-tab', 'other/b.md')
-    await expect(page.locator('[role="tab"][data-tab="readme.md"]')).toBeVisible()
-
-    // Inside a recent vault (the one the app started with): switches back to it.
-    await openFiles(path.join(app.vault, 'inside.md'))
-    await expect(page.locator('[data-note-title]')).toHaveText('inside', { timeout: 20_000 })
+    // argv: the rendered file in a reader tab; the vault, Recent and lastVault stay as they were.
+    await expect(reader).toHaveAttribute('aria-selected', 'true', { timeout: 20_000 })
+    await expect(page.locator('[data-reader-banner]')).toContainText('readme.md is not in a vault')
+    await expect(page.locator('[data-reader-body] h1')).toHaveText('Loose readme')
+    await expect(page.locator('[data-reader-body] em')).toHaveText('text')
+    await expect(page.locator('[data-editor]')).toBeHidden()
     await expect(page.locator('[data-note="inside.md"]')).toBeVisible()
     await expect(page.locator('[data-note="readme.md"]')).toHaveCount(0)
+    const settings = async () => JSON.parse(await readFile(path.join(app.userDataDir, 'settings.json'), 'utf8'))
+    // Main stores the vault's real path (macOS temp folders sit behind the `/var` symlink).
+    const vaultRoot = await realpath(app.vault)
+    expect(await settings()).toMatchObject({ vaults: [vaultRoot], lastVault: vaultRoot })
+    // The page never names the file's path.
+    expect(await page.content()).not.toContain(path.join(dir, 'loose'))
 
-    // Two open-file events back to back: both open, in order (each one also sends its own SSE event).
-    await writeFiles(path.join(dir, 'loose'), { 'c.md': '# Cee\n', 'd.md': '# Dee\n' })
-    await openFiles(path.join(dir, 'loose', 'c.md'), path.join(dir, 'loose', 'd.md'))
-    await expect(page.locator('[data-note-title]')).toHaveText('d', { timeout: 20_000 })
-    await expect(page.locator('[role="tab"][aria-selected="true"]')).toHaveAttribute('data-tab', 'd.md')
-    await expect(page.locator('[role="tab"][data-tab="c.md"]')).toBeVisible()
+    // The same file again activates its tab instead of opening a second one.
+    await page.locator('[data-note="inside.md"]').click()
+    await expect(page.locator('[data-note-title]')).toHaveText('inside')
+    await openFiles(readme)
+    await expect(reader).toHaveAttribute('aria-selected', 'true', { timeout: 20_000 })
+    await expect(page.locator('[data-reader-tab]')).toHaveCount(1)
+    // It is read again each time the tab shows.
+    await writeFile(readme, '# Edited elsewhere\n')
+    await page.locator('[role="tab"][data-tab="inside.md"]').click()
+    await reader.click()
+    await expect(page.locator('[data-reader-body] h1')).toHaveText('Edited elsewhere')
+
+    // Closing the vault keeps the reader tab; it is then the only tab.
+    await page.locator('[data-vault-switcher]').click()
+    await page.getByRole('menuitem', { name: 'Close Vault' }).click()
+    await expect(page.locator('[data-vault="none"]')).toBeVisible()
+    await expect(page.locator('[role="tab"]')).toHaveCount(1)
+    await expect(reader).toHaveAttribute('aria-selected', 'true')
+    await expect(page.locator('[data-reader-body] h1')).toHaveText('Edited elsewhere')
+
+    // With no vault open, another outside file opens in its own reader tab, and a note of a recent
+    // vault reopens that vault next to the reader tabs.
+    await writeFiles(path.join(dir, 'loose'), { 'second.md': '# Second\n' })
+    await openFiles(path.join(dir, 'loose', 'second.md'))
+    await expect(page.locator('[role="tab"][data-reader-tab="second.md"]')).toHaveAttribute('aria-selected', 'true', {
+      timeout: 20_000,
+    })
+    await expect(page.locator('[data-vault="none"]')).toBeVisible()
+    // Each reader tab shows its own file.
+    await expect(page.locator('[data-reader-body] h1')).toHaveText('Second')
+    await expect(page.locator('[data-reader-banner]')).toContainText('second.md is not in a vault')
+    await reader.click()
+    await expect(page.locator('[data-reader-body] h1')).toHaveText('Edited elsewhere')
+    await expect(page.locator('[data-reader-banner]')).toContainText('readme.md is not in a vault')
+    await openFiles(path.join(app.vault, 'inside.md'))
+    await expect(page.locator('[data-note-title]')).toHaveText('inside', { timeout: 20_000 })
+    await expect(page.locator('[data-reader-tab]')).toHaveCount(2)
+
+    // Close in the banner closes the tab; the file opened again gets a fresh tab that still reads.
+    await reader.click()
+    await page.locator('[data-reader-close]').click()
+    await expect(reader).toHaveCount(0)
+    await expect(page.locator('[data-reader-tab]')).toHaveCount(1)
+    await openFiles(readme)
+    await expect(page.locator('[data-reader-body] h1')).toHaveText('Edited elsewhere', { timeout: 20_000 })
+
+    // Reader tabs are not restored with the vault's tabs.
+    const saved = await page.evaluate((root) => localStorage.getItem(`boostnote.tabs:${root}`), vaultRoot)
+    expect(JSON.parse(saved ?? 'null')?.tabs).toEqual(['inside.md'])
   } finally {
     await app.electronApp.close()
     await rm(app.dir, { recursive: true, force: true })
@@ -286,13 +361,13 @@ test('opens every file queued before the window loads, in order', async () => {
   )
   try {
     const { page } = app
-    await expect(page.locator('[data-note-title]')).toHaveText('two', { timeout: 20_000 })
-    await expect(page.locator('[role="tab"][aria-selected="true"]')).toHaveAttribute('data-tab', 'two.md')
-    await expect(page.locator('[role="tab"][data-tab="one.md"]')).toBeVisible()
+    await expect(page.locator('[role="tab"][aria-selected="true"]')).toHaveAttribute('data-reader-tab', 'two.md', {
+      timeout: 20_000,
+    })
     const tabs = await page
-      .locator('[role="tab"]')
-      .evaluateAll((items) => items.map((item) => item.getAttribute('data-tab')))
-    expect(tabs.filter((tab) => tab === 'one.md' || tab === 'two.md')).toEqual(['one.md', 'two.md'])
+      .locator('[data-reader-tab]')
+      .evaluateAll((items) => items.map((item) => item.getAttribute('data-reader-tab')))
+    expect(tabs).toEqual(['one.md', 'two.md'])
   } finally {
     await app.electronApp.close()
     await rm(app.dir, { recursive: true, force: true })

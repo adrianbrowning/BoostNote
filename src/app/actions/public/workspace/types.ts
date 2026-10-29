@@ -66,6 +66,17 @@ export interface NoteDocument extends NoteSummary {
   hash: string
 }
 
+/**
+ * `GET /api/reader/:ticket`: an outside `.md` shown read-only in a reader tab; `name` is its base
+ * name, never a path. `html` is the body rendered and sanitised by `src/markdown/render.ts` in main.
+ */
+export interface ReaderDocument {
+  name: string
+  frontmatter: { [key: string]: JsonValue }
+  body: string
+  html: string
+}
+
 export interface FolderSummary {
   /** `''` for the vault root. */
   id: string
