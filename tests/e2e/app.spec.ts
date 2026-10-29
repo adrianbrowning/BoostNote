@@ -221,7 +221,12 @@ test('exports a note to HTML with mermaid SVG and KaTeX markup', async ({ app })
   // The exported file renders on its own.
   const viewer = await app.electronApp.evaluate(async ({ BrowserWindow }, file) => {
     const window = new BrowserWindow({ show: false, width: 900, height: 900 })
+    // capturePage() before the first frame fails with UnknownVizError on GPU-less CI runners;
+    // a hidden window still paints, and `ready-to-show` fires after that first paint.
+    const painted = Promise.withResolvers<void>()
+    window.once('ready-to-show', () => painted.resolve())
     await window.loadFile(file)
+    await painted.promise
     return window.id
   }, target)
   const shot = await app.electronApp.evaluate(async ({ BrowserWindow }, id) => {

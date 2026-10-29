@@ -10,6 +10,9 @@ import { type EditorTheme, editorTheme } from './config.ts'
  * values match `src/app/ui/public/base.css`. Hosts tune layout with inherited custom properties:
  * `--editor-font`, `--editor-font-size`, `--editor-line-height`, `--editor-max-width` (line width) and
  * `--editor-padding`.
+ *
+ * `--lp-code-bg` is a translucent tint, not a solid colour: CodeMirror draws the selection in a layer
+ * behind the text, so a solid code-block or inline-code background would hide the selection.
  */
 const PALETTES: Record<EditorTheme, Record<string, string>> = {
   light: {
@@ -20,7 +23,7 @@ const PALETTES: Record<EditorTheme, Record<string, string>> = {
     '--lp-accent': '#1ec38b',
     '--lp-focus': '#0969da',
     '--lp-link': '#0969da',
-    '--lp-code-bg': '#f4f5f7',
+    '--lp-code-bg': 'rgba(31, 35, 40, 0.05)',
     '--lp-selection': '#b6d7ff',
     '--lp-quote': '#8c959f',
     '--lp-error': '#cf222e',
@@ -43,7 +46,7 @@ const PALETTES: Record<EditorTheme, Record<string, string>> = {
     '--lp-accent': '#1ec38b',
     '--lp-focus': '#4493f8',
     '--lp-link': '#4493f8',
-    '--lp-code-bg': '#26292d',
+    '--lp-code-bg': 'rgba(230, 232, 235, 0.04)',
     '--lp-selection': '#264f78',
     '--lp-quote': '#6e7681',
     '--lp-error': '#ff7b72',
