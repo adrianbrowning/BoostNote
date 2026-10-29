@@ -416,7 +416,13 @@ export function createApiController(services: AppServices) {
           body,
           frontmatter: toJsonValue(frontmatter) as ReaderDocument['frontmatter'],
           // `render.ts` needs Node (crypto, sanitize-html), so main renders; the page only shows it.
-          html: (await renderMarkdown(raw)).html,
+          // Relative images load through `/reader-assets`, which checks them against the ticket's folder.
+          html: (
+            await renderMarkdown(raw, {
+              resolveImage: async (src) =>
+                `${routes.readerAssets.href({ ticket: params.ticket })}?${new URLSearchParams({ src })}`,
+            })
+          ).html,
         }
         return json(document)
       }),
