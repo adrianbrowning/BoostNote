@@ -185,21 +185,23 @@ describe('Tabs', () => {
       tabs.select(2)
       expect(tabs.toJSON().active).toBe(1)
 
-      tabs.close(tabs.tabs[3]?.key ?? 0)
+      // Closing a reader tab does not make it reopenable.
+      tabs.openReader('t3', 'third.md')
+      tabs.close(tabs.active?.key ?? 0)
       expect(tabs.closed).toEqual([])
       expect(tabs.reopen(always)).toBeUndefined()
 
-      // Switching vaults: the other vault's tabs replace the notes, the reader tab stays after them.
+      // Switching vaults: the other vault's tabs replace the notes; every reader tab stays, in order, after them.
       tabs.restore({ tabs: ['x.md', 'y.md'], active: 1, closed: [{ path: 'z.md', index: 0 }] }, always)
-      expect(paths(tabs)).toEqual(['x.md', 'y.md', 'reader:outside.md'])
+      expect(paths(tabs)).toEqual(['x.md', 'y.md', 'reader:outside.md', 'reader:other.md'])
       expect(label(tabs.active)).toBe('y.md')
       expect(tabs.closed).toEqual([{ path: 'z.md', index: 0 }])
       tabs.openReader('t1', 'outside.md')
-      expect(tabs.tabs).toHaveLength(3)
+      expect(tabs.tabs).toHaveLength(4)
 
       // Closing the vault: only reader tabs are left; the active reader stays active.
       tabs.restore(null, always)
-      expect(paths(tabs)).toEqual(['reader:outside.md'])
+      expect(paths(tabs)).toEqual(['reader:outside.md', 'reader:other.md'])
       expect(label(tabs.active)).toBe('reader:outside.md')
       tabs.restore({ tabs: [], active: -1, closed: [] }, always)
       expect(label(tabs.active)).toBe('reader:outside.md')
