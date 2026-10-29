@@ -265,12 +265,34 @@ test('opens .md files from the command line and through open-file in the vault t
     await expect(page.locator('[data-note="inside.md"]')).toBeVisible()
     await expect(page.locator('[data-note="readme.md"]')).toHaveCount(0)
 
-    // Two files opened back to back (both queued before the page takes any): both open, in order.
+    // Two open-file events back to back: both open, in order (each one also sends its own SSE event).
     await writeFiles(path.join(dir, 'loose'), { 'c.md': '# Cee\n', 'd.md': '# Dee\n' })
     await openFiles(path.join(dir, 'loose', 'c.md'), path.join(dir, 'loose', 'd.md'))
     await expect(page.locator('[data-note-title]')).toHaveText('d', { timeout: 20_000 })
     await expect(page.locator('[role="tab"][aria-selected="true"]')).toHaveAttribute('data-tab', 'd.md')
     await expect(page.locator('[role="tab"][data-tab="c.md"]')).toBeVisible()
+  } finally {
+    await app.electronApp.close()
+    await rm(app.dir, { recursive: true, force: true })
+  }
+})
+
+test('opens every file queued before the window loads, in order', async () => {
+  // Both argv files are queued in main before the page's EventSource connects, so only the
+  // workspace's hydration take runs: it has to drain the whole queue.
+  const app = await launchApp(
+    { 'inside.md': '# Inside\n' },
+    { openFiles: { 'one.md': '# One\n', 'two.md': '# Two\n' } },
+  )
+  try {
+    const { page } = app
+    await expect(page.locator('[data-note-title]')).toHaveText('two', { timeout: 20_000 })
+    await expect(page.locator('[role="tab"][aria-selected="true"]')).toHaveAttribute('data-tab', 'two.md')
+    await expect(page.locator('[role="tab"][data-tab="one.md"]')).toBeVisible()
+    const tabs = await page
+      .locator('[role="tab"]')
+      .evaluateAll((items) => items.map((item) => item.getAttribute('data-tab')))
+    expect(tabs.filter((tab) => tab === 'one.md' || tab === 'two.md')).toEqual(['one.md', 'two.md'])
   } finally {
     await app.electronApp.close()
     await rm(app.dir, { recursive: true, force: true })

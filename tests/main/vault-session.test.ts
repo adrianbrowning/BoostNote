@@ -182,5 +182,27 @@ describe('VaultSession', () => {
       expect(await session.takeOpenRequest()).toBeUndefined()
       await session.dispose()
     })
+
+    it('opens a file in a hidden or .assets folder of a known vault as an outside file, not a note id', async () => {
+      const session = new VaultSession({ settings: new SettingsStore(file), events })
+      const vault = await session.open(await folder('git-vault'))
+      await mkdir(path.join(vault.root, '.github'))
+      await writeFile(path.join(vault.root, '.github', 'x.md'), '# Template\n')
+      await mkdir(path.join(vault.root, 'img.assets'))
+      await writeFile(path.join(vault.root, 'img.assets', 'readme.md'), '# Readme\n')
+      session.requestOpen(path.join(vault.root, '.github', 'x.md'))
+      session.requestOpen(path.join(vault.root, 'img.assets', 'readme.md'))
+      expect(await session.takeOpenRequest()).toEqual({
+        kind: 'note',
+        vault: path.join(vault.root, '.github'),
+        id: 'x.md',
+      })
+      expect(await session.takeOpenRequest()).toEqual({
+        kind: 'note',
+        vault: path.join(vault.root, 'img.assets'),
+        id: 'readme.md',
+      })
+      await session.dispose()
+    })
   })
 })

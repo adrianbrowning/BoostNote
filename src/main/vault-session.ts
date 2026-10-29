@@ -2,7 +2,7 @@ import { realpath } from 'node:fs/promises'
 import * as path from 'node:path'
 
 import { openVault, type Vault, VaultError } from '../vault/index.ts'
-import { isInside } from '../vault/paths.ts'
+import { isInside, noteSegments } from '../vault/paths.ts'
 import type { EventHub } from './events.ts'
 import type { SettingsStore } from './settings.ts'
 
@@ -80,18 +80,20 @@ export class VaultSession {
     return undefined
   }
 
+  /**
+   * The first known vault whose real root holds `real` under a valid note id; a file in a hidden or
+   * `*.assets` folder of a vault is no note of it and opens like an outside file (its folder as vault).
+   */
   async #noteFor(real: string): Promise<OpenRequest> {
     const open = this.#vault?.root
     const known = open === undefined ? this.recent : [open, ...this.recent]
-    let vault = path.dirname(real)
     for (const root of known) {
       const realRoot = await realpath(root).catch(() => undefined)
-      if (realRoot !== undefined && isInside(realRoot, real)) {
-        vault = realRoot
-        break
-      }
+      if (realRoot === undefined || !isInside(realRoot, real)) continue
+      const id = path.relative(realRoot, real).split(path.sep).join('/')
+      if (isNoteId(id)) return { kind: 'note', vault: realRoot, id }
     }
-    return { kind: 'note', vault, id: path.relative(vault, real).split(path.sep).join('/') }
+    return { kind: 'note', vault: path.dirname(real), id: path.basename(real) }
   }
 
   /**
@@ -160,5 +162,15 @@ export class VaultSession {
     const run = this.#queue.then(task, task)
     this.#queue = run.catch(() => undefined)
     return run
+  }
+}
+
+function isNoteId(id: string): boolean {
+  try {
+    noteSegments(id)
+    return true
+  } catch (error) {
+    if (error instanceof VaultError) return false
+    throw error
   }
 }
