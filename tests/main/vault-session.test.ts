@@ -204,5 +204,21 @@ describe('VaultSession', () => {
       })
       await session.dispose()
     })
+
+    it('stops at the first known vault holding the file, even when a later recent vault is nested inside it', async () => {
+      const settings = new SettingsStore(file)
+      const session = new VaultSession({ settings, events })
+      const vault = await session.open(await folder('outer-vault'))
+      await mkdir(path.join(vault.root, '.github', 'sub'), { recursive: true })
+      await writeFile(path.join(vault.root, '.github', 'sub', 'x.md'), '# X\n')
+      settings.update({ vaults: [vault.root, path.join(vault.root, '.github')] })
+      session.requestOpen(path.join(vault.root, '.github', 'sub', 'x.md'))
+      expect(await session.takeOpenRequest()).toEqual({
+        kind: 'note',
+        vault: path.join(vault.root, '.github', 'sub'),
+        id: 'x.md',
+      })
+      await session.dispose()
+    })
   })
 })

@@ -81,8 +81,8 @@ export class VaultSession {
   }
 
   /**
-   * The first known vault whose real root holds `real` under a valid note id; a file in a hidden or
-   * `*.assets` folder of a vault is no note of it and opens like an outside file (its folder as vault).
+   * The first known vault (open, then recent) whose real root holds `real`. A file in a hidden or
+   * `*.assets` folder of that vault is no note of it and opens like an outside file (its folder as vault).
    */
   async #noteFor(real: string): Promise<OpenRequest> {
     const open = this.#vault?.root
@@ -92,6 +92,7 @@ export class VaultSession {
       if (realRoot === undefined || !isInside(realRoot, real)) continue
       const id = path.relative(realRoot, real).split(path.sep).join('/')
       if (isNoteId(id)) return { kind: 'note', vault: realRoot, id }
+      break
     }
     return { kind: 'note', vault: path.dirname(real), id: path.basename(real) }
   }
