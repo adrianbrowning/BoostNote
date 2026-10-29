@@ -2,11 +2,15 @@ import { randomBytes } from 'node:crypto'
 import { constants } from 'node:fs'
 import { type FileHandle, lstat, open, realpath } from 'node:fs/promises'
 
-/** The file a ticket was granted for: its real path and, so a later swap is caught, its identity. */
-interface Grant {
-  readonly file: string
+/** Which file a path held: its device and inode. */
+interface Identity {
   readonly dev: bigint
   readonly ino: bigint
+}
+
+/** The file a ticket was granted for: its real path and, so a later swap is caught, its identity. */
+interface Grant extends Identity {
+  readonly file: string
 }
 
 /** Never follows a symlink at the file itself and never blocks on a FIFO (Windows has neither flag). */
@@ -28,25 +32,34 @@ function refused(error: unknown): undefined {
 }
 
 /**
- * `file` opened for reading, with its identity, when it is a regular file whose real path is `file`
- * (no symlink anywhere on the way) and the path still names the opened file once checked; `undefined`
- * when it is gone or anything else (a symlink, folder, FIFO or device). The caller closes the handle.
+ * Opens `file` without following a symlink and, when it is a regular file, runs `use` on the open
+ * handle. `use`'s result counts only if, after it ran, the path still leads without any symlink to
+ * the very file it used: `realpath(file)` is `file` and `lstat(file)` is a regular file with the
+ * handle's identity. Checking after `use` covers what it read, so a file renamed over the path at
+ * any point is never served. `undefined` when `file` is gone, anything else (a symlink, folder, FIFO
+ * or device), or `use` declined.
  */
-async function openRegular(file: string): Promise<{ handle: FileHandle; dev: bigint; ino: bigint } | undefined> {
+async function useRegular<T>(
+  file: string,
+  use: (opened: Identity, handle: FileHandle) => Promise<T | undefined>,
+): Promise<T | undefined> {
   const handle = await open(file, OPEN_FLAGS).catch(refused)
   if (handle === undefined) return undefined
-  let kept = false
   try {
     const opened = await handle.stat({ bigint: true })
-    if (!opened.isFile() || (await realpath(file).catch(refused)) !== file) return undefined
-    // Nothing was renamed over the path between `open` and `realpath`.
+    if (!opened.isFile()) return undefined
+    const value = await use(opened, handle)
+    if (value === undefined || (await realpath(file).catch(refused)) !== file) return undefined
     const named = await lstat(file, { bigint: true }).catch(refused)
-    if (!named?.isFile() || named.dev !== opened.dev || named.ino !== opened.ino) return undefined
-    kept = true
-    return { handle, dev: opened.dev, ino: opened.ino }
+    if (!named?.isFile() || !sameFile(named, opened)) return undefined
+    return value
   } finally {
-    if (!kept) await handle.close()
+    await handle.close()
   }
+}
+
+function sameFile(a: Identity, b: Identity): boolean {
+  return a.dev === b.dev && a.ino === b.ino
 }
 
 /**
@@ -73,14 +86,13 @@ export class ReaderGrants {
    * its own real path, or is not a regular file.
    */
   async grant(file: string): Promise<string | undefined> {
-    const opened = await openRegular(file)
-    if (opened === undefined) return undefined
-    await opened.handle.close()
-    const { dev, ino } = opened
+    const identity = await useRegular(file, async ({ dev, ino }): Promise<Identity> => ({ dev, ino }))
+    if (identity === undefined) return undefined
+    const { dev, ino } = identity
     const live = this.#tickets.get(file)
     if (live !== undefined) {
       const granted = this.#grants.get(live)
-      if (granted?.dev === dev && granted.ino === ino) return live
+      if (granted !== undefined && sameFile(granted, identity)) return live
       this.revoke(live)
     }
     const ticket = randomBytes(24).toString('hex')
@@ -101,14 +113,9 @@ export class ReaderGrants {
   async read(ticket: string): Promise<string | undefined> {
     const grant = this.#grants.get(ticket)
     if (grant === undefined) return undefined
-    const opened = await openRegular(grant.file)
-    if (opened === undefined) return undefined
-    try {
-      if (opened.dev !== grant.dev || opened.ino !== grant.ino) return undefined
-      return await opened.handle.readFile('utf8')
-    } finally {
-      await opened.handle.close()
-    }
+    return useRegular(grant.file, async (opened, handle) =>
+      sameFile(opened, grant) ? handle.readFile('utf8') : undefined,
+    )
   }
 
   /** Ends `ticket` (its reader tab closed); `false` when it was unknown or already revoked. */
