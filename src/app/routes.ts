@@ -61,5 +61,7 @@ export const routes = route({
     readerClose: post('/reader/:ticket/close'),
     /** A reader tab's "Open folder as vault": main opens the ticket's file's folder as the vault (`ReaderFolderResult`). */
     readerOpenFolder: post('/reader/:ticket/open-folder'),
+    /** A reader tab's "Add to vault…" (`{ folder }`): imports its file into the open vault once (`ReaderImportResult`). */
+    readerImport: post('/reader/:ticket/import'),
   }),
 })

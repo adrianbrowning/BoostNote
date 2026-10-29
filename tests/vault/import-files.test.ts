@@ -222,10 +222,10 @@ describe('importFiles', () => {
 
     await put(src, 'many/a.md', 'a')
     await put(src, 'many/b.md', 'b')
-    await expect(vault.importFiles([path.join(src, 'many')], '', { maxFiles: 1 })).rejects.toMatchObject({
+    await expect(vault.importFiles([path.join(src, 'many')], '', { limits: { maxFiles: 1 } })).rejects.toMatchObject({
       code: 'TOO_LARGE',
     })
-    await expect(vault.importFiles([path.join(src, 'many')], '', { maxBytes: 1 })).rejects.toMatchObject({
+    await expect(vault.importFiles([path.join(src, 'many')], '', { limits: { maxBytes: 1 } })).rejects.toMatchObject({
       code: 'TOO_LARGE',
     })
     expect(await listFiles(root)).toEqual(['n.md'])

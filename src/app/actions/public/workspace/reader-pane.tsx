@@ -8,8 +8,10 @@ import type { ReaderTab } from './tabs.ts'
 
 /**
  * The active reader tab: an outside `.md` shown read-only, with a banner naming the file (its base
- * name only), an "Open folder as vault" button (main opens the file's folder as the vault and the
- * tab becomes the note's tab) and a Close button that closes the tab and so revokes its ticket. The
+ * name only), an "Add to vault…" button (main imports the file and its images into a folder of the
+ * open vault and the tab becomes the new note's tab; disabled, with the reason, without an open
+ * vault), an "Open folder as vault" button (main opens the file's folder as the vault and the tab
+ * becomes the note's tab) and a Close button that closes the tab and so revokes its ticket. The
  * HTML was rendered and sanitised by `src/markdown/render.ts` in main. http(s) links open in the
  * browser as in notes; every other link (relative `.md` files, anchors into other files) is inert.
  */
@@ -26,10 +28,25 @@ export function ReaderPane(handle: Handle<{ model: WorkspaceModel; tab: ReaderTa
   return () => {
     const { model, tab } = handle.props
     const reader = model.reader?.ticket === tab.ticket ? model.reader.document : null
+    const noVault = model.data.vault === null
     return (
       <section mix={paneStyle} aria-label={`${tab.name} (read only)`} data-reader>
         <div role="note" mix={bannerStyle} data-reader-banner>
           <span>{tab.name} is not in a vault</span>
+          {noVault ? (
+            <small id={`reader-add-reason-${tab.key}`} data-reader-add-reason>
+              Open a vault to add this file to it
+            </small>
+          ) : null}
+          <button
+            type="button"
+            disabled={noVault}
+            aria-describedby={noVault ? `reader-add-reason-${tab.key}` : undefined}
+            mix={[button, on('click', () => void model.addReaderToVault(tab.key))]}
+            data-reader-add
+          >
+            Add to vault…
+          </button>
           <button
             type="button"
             mix={[button, on('click', () => void model.openReaderFolder(tab.key))]}

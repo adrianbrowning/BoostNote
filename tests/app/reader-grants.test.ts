@@ -167,4 +167,90 @@ describe('ReaderGrants', () => {
     await rm(gone)
     expect(await readers.read(ticket)).toBeUndefined()
   })
+
+  it('imports a ticket’s file once: the ticket ends when the import resolves, a second import is refused', async () => {
+    const granted = await file('once.md', '# Once\n')
+    const ticket = await grant(granted)
+    const seen: string[] = []
+    const run = async (target: string) => {
+      seen.push(target)
+      return 'imported'
+    }
+    expect(await readers.importOnce(ticket, run)).toBe('imported')
+    expect(await readers.importOnce(ticket, run)).toBeUndefined()
+    expect(seen).toEqual([granted])
+    expect(readers.path(ticket)).toBeUndefined()
+    // The file may be opened again later: a new ticket.
+    expect(await readers.grant(granted)).not.toBe(ticket)
+  })
+
+  it('refuses a second import while the first runs, and keeps the ticket when the import fails', async () => {
+    const ticket = await grant(await file('fail.md', '# Fail\n'))
+    const { promise: failing, reject } = Promise.withResolvers<string>()
+    const started = Promise.withResolvers<void>()
+    const first = readers.importOnce(ticket, () => {
+      started.resolve()
+      return failing
+    })
+    expect(await readers.importOnce(ticket, async () => 'again')).toBeUndefined()
+    await started.promise
+    reject(new Error('disk full'))
+    await expect(first).rejects.toThrow('disk full')
+    expect(await readers.read(ticket)).toBe('# Fail\n')
+    expect(await readers.importOnce(ticket, async () => 'retried')).toBe('retried')
+  })
+
+  it('imports nothing for an unknown ticket or a file that is gone', async () => {
+    const gone = await file('gone.md', '# Gone\n')
+    const ticket = await grant(gone)
+    await rm(gone)
+    const run = vi.fn(async () => 'imported')
+    expect(await readers.importOnce(ticket, run)).toBeUndefined()
+    expect(await readers.importOnce('made-up', run)).toBeUndefined()
+    expect(run).not.toHaveBeenCalled()
+  })
+
+  it('hands the import a read of the granted file and of files in its folder only, with their bytes and times', async () => {
+    const granted = await file('doc/note.md', '# Note\n')
+    const pic = await file('doc/img/pic.png', 'PNG')
+    const other = await file('doc/other.md', '# Other\n')
+    const secret = await file('secret.png', 'not for the page')
+    const ticket = await grant(granted)
+    const reads = await readers.importOnce(ticket, async (target, read) => ({
+      note: await read(target, 'note'),
+      pic: await read(pic, 'asset'),
+      otherNote: await read(other, 'note'),
+      outside: await read(secret, 'asset'),
+    }))
+    expect(reads?.note?.data.toString()).toBe('# Note\n')
+    expect(reads?.note?.mtime).toEqual((await stat(granted)).mtime)
+    expect(reads?.pic?.data.toString()).toBe('PNG')
+    // Only the granted file is the note; linked files must lie in its folder.
+    expect(reads?.otherNote).toBeUndefined()
+    expect(reads?.outside).toBeUndefined()
+  })
+
+  it('refuses the import’s read of a file or a linked file’s parent folder swapped for a symlink after the check', async () => {
+    const granted = await file('doc/swap.md', '# Granted\n')
+    const secret = await file('secret.md', 'not for the page\n')
+    const pic = await file('doc/pic.png', 'PNG')
+    const inner = await file('doc/img/inner.png', 'PNG')
+    await file('elsewhere/inner.png', 'not for the page')
+    const ticket = await grant(granted)
+    const result = await readers.importOnce(ticket, async (target, read) => {
+      // Between `importOnce`'s own check (and the import's `realpath`) and its read of each file.
+      await rm(target)
+      await symlink(secret, target)
+      await rm(pic)
+      await symlink(secret, pic)
+      await rm(path.join(dir, 'doc', 'img'), { recursive: true })
+      await symlink(path.join(dir, 'elsewhere'), path.join(dir, 'doc', 'img'))
+      return {
+        note: await read(target, 'note'),
+        pic: await read(pic, 'asset'),
+        inner: await read(inner, 'asset'),
+      }
+    })
+    expect(result).toEqual({ note: undefined, pic: undefined, inner: undefined })
+  })
 })

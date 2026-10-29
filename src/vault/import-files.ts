@@ -27,6 +27,24 @@ export interface ImportLimits {
 
 export const DEFAULT_IMPORT_LIMITS: ImportLimits = { maxFiles: 2000, maxBytes: 512 * 1024 * 1024 }
 
+/** A file an import copies, as `ImportOptions.read` read it. */
+export interface ImportRead {
+  data: Buffer
+  atime: Date
+  mtime: Date
+}
+
+export interface ImportOptions {
+  limits?: Partial<ImportLimits>
+  /**
+   * Reads each file the import copies (a `note` or a linked `asset`) from its real path, instead of
+   * reading it by path; `undefined` refuses that file and the whole import fails with
+   * `VaultError('NOT_FOUND')`, naming its base name. The bytes it returns are the ones written, so
+   * the file cannot change between the check and the copy (a reader tab's identity-checked reads).
+   */
+  read?: (real: string, kind: 'note' | 'asset') => Promise<ImportRead | undefined>
+}
+
 /** What `Vault.importFiles` did. Paths in `source` are absolute paths as given (or found in a dropped folder). */
 export interface ImportFilesReport {
   /** Target folder id. */
@@ -47,6 +65,8 @@ interface PlannedAsset {
   source: string
   /** `<sha256-12>.<ext>` in the note's `.assets` folder. */
   name: string
+  /** The bytes to write when `ImportOptions.read` read them; else the source is copied. */
+  data?: Uint8Array
 }
 
 export interface PlannedNote {
@@ -95,9 +115,22 @@ export async function planImport(options: {
   folder: string
   dir: string
   limits?: Partial<ImportLimits>
+  read?: ImportOptions['read']
 }): Promise<ImportPlan> {
   const { folder, dir } = options
   const limits = { ...DEFAULT_IMPORT_LIMITS, ...options.limits }
+  const readSource = async (real: string, kind: 'note' | 'asset'): Promise<ImportRead> => {
+    if (!options.read) {
+      const data = await readFile(real)
+      const { atime, mtime } = await stat(real)
+      return { data, atime, mtime }
+    }
+    const read = await options.read(real, kind)
+    if (read === undefined) {
+      throw new VaultError('NOT_FOUND', `${path.basename(real)} changed while it was imported; try again`)
+    }
+    return read
+  }
   const report: ImportFilesReport = { folder, notes: [], assets: 0, links: 0, skipped: [], unresolved: [] }
   const where = folder === '' ? 'the vault root' : `“${folder}”`
   // Lower-cased names taken per folder id (existing entries and names picked by this import).
@@ -245,8 +278,7 @@ export async function planImport(options: {
   let files = notes.length
   let bytes = 0
   for (const note of notes) {
-    const data = await readFile(note.real)
-    const stats = await stat(note.real)
+    const { data, atime, mtime } = await readSource(note.real, 'note')
     bytes += data.byteLength
     const raw = data.toString('utf8')
     const body = parseNoteText(raw).body
@@ -283,11 +315,11 @@ export async function planImport(options: {
     const assets = new Map<string, PlannedAsset>()
     for (const [relPath, target] of targets) {
       if (!target || !('asset' in target)) continue
-      const content = await readFile(target.asset)
+      const { data: content } = await readSource(target.asset, 'asset')
       bytes += content.byteLength
       const name = assetFileName(content, path.extname(target.asset))
       if (!assets.has(name)) {
-        assets.set(name, { source: target.asset, name })
+        assets.set(name, { source: target.asset, name, ...(options.read ? { data: content } : {}) })
         files++
       }
       usedOthers.add(target.asset)
@@ -326,8 +358,8 @@ export async function planImport(options: {
       id: note.id,
       data: nextBody === body ? data : Buffer.from(text, 'utf8'),
       text,
-      atime: stats.atime,
-      mtime: stats.mtime,
+      atime,
+      mtime,
       assets: [...assets.values()],
     })
     report.notes.push({ source: note.path, id: note.id })

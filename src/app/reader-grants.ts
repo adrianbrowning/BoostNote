@@ -3,7 +3,10 @@ import { constants } from 'node:fs'
 import { type FileHandle, lstat, open, realpath } from 'node:fs/promises'
 import * as path from 'node:path'
 
+import type { ImportOptions } from '../vault/index.ts'
 import { isInside, safeDecode } from '../vault/paths.ts'
+
+type ImportReader = NonNullable<ImportOptions['read']>
 
 /** Never follows a symlink at the file itself and never blocks on a FIFO (Windows has neither flag). */
 const OPEN_FLAGS = constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0) | (constants.O_NONBLOCK ?? 0)
@@ -70,6 +73,8 @@ async function useRegular<T>(file: string, use: (handle: FileHandle) => Promise<
 export class ReaderGrants {
   readonly #paths = new Map<string, string>()
   readonly #tickets = new Map<string, string>()
+  /** Tickets whose `importOnce` runs. */
+  readonly #importing = new Set<string>()
 
   /**
    * The live ticket of the regular file at real path `file`, granted now if it has none;
@@ -125,6 +130,41 @@ export class ReaderGrants {
     if (real === undefined || !isInside(folder, real)) return undefined
     const bytes = await useRegular(real, (handle) => handle.readFile())
     return bytes === undefined ? undefined : { bytes, name: path.basename(real) }
+  }
+
+  /**
+   * A reader tab's "Add to vault…": runs `run` (the import) on the real path behind `ticket`, at
+   * most once per ticket. The ticket is claimed before anything is awaited, so a second call while
+   * one runs gets `undefined`; it ends (`revoke`) when `run` resolves and stays live when `run`
+   * throws, so a failed import can be retried. `undefined` without calling `run` when the ticket is
+   * unknown, revoked or claimed, or its path no longer is a regular file at that real path.
+   *
+   * `run` gets `read` for `Vault.importFiles` (`ImportOptions.read`): the note may only be the
+   * granted file and a linked `asset` must lie inside its folder, and each is read with `read`'s
+   * checks (`useRegular`), so a file swapped for a symlink after the check above is refused rather
+   * than copied into the vault.
+   */
+  async importOnce<T>(ticket: string, run: (file: string, read: ImportReader) => Promise<T>): Promise<T | undefined> {
+    if (!this.#paths.has(ticket) || this.#importing.has(ticket)) return undefined
+    this.#importing.add(ticket)
+    try {
+      const file = await this.regularPath(ticket)
+      if (file === undefined) return undefined
+      const folder = path.dirname(file)
+      const read: ImportReader = async (real, kind) => {
+        if (kind === 'note' ? real !== file : !isInside(folder, real)) return undefined
+        return useRegular(real, async (handle) => {
+          const data = await handle.readFile()
+          const { atime, mtime } = await handle.stat()
+          return { data, atime, mtime }
+        })
+      }
+      const result = await run(file, read)
+      this.revoke(ticket)
+      return result
+    } finally {
+      this.#importing.delete(ticket)
+    }
   }
 
   /** Ends `ticket` (its reader tab closed); `false` when it was unknown or already revoked. */

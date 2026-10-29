@@ -1,8 +1,9 @@
 import { realpath } from 'node:fs/promises'
 import * as path from 'node:path'
 
+import { HttpError } from '../app/http.ts'
 import { ReaderGrants } from '../app/reader-grants.ts'
-import { openVault, type Vault, VaultError } from '../vault/index.ts'
+import { type ImportFilesReport, openVault, type Vault, VaultError } from '../vault/index.ts'
 import { isInside, noteSegments } from '../vault/paths.ts'
 import type { EventHub } from './events.ts'
 import type { SettingsStore } from './settings.ts'
@@ -163,6 +164,33 @@ export class VaultSession {
    */
   closeReader(ticket: string): Promise<boolean> {
     return this.#exclusive(async () => this.readers.revoke(ticket))
+  }
+
+  /**
+   * A reader tab's "Add to vault…": imports the file behind `ticket` (the path main granted; the
+   * page sends only the ticket) and its linked images into `folder` of the open vault, once per
+   * ticket (`ReaderGrants.importOnce`, which ends the ticket when the import returns, also when it
+   * skipped the file). `answer` runs on the import's report before the queue moves on, so what it
+   * reads (the workspace) is the vault the file went into. Report sources are base names. Runs in
+   * the vault queue, so a vault switch or a reader close never lands in the middle. Throws
+   * `VaultError('NOT_FOUND')` when the ticket is unknown or revoked or its file is no longer a
+   * regular file at its real path, and `HttpError(409, 'NO_VAULT')` without an open vault; the
+   * ticket then stays as it was, as it does when the import throws (a bad or missing folder).
+   */
+  importReader<T>(ticket: string, folder: string, answer: (report: ImportFilesReport) => Promise<T>): Promise<T> {
+    return this.#exclusive(async () => {
+      const granted = this.readers.path(ticket)
+      if (granted === undefined) throw new VaultError('NOT_FOUND', 'This file is no longer open; open it again')
+      const vault = this.#vault
+      if (!vault) throw new HttpError(409, 'NO_VAULT', 'Open a vault first, then add the file to it')
+      const report = await this.readers.importOnce(ticket, (file, read) => vault.importFiles([file], folder, { read }))
+      if (report === undefined) throw new VaultError('NOT_FOUND', `${path.basename(granted)} is gone; open it again`)
+      return answer({
+        ...report,
+        notes: report.notes.map((note) => ({ ...note, source: path.basename(note.source) })),
+        skipped: report.skipped.map((skip) => ({ ...skip, source: path.basename(skip.source) })),
+      })
+    })
   }
 
   /**
