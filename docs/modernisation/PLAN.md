@@ -201,7 +201,7 @@ JSON `{ error, message }`: `VaultError` `INVALID_PATH`/`NOT_A_VAULT` → 400, `N
 | `POST /api/open-external {url}` | http(s) links only |
 | `GET /api/preferences` · `POST /api/preferences {…UiPatch}` | `{ ui, hotkeyRegistered }`; save validates every field, `409 HOTKEY_UNAVAILABLE` when the OS refuses the global hotkey (phase 5) |
 | `POST /api/export/note {id, format: html\|pdf\|markdown\|print}` · `POST /api/export/folder {folder}` | Export (phase 6) → `{ path }` (`null`: cancelled / printed) |
-| `POST /api/open-request` | Takes the pending "open this `.md`" request → `{ vault, id }` or `null` (phase 6) |
+| `POST /api/open-request` | Takes the oldest queued "open this `.md`" request → `{ kind: 'note', vault, id }` or `null` when the queue is empty (phase 6) |
 | `GET /export/mermaid` | Hidden page that lays out mermaid diagrams for export (phase 6) |
 
 ### Editor integration and conflict rules
@@ -346,10 +346,14 @@ and reveal it. Sidebar folder menus have "Export as HTML…".
 
 `electron-builder.yml` declares a `.md` file association (role Editor, rank Alternate). macOS
 delivers files through `open-file` (also before `ready`), Windows/Linux through argv (first launch)
-or `second-instance` argv. Main records the file (`VaultSession.requestOpen`) and pushes SSE
-`open-request`; the workspace takes it (`POST /api/open-request`) after hydrating and on that event,
-saves the open note, opens the file's folder as the vault unless it is already open, and opens the
-note in a new tab (or its existing tab). A request made before the window exists is therefore not lost.
+or `second-instance` argv. Main queues the file (`VaultSession.requestOpen`) and pushes SSE
+`open-request`; the workspace takes requests (`POST /api/open-request`) until the queue is empty,
+after hydrating and on that event. `takeOpenRequest` resolves the file's real path and drops files
+that are gone or not `.md`. A file inside the open vault, else inside a recent vault (roots compared
+as real paths), is that vault's note (`work/plan.md` for a subfolder); any other file's folder becomes
+the vault. The workspace saves the open note, switches vaults when needed, and opens the note in a new
+tab (or its existing tab). A request made before the window exists is therefore not lost, and a
+second quick request does not replace the first.
 
 ### End-to-end tests (`tests/e2e`, `pnpm test:e2e`)
 

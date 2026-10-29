@@ -94,13 +94,14 @@ describe('POST /api/export/folder', () => {
 })
 
 describe('POST /api/open-request', () => {
-  it('hands out a file opened from the OS once', async () => {
+  it('hands out queued files opened from the OS once each, in order, as notes of the open vault', async () => {
     const take = async (): Promise<OpenRequest | null> => (await app.post(api.openRequest.href())).json()
     expect(await take()).toBeNull()
     app.vaults.requestOpen(path.join(vault.root, 'work', 'plan.md'))
-    expect(await take()).toEqual({ vault: path.join(vault.root, 'work'), id: 'plan.md' })
-    expect(await take()).toBeNull()
     app.vaults.requestOpen(path.join(vault.root, 'missing.md'))
+    app.vaults.requestOpen(path.join(vault.root, 'index.md'))
+    expect(await take()).toEqual({ kind: 'note', vault: vault.root, id: 'work/plan.md' })
+    expect(await take()).toEqual({ kind: 'note', vault: vault.root, id: 'index.md' })
     expect(await take()).toBeNull()
   })
 })

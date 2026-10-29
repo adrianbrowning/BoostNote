@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, realpath, rm, symlink, writeFile } from 'node:fs/promises'
 import * as os from 'node:os'
 import * as path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
@@ -116,5 +116,71 @@ describe('VaultSession', () => {
     )
     await session.dispose()
     hub.close()
+  })
+
+  describe('open requests', () => {
+    it('opens a file in a subfolder of the open vault as that vault’s note', async () => {
+      const session = new VaultSession({ settings: new SettingsStore(file), events })
+      const vault = await session.open(await folder('open'))
+      await mkdir(path.join(vault.root, 'work', 'deep'), { recursive: true })
+      await writeFile(path.join(vault.root, 'work', 'deep', 'plan.md'), '# Plan\n')
+      session.requestOpen(path.join(vault.root, 'work', 'deep', 'plan.md'))
+      expect(await session.takeOpenRequest()).toEqual({ kind: 'note', vault: vault.root, id: 'work/deep/plan.md' })
+      expect(await session.takeOpenRequest()).toBeUndefined()
+      await session.dispose()
+    })
+
+    it('opens a file inside a recent vault in that vault', async () => {
+      const session = new VaultSession({ settings: new SettingsStore(file), events })
+      const recent = await session.open(await folder('recent'))
+      await session.open(await folder('current'))
+      await mkdir(path.join(recent.root, 'notes'))
+      await writeFile(path.join(recent.root, 'notes', 'old.md'), '# Old\n')
+      session.requestOpen(path.join(recent.root, 'notes', 'old.md'))
+      expect(await session.takeOpenRequest()).toEqual({ kind: 'note', vault: recent.root, id: 'notes/old.md' })
+      await session.dispose()
+    })
+
+    it('classifies by real paths, and gives nothing for a missing or non-.md file', async () => {
+      const settings = new SettingsStore(file)
+      const session = new VaultSession({ settings, events })
+      const vault = await session.open(await folder('real-vault'))
+      await writeFile(path.join(vault.root, 'target.md'), '# Target\n')
+      const links = await folder('links')
+      await symlink(path.join(vault.root, 'target.md'), path.join(links, 'alias.md'))
+      session.requestOpen(path.join(links, 'alias.md'))
+      expect(await session.takeOpenRequest()).toEqual({ kind: 'note', vault: vault.root, id: 'target.md' })
+
+      // A recent vault remembered through a symlinked path still contains the file.
+      const other = await folder('other-vault')
+      await mkdir(path.join(other, 'sub'))
+      await writeFile(path.join(other, 'sub', 'b.md'), '# B\n')
+      await symlink(other, path.join(links, 'other-link'))
+      await session.close()
+      settings.update({ vaults: [path.join(links, 'other-link')] })
+      session.requestOpen(path.join(other, 'sub', 'b.md'))
+      expect(await session.takeOpenRequest()).toEqual({ kind: 'note', vault: await realpath(other), id: 'sub/b.md' })
+
+      session.requestOpen(path.join(other, 'gone.md'))
+      expect(await session.takeOpenRequest()).toBeUndefined()
+      await writeFile(path.join(other, 'notes.txt'), 'text\n')
+      session.requestOpen(path.join(other, 'notes.txt'))
+      expect(await session.takeOpenRequest()).toBeUndefined()
+      await session.dispose()
+    })
+
+    it('returns every request made before taking, in order; outside files open their folder', async () => {
+      const session = new VaultSession({ settings: new SettingsStore(file), events })
+      const vault = await session.open(await folder('queued'))
+      await writeFile(path.join(vault.root, 'first.md'), '# First\n')
+      const loose = await folder('loose')
+      await writeFile(path.join(loose, 'second.md'), '# Second\n')
+      session.requestOpen(path.join(vault.root, 'first.md'))
+      session.requestOpen(path.join(loose, 'second.md'))
+      expect(await session.takeOpenRequest()).toEqual({ kind: 'note', vault: vault.root, id: 'first.md' })
+      expect(await session.takeOpenRequest()).toEqual({ kind: 'note', vault: await realpath(loose), id: 'second.md' })
+      expect(await session.takeOpenRequest()).toBeUndefined()
+      await session.dispose()
+    })
   })
 })
