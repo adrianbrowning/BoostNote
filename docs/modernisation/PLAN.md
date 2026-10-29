@@ -386,8 +386,10 @@ tickets, all these routes answer `404`. The banner's "Open folder as vault" post
 `POST /api/reader/:ticket/open-folder` (the ticket only): main opens the granted file's folder as the
 vault (into Recent and `lastVault`), revokes the ticket and answers `{ id, workspace }`; the reader
 tab becomes that note's tab at its position. It runs in the vault queue
-(`VaultSession.openReaderFolder`), so a tab closed meanwhile opens nothing (`404`); a dot-name answers
-`400` and the reader stays. In
+(`VaultSession.openReaderFolder`), as is closing a reader (`VaultSession.closeReader`): a close that
+came first opens nothing (`404`), one that comes after finds the ticket revoked (`404`), and the page
+ignores Close on a reader whose open-folder is in flight. A dot-name answers `400` and the reader
+stays. In
 `Tabs` a tab is a note tab or a reader tab: reader tabs are never saved to `localStorage`, have no
 back/forward trail, are skipped by rebase/forget, stay open when the vault switches or closes, and
 are the only tabs while no vault is open. Grants live in memory, so reader tabs are gone after a restart.

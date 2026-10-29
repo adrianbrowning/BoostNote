@@ -428,7 +428,7 @@ export function createApiController(services: AppServices) {
       }),
 
       readerClose: guarded(async ({ params }: { params: { ticket: string } }) => {
-        if (!services.vaults.readers.revoke(params.ticket)) throw readerClosed()
+        if (!(await services.vaults.closeReader(params.ticket))) throw readerClosed()
         return json({ ok: true })
       }),
 

@@ -141,6 +141,8 @@ export class WorkspaceModel extends TypedEventTarget<{
   tabs = new Tabs()
   /** The file of the reader tab with `ticket` as last read (`null` unless a reader tab is active). */
   reader: { ticket: string; document: ReaderDocument } | null = null
+  /** Keys of reader tabs whose close or "Open folder as vault" is in flight (one action at a time). */
+  readonly #busyReaders = new Set<number>()
   preferences: UiPreferences
   hotkeyRegistered: boolean
   /** Newer release shown in the status bar. */
@@ -386,11 +388,14 @@ export class WorkspaceModel extends TypedEventTarget<{
    * Closes a tab (the active one by default). Closing the active tab saves its note first; `discard`
    * drops unsaved edits instead (the "Close" of a note removed on disk). A reader tab closes once
    * main revoked its ticket (a `404` means it already was); if revoking fails the tab stays open.
+   * A reader that is already closing or opening its folder as the vault is left to that action.
    */
   async closeTab(key = this.tabs.activeKey, options: { discard?: boolean } = {}): Promise<void> {
     if (key === null) return
     const tab = this.tabs.tabs.find((item) => item.key === key)
     if (tab?.kind === 'reader') {
+      if (this.#busyReaders.has(key)) return
+      this.#busyReaders.add(key)
       try {
         await client.closeReader(tab.ticket)
       } catch (error) {
@@ -398,6 +403,8 @@ export class WorkspaceModel extends TypedEventTarget<{
           this.fail(error)
           return
         }
+      } finally {
+        this.#busyReaders.delete(key)
       }
     }
     if (key !== this.tabs.activeKey) {
@@ -414,15 +421,21 @@ export class WorkspaceModel extends TypedEventTarget<{
    * A reader tab's "Open folder as vault": main opens the folder of the tab's file as the vault (the
    * page sends only the ticket) and revokes the ticket; the reader tab becomes that note's tab at
    * the same position, next to the vault's restored tabs. Main refuses a file that can be no note
-   * of its folder (a dot-name); the notice says so and the reader stays.
+   * of its folder (a dot-name); the notice says so and the reader stays. Ignored while the reader
+   * is closing or already opening its folder, so the tab is still there to turn into the note's.
    */
   async openReaderFolder(key: number): Promise<void> {
     const tab = this.tabs.tabs.find((item): item is ReaderTab => item.key === key && item.kind === 'reader')
-    if (!tab || !(await this.leaveNote())) return
-    await this.attempt(async () => {
-      const { id, workspace } = await client.openReaderFolder(tab.ticket)
-      await this.#switched(workspace, () => this.tabs.replaceReader(tab.key, id))
-    })
+    if (!tab || this.#busyReaders.has(key) || !(await this.leaveNote())) return
+    this.#busyReaders.add(key)
+    try {
+      await this.attempt(async () => {
+        const { id, workspace } = await client.openReaderFolder(tab.ticket)
+        await this.#switched(workspace, () => this.tabs.replaceReader(tab.key, id))
+      })
+    } finally {
+      this.#busyReaders.delete(key)
+    }
   }
 
   async reopenTab(): Promise<void> {

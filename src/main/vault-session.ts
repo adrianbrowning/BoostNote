@@ -122,8 +122,9 @@ export class VaultSession {
    * file's note id there. Throws `VaultError('NOT_FOUND')` when the ticket is unknown or revoked
    * (also while this waited its turn behind another vault switch, or loaded the folder) or its file
    * is no longer a regular file at its real path, and `VaultError('INVALID_PATH')` when its name can
-   * be no note (a dot-name); the vault and the ticket then stay as they were. Messages name the
-   * file's base name at most.
+   * be no note (a dot-name); the vault and the ticket then stay as they were. Runs in the vault
+   * queue, as `closeReader` does, so a close either comes first (and this opens nothing) or finds
+   * the ticket revoked. Messages name the file's base name at most.
    */
   openReaderFolder(ticket: string): Promise<string> {
     return this.#exclusive(async () => {
@@ -135,16 +136,18 @@ export class VaultSession {
         throw new VaultError('NOT_FOUND', `${id} is gone; open it again`)
       }
       const root = path.dirname(granted)
-      const vault = await this.#load(root)
-      // The reader tab closed while the folder loaded: it no longer asks for anything.
-      if (this.readers.path(ticket) !== granted) {
-        await vault.close()
-        throw new VaultError('NOT_FOUND', 'This file is no longer open; open it again')
-      }
-      await this.#switchTo(vault, root)
+      await this.#switchTo(await this.#load(root), root)
       this.readers.revoke(ticket)
       return id
     })
+  }
+
+  /**
+   * A reader tab closed: revokes its ticket (`false` when unknown or already revoked). Queued with
+   * the vault switches, so it never lands in the middle of `openReaderFolder`.
+   */
+  closeReader(ticket: string): Promise<boolean> {
+    return this.#exclusive(async () => this.readers.revoke(ticket))
   }
 
   /**

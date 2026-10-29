@@ -308,23 +308,36 @@ describe('VaultSession', () => {
     })
   })
 
-  it('"Open folder as vault" of a reader closed while it waited for the vault queue opens nothing', async () => {
+  it('"Open folder as vault" and closing the same reader run in order: whichever came first wins', async () => {
     const settings = new SettingsStore(file)
     const session = new VaultSession({ settings, events })
     const vault = await session.open(await folder('kept'))
     const loose = await folder('closing')
     await writeFile(path.join(loose, 'readme.md'), '# Readme\n')
-    session.requestOpen(path.join(loose, 'readme.md'))
-    const request = await session.takeOpenRequest()
-    const ticket = request?.kind === 'external' ? request.ticket : ''
-    // A vault switch is in flight; the reader tab closes before the switch to its folder gets its turn.
+    const reader = async () => {
+      session.requestOpen(path.join(loose, 'readme.md'))
+      const request = await session.takeOpenRequest()
+      return request?.kind === 'external' ? request.ticket : ''
+    }
+
+    // Close first, while a vault switch is in flight: the open-folder after it opens nothing.
+    const first = await reader()
     const switching = session.open(vault.root)
-    const opening = session.openReaderFolder(ticket)
-    session.readers.revoke(ticket)
+    const closing = session.closeReader(first)
+    const refused = session.openReaderFolder(first)
     await switching
-    await expect(opening).rejects.toMatchObject({ code: 'NOT_FOUND' })
+    expect(await closing).toBe(true)
+    await expect(refused).rejects.toMatchObject({ code: 'NOT_FOUND' })
     expect(session.current?.root).toBe(vault.root)
     expect(settings.read().lastVault).toBe(vault.root)
+
+    // Open-folder first: it switches, and the close after it finds the ticket already revoked.
+    const second = await reader()
+    const opening = session.openReaderFolder(second)
+    const late = session.closeReader(second)
+    expect(await opening).toBe('readme.md')
+    expect(await late).toBe(false)
+    expect(session.current?.root).toBe(await realpath(loose))
     await session.dispose()
   })
 })
