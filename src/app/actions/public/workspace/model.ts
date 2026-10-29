@@ -426,9 +426,11 @@ export class WorkspaceModel extends TypedEventTarget<{
    */
   async openReaderFolder(key: number): Promise<void> {
     const tab = this.tabs.tabs.find((item): item is ReaderTab => item.key === key && item.kind === 'reader')
-    if (!tab || this.#busyReaders.has(key) || !(await this.leaveNote())) return
+    if (!tab || this.#busyReaders.has(key)) return
+    // Claimed before the first await, so a second click while this runs does nothing.
     this.#busyReaders.add(key)
     try {
+      if (!(await this.leaveNote())) return
       await this.attempt(async () => {
         const { id, workspace } = await client.openReaderFolder(tab.ticket)
         await this.#switched(workspace, () => this.tabs.replaceReader(tab.key, id))
