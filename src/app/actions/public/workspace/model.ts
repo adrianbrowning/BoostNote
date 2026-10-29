@@ -278,8 +278,11 @@ export class WorkspaceModel extends TypedEventTarget<{
   /** Whether the vault has a note with this id (as of the last list refresh). */
   hasNote = (id: string): boolean => this.data.notes.some((note) => note.id === id)
 
-  /** Restores the open vault's tabs from `localStorage` (after hydration, after switching vaults). */
-  async restoreTabs(): Promise<void> {
+  /**
+   * Restores the open vault's tabs from `localStorage` (after hydration, after switching vaults).
+   * `change` then edits the restored tabs before the active one loads (and they are saved).
+   */
+  async restoreTabs(change?: () => unknown): Promise<void> {
     const root = this.data.vault?.root
     let snapshot: unknown = null
     try {
@@ -288,6 +291,10 @@ export class WorkspaceModel extends TypedEventTarget<{
       // A corrupt entry restores no tabs.
     }
     this.tabs.restore(snapshot, this.hasNote)
+    if (change) {
+      change()
+      this.#saveTabs()
+    }
     await this.#loadActiveTab()
   }
 
@@ -401,6 +408,21 @@ export class WorkspaceModel extends TypedEventTarget<{
     }
     if (options.discard) this.session.close()
     await this.#switchTabs(() => this.tabs.close(key))
+  }
+
+  /**
+   * A reader tab's "Open folder as vault": main opens the folder of the tab's file as the vault (the
+   * page sends only the ticket) and revokes the ticket; the reader tab becomes that note's tab at
+   * the same position, next to the vault's restored tabs. Main refuses a file that can be no note
+   * of its folder (a dot-name); the notice says so and the reader stays.
+   */
+  async openReaderFolder(key: number): Promise<void> {
+    const tab = this.tabs.tabs.find((item): item is ReaderTab => item.key === key && item.kind === 'reader')
+    if (!tab || !(await this.leaveNote())) return
+    await this.attempt(async () => {
+      const { id, workspace } = await client.openReaderFolder(tab.ticket)
+      await this.#switched(workspace, () => this.tabs.replaceReader(tab.key, id))
+    })
   }
 
   async reopenTab(): Promise<void> {
@@ -931,14 +953,15 @@ export class WorkspaceModel extends TypedEventTarget<{
     })
   }
 
-  #switched(data: WorkspaceData): Promise<void> {
+  /** Shows another vault (or none); `change` edits its restored tabs before the active one loads. */
+  #switched(data: WorkspaceData, change?: () => unknown): Promise<void> {
     this.session.close()
     this.data = data
     this.selection = { kind: 'all' }
     this.expanded.clear()
     this.importOpen = false
     this.setQuery('')
-    return this.restoreTabs()
+    return this.restoreTabs(change)
   }
 
   // ── Live updates ────────────────────────────────────────────────────────────────────────

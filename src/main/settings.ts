@@ -12,6 +12,9 @@ export interface WindowBounds {
 
 export type ThemePreference = 'system' | 'light' | 'dark'
 
+/** Opening a `.md` outside every known vault: a read-only reader tab, or its folder as the vault. */
+export type OutsideFilePreference = 'reader' | 'vault'
+
 /** Pane layout of the workspace window. */
 export interface PaneLayout {
   sidebarWidth: number
@@ -39,6 +42,8 @@ export interface UiPreferences {
   checkUpdates: boolean
   /** Version whose update notice the user dismissed; `''` when none. */
   dismissedUpdate: string
+  /** "Opening a .md outside a vault" (`VaultSession.takeOpenRequest`). */
+  outsideFile: OutsideFilePreference
   panes: PaneLayout
 }
 
@@ -58,6 +63,7 @@ export const DEFAULT_UI: UiPreferences = {
   globalHotkey: DEFAULT_HOTKEY,
   checkUpdates: true,
   dismissedUpdate: '',
+  outsideFile: 'reader',
   panes: { sidebarWidth: 220, listWidth: 300, sidebarCollapsed: false, listCollapsed: false, propertiesOpen: false },
 }
 
@@ -106,6 +112,7 @@ export const UI_FIELDS: { [K in keyof Omit<UiPreferences, 'panes'>]: (value: unk
   globalHotkey: (value) => typeof value === 'string' && (value === '' || isAccelerator(value)),
   checkUpdates: isBoolean,
   dismissedUpdate: (value) => typeof value === 'string' && value.length <= 64 && /^[0-9A-Za-z.+-]*$/.test(value),
+  outsideFile: (value) => value === 'reader' || value === 'vault',
 }
 
 export const PANE_FIELDS: { [K in keyof PaneLayout]: (value: unknown) => boolean } = {

@@ -230,7 +230,20 @@ describe('VaultSession', () => {
         ticket: expect.any(String),
         name: 'readme.md',
       })
+
+      // With "Open its folder as vault" such a file opens its folder as the vault, as before readers.
       await session.dispose()
+      const settings = new SettingsStore(file)
+      settings.update({ ui: { ...settings.ui, outsideFile: 'vault' } })
+      const preferring = new VaultSession({ settings, events })
+      await preferring.open(vault.root)
+      preferring.requestOpen(path.join(vault.root, '.github', 'x.md'))
+      expect(await preferring.takeOpenRequest()).toEqual({
+        kind: 'note',
+        vault: path.join(vault.root, '.github'),
+        id: 'x.md',
+      })
+      await preferring.dispose()
     })
 
     it('stops at the first known vault holding the file, even when a later recent vault is nested inside it', async () => {
@@ -244,5 +257,74 @@ describe('VaultSession', () => {
       expect(await session.takeOpenRequest()).toEqual({ kind: 'external', ticket: expect.any(String), name: 'x.md' })
       await session.dispose()
     })
+
+    it('with "Open its folder as vault", opens an outside file’s folder as the vault; known vaults still win', async () => {
+      const settings = new SettingsStore(file)
+      settings.update({ ui: { ...settings.ui, outsideFile: 'vault' } })
+      const session = new VaultSession({ settings, events })
+      const vault = await session.open(await folder('pref-vault'))
+      await mkdir(path.join(vault.root, 'sub'))
+      await writeFile(path.join(vault.root, 'sub', 'in.md'), '# In\n')
+      const recent = await session.open(await folder('pref-recent'))
+      await writeFile(path.join(recent.root, 'old.md'), '# Old\n')
+      await session.open(vault.root)
+      const loose = await folder('pref-loose')
+      await writeFile(path.join(loose, 'readme.md'), '# Readme\n')
+
+      session.requestOpen(path.join(loose, 'readme.md'))
+      session.requestOpen(path.join(vault.root, 'sub', 'in.md'))
+      session.requestOpen(path.join(recent.root, 'old.md'))
+      expect(await session.takeOpenRequest()).toEqual({ kind: 'note', vault: await realpath(loose), id: 'readme.md' })
+      // A file in a subfolder of the open vault is that vault's note, not a new vault of the subfolder.
+      expect(await session.takeOpenRequest()).toEqual({ kind: 'note', vault: vault.root, id: 'sub/in.md' })
+      expect(await session.takeOpenRequest()).toEqual({ kind: 'note', vault: recent.root, id: 'old.md' })
+      await session.dispose()
+    })
+
+    it('drops upper-case .MD files (no vault note); a dot-name stays a reader, even with "Open its folder as vault"', async () => {
+      const settings = new SettingsStore(file)
+      const session = new VaultSession({ settings, events })
+      const loose = await folder('names')
+      await writeFile(path.join(loose, 'README.MD'), '# Upper\n')
+      await writeFile(path.join(loose, '.hidden.md'), '# Hidden\n')
+      session.requestOpen(path.join(loose, 'README.MD'))
+      session.requestOpen(path.join(loose, '.hidden.md'))
+      expect(await session.takeOpenRequest()).toEqual({
+        kind: 'external',
+        ticket: expect.any(String),
+        name: '.hidden.md',
+      })
+      expect(await session.takeOpenRequest()).toBeUndefined()
+
+      // Its folder as a vault would not hold it as a note, so it opens read-only.
+      settings.update({ ui: { ...settings.ui, outsideFile: 'vault' } })
+      session.requestOpen(path.join(loose, '.hidden.md'))
+      expect(await session.takeOpenRequest()).toEqual({
+        kind: 'external',
+        ticket: expect.any(String),
+        name: '.hidden.md',
+      })
+      expect(session.current).toBeUndefined()
+    })
+  })
+
+  it('"Open folder as vault" of a reader closed while it waited for the vault queue opens nothing', async () => {
+    const settings = new SettingsStore(file)
+    const session = new VaultSession({ settings, events })
+    const vault = await session.open(await folder('kept'))
+    const loose = await folder('closing')
+    await writeFile(path.join(loose, 'readme.md'), '# Readme\n')
+    session.requestOpen(path.join(loose, 'readme.md'))
+    const request = await session.takeOpenRequest()
+    const ticket = request?.kind === 'external' ? request.ticket : ''
+    // A vault switch is in flight; the reader tab closes before the switch to its folder gets its turn.
+    const switching = session.open(vault.root)
+    const opening = session.openReaderFolder(ticket)
+    session.readers.revoke(ticket)
+    await switching
+    await expect(opening).rejects.toMatchObject({ code: 'NOT_FOUND' })
+    expect(session.current?.root).toBe(vault.root)
+    expect(settings.read().lastVault).toBe(vault.root)
+    await session.dispose()
   })
 })

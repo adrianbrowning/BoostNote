@@ -1,4 +1,4 @@
-import { mkdir, readFile, rm, symlink, writeFile } from 'node:fs/promises'
+import { mkdir, readFile, realpath, rm, symlink, writeFile } from 'node:fs/promises'
 import * as path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { MAX_IMPORT_PATHS } from '../../src/app/actions/api/controller.ts'
@@ -8,6 +8,8 @@ import type {
   LinkUpdateReport,
   NoteDocument,
   OpenRequest,
+  PreferencesState,
+  ReaderFolderResult,
   SaveConflictBody,
   TitleRenamePlan,
   TitleRenameReport,
@@ -505,6 +507,54 @@ describe('reader', () => {
     expect((await app.get(url('pic.png', 'made-up'))).status).toBe(404)
     await app.post(api.readerClose.href({ ticket }))
     expect((await app.get(url('pic.png'))).status).toBe(404)
+  })
+
+  it('opens the folder of a reader’s file as the vault from the ticket only, and revokes the ticket', async () => {
+    const other = await app.openVault()
+    const { file, ticket } = await openOutside('readme.md', '# Readme\n')
+    const response = await app.post(api.readerOpenFolder.href({ ticket }))
+    expect(response.status).toBe(200)
+    const result = await readJson<ReaderFolderResult>(response)
+    const folder = await realpath(path.dirname(file))
+    expect(result.id).toBe('readme.md')
+    expect(result.workspace.vault?.root).toBe(folder)
+    expect(result.workspace.notes.map((note) => note.id)).toEqual(['readme.md'])
+    // Recent and lastVault: the folder is the vault now, in front of the one it replaced.
+    expect(app.settings.read()).toMatchObject({ lastVault: folder, vaults: [folder, other.root] })
+    expect((await app.get(api.readerRead.href({ ticket }))).status).toBe(404)
+    expect((await app.post(api.readerOpenFolder.href({ ticket }))).status).toBe(404)
+    expect((await app.post(api.readerOpenFolder.href({ ticket: 'made-up' }))).status).toBe(404)
+  })
+
+  it('refuses to open the folder of a file that is gone or can be no note there, keeping the vault', async () => {
+    const vault = await app.openVault()
+    const hidden = await openOutside('.hidden.md', '# Hidden\n')
+    const refused = await app.post(api.readerOpenFolder.href({ ticket: hidden.ticket }))
+    expect(refused.status).toBe(400)
+    expect(await refused.text()).not.toContain(app.dir)
+    // The reader keeps working.
+    expect((await app.get(api.readerRead.href({ ticket: hidden.ticket }))).status).toBe(200)
+
+    const gone = await openOutside('gone.md', '# Gone\n')
+    await rm(gone.file)
+    const missing = await app.post(api.readerOpenFolder.href({ ticket: gone.ticket }))
+    expect(missing.status).toBe(404)
+    expect(await missing.text()).not.toContain(app.dir)
+    expect(app.vaults.current?.root).toBe(vault.root)
+  })
+
+  it('stores "Opening a .md outside a vault" (default Read only); "Open its folder as vault" opens outside files as before', async () => {
+    expect((await readJson<PreferencesState>(await app.get(api.preferences.href()))).ui.outsideFile).toBe('reader')
+    expect((await app.post(api.preferencesSave.href(), { outsideFile: 'folder' })).status).toBe(400)
+    const saved = await readJson<PreferencesState>(await app.post(api.preferencesSave.href(), { outsideFile: 'vault' }))
+    expect(saved.ui.outsideFile).toBe('vault')
+
+    const file = path.join(app.dir, 'outside', 'readme.md')
+    await mkdir(path.dirname(file), { recursive: true })
+    await writeFile(file, '# Readme\n')
+    app.vaults.requestOpen(file)
+    const request = await readJson<OpenRequest | null>(await app.post(api.openRequest.href()))
+    expect(request).toEqual({ kind: 'note', vault: await realpath(path.dirname(file)), id: 'readme.md' })
   })
 })
 
