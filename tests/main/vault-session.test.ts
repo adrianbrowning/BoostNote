@@ -1,11 +1,32 @@
-import { mkdir, mkdtemp, readFile, realpath, rm, symlink, writeFile } from 'node:fs/promises'
+import type * as FsPromises from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, realpath, rename, rm, symlink, writeFile } from 'node:fs/promises'
 import * as os from 'node:os'
 import * as path from 'node:path'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { createEventHub } from '../../src/main/events.ts'
 import { SettingsStore } from '../../src/main/settings.ts'
 import { MAX_RECENT_VAULTS, VaultSession } from '../../src/main/vault-session.ts'
+
+/** Runs once just before `realpath(path)` of `node:fs/promises` (the filesystem boundary), so a test can race it. */
+const fsHooks = vi.hoisted(() => ({
+  beforeRealpath: undefined as { path: string; run: () => Promise<void> } | undefined,
+}))
+
+vi.mock('node:fs/promises', async (importOriginal) => {
+  const actual = await importOriginal<typeof FsPromises>()
+  return {
+    ...actual,
+    realpath: async (...args: Parameters<typeof actual.realpath>) => {
+      const hook = fsHooks.beforeRealpath
+      if (hook && args[0] === hook.path) {
+        fsHooks.beforeRealpath = undefined
+        await hook.run()
+      }
+      return actual.realpath(...args)
+    },
+  }
+})
 
 let dir: string
 let file: string
@@ -337,6 +358,35 @@ describe('VaultSession', () => {
     expect(await opening).toBe('readme.md')
     expect(await late).toBe(false)
     expect(session.current?.root).toBe(await realpath(loose))
+    await session.dispose()
+  })
+
+  it('"Open folder as vault" refuses a folder that became a symlink to another folder while it loaded', async () => {
+    const settings = new SettingsStore(file)
+    const session = new VaultSession({ settings, events })
+    const vault = await session.open(await folder('stays'))
+    const loose = await realpath(await folder('swapped'))
+    const elsewhere = await folder('elsewhere')
+    await writeFile(path.join(loose, 'readme.md'), '# Readme\n')
+    await writeFile(path.join(elsewhere, 'readme.md'), '# Not the granted file\n')
+    session.requestOpen(path.join(loose, 'readme.md'))
+    const request = await session.takeOpenRequest()
+    const ticket = request?.kind === 'external' ? request.ticket : ''
+
+    // After the file was checked, just as the vault resolves its folder, that folder becomes a symlink.
+    fsHooks.beforeRealpath = {
+      path: loose,
+      run: async () => {
+        await rename(loose, `${loose}-moved`)
+        await symlink(elsewhere, loose)
+      },
+    }
+    const refused = session.openReaderFolder(ticket)
+    await expect(refused).rejects.toMatchObject({ code: 'NOT_FOUND', message: 'readme.md is gone; open it again' })
+    expect(fsHooks.beforeRealpath).toBeUndefined()
+    expect(session.current?.root).toBe(vault.root)
+    expect(settings.read().lastVault).toBe(vault.root)
+    expect(session.readers.path(ticket)).toBe(path.join(loose, 'readme.md'))
     await session.dispose()
   })
 })

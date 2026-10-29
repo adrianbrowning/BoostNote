@@ -390,7 +390,9 @@ tab becomes that note's tab at its position. It runs in the vault queue
 (`VaultSession.openReaderFolder`), as is closing a reader (`VaultSession.closeReader`): a close that
 came first opens nothing (`404`), one that comes after finds the ticket revoked (`404`), and the page
 ignores Close on a reader whose open-folder is in flight. A name that can be no note (a dot-name or
-upper-case `.MD`) answers `400` naming only the base name, and the reader stays. In
+upper-case `.MD`) answers `400` naming only the base name, and the reader stays. The file is checked
+as a read checks it, and the loaded vault's real root must be the granted file's folder, so a parent
+swapped for a symlink (also while the folder loads) answers `404` and opens nothing. In
 `Tabs` a tab is a note tab or a reader tab: reader tabs are never saved to `localStorage`, have no
 back/forward trail, are skipped by rebase/forget, stay open when the vault switches or closes, and
 are the only tabs while no vault is open. Grants live in memory, so reader tabs are gone after a restart.

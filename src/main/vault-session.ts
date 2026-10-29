@@ -121,8 +121,9 @@ export class VaultSession {
    * A reader tab's "Open folder as vault": opens the folder of the file behind `ticket` (the path
    * main granted; the page sends only the ticket) as the vault and revokes the ticket. Answers the
    * file's note id there. Throws `VaultError('NOT_FOUND')` when the ticket is unknown or revoked
-   * (also while this waited its turn behind another vault switch) or its file is no longer a
-   * regular file at its real path, and `VaultError('INVALID_PATH')` when its name can be no note (a
+   * (also while this waited its turn behind another vault switch), its file is no longer a regular
+   * file at its real path, or the folder resolved to another folder while it loaded (a parent swapped
+   * for a symlink), and `VaultError('INVALID_PATH')` when its name can be no note (a
    * dot-name, upper-case `.MD`); the vault and the ticket then stay as they were. Runs in the vault
    * queue, as `closeReader` does, so a close either comes first (and this opens nothing) or finds
    * the ticket revoked. Messages name the file's base name at most.
@@ -138,11 +139,19 @@ export class VaultSession {
           `${id} cannot be a note: notes end in .md (lower case) and do not start with a dot`,
         )
       }
-      if ((await this.readers.regularPath(ticket)) === undefined) {
-        throw new VaultError('NOT_FOUND', `${id} is gone; open it again`)
-      }
+      const gone = () => new VaultError('NOT_FOUND', `${id} is gone; open it again`)
+      if ((await this.readers.regularPath(ticket)) === undefined) throw gone()
       const root = path.dirname(granted)
-      await this.#switchTo(await this.#load(root), root)
+      const vault = await this.#load(root).catch((error: unknown) => {
+        // The folder went away meanwhile (`openVault`'s message would name its path).
+        throw error instanceof VaultError && error.code === 'NOT_A_VAULT' ? gone() : error
+      })
+      // A parent folder swapped for a symlink while it loaded: that is another folder, not the granted one.
+      if (vault.root !== root) {
+        await vault.close()
+        throw gone()
+      }
+      await this.#switchTo(vault, root)
       this.readers.revoke(ticket)
       return id
     })
