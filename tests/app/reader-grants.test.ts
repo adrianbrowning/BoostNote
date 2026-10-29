@@ -1,10 +1,29 @@
 import { execFileSync } from 'node:child_process'
-import { mkdir, mkdtemp, realpath, rename, rm, symlink, writeFile } from 'node:fs/promises'
+import type * as FsPromises from 'node:fs/promises'
+import type { FileHandle } from 'node:fs/promises'
+import { mkdir, mkdtemp, realpath, rename, rm, stat, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import * as path from 'node:path'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { ReaderGrants } from '../../src/app/reader-grants.ts'
+
+/** Runs around the next `open` of `node:fs/promises` (the filesystem boundary), so a test can race it. */
+const fsHooks = vi.hoisted(() => ({
+  aroundOpen: undefined as ((openNow: () => Promise<FileHandle>) => Promise<FileHandle>) | undefined,
+}))
+
+vi.mock('node:fs/promises', async (importOriginal) => {
+  const actual = await importOriginal<typeof FsPromises>()
+  return {
+    ...actual,
+    open: (...args: Parameters<typeof actual.open>) => {
+      const around = fsHooks.aroundOpen
+      fsHooks.aroundOpen = undefined
+      return around ? around(() => actual.open(...args)) : actual.open(...args)
+    },
+  }
+})
 
 let dir: string
 let readers: ReaderGrants
@@ -16,6 +35,7 @@ beforeEach(async () => {
 })
 
 afterEach(async () => {
+  fsHooks.aroundOpen = undefined
   await rm(dir, { recursive: true, force: true })
 })
 
@@ -95,19 +115,41 @@ describe('ReaderGrants', () => {
     expect(await readers.read(ticket)).toBeUndefined()
   })
 
-  it('refuses a granted file replaced by another one; opened again, the new file gets its own ticket', async () => {
+  it('refuses a read opened through a parent folder swapped for a symlink and restored before the check', async () => {
+    const granted = await file('sub/note.md', '# Granted\n')
+    const other = await file('other/note.md', 'not for the page\n')
+    const ticket = await grant(granted)
+    const sub = path.join(dir, 'sub')
+    const moved = path.join(dir, 'sub-moved')
+    let openedOther = false
+    // The folder is a symlink while the file is opened and whole again for every later check.
+    fsHooks.aroundOpen = async (openNow) => {
+      await rename(sub, moved)
+      await symlink(path.join(dir, 'other'), sub)
+      try {
+        const handle = await openNow()
+        openedOther = (await handle.stat()).ino === (await stat(other)).ino
+        return handle
+      } finally {
+        await rm(sub)
+        await rename(moved, sub)
+      }
+    }
+    expect(await readers.read(ticket)).toBeUndefined()
+    // The race happened: the handle was the other file, and the path was whole again afterwards.
+    expect(openedOther).toBe(true)
+    expect(await realpath(granted)).toBe(granted)
+    // Nothing raced this read: the granted file again.
+    expect(await readers.read(ticket)).toBe('# Granted\n')
+  })
+
+  it('reads, under the same ticket, another regular file renamed over the granted one', async () => {
     const replaced = await file('replaced.md', '# Old\n')
-    const old = await grant(replaced)
+    const ticket = await grant(replaced)
     // An atomic save: a new file renamed over the granted one.
     await rename(await file('next.md', '# New\n'), replaced)
-    expect(await readers.read(old)).toBeUndefined()
-
-    const fresh = await grant(replaced)
-    expect(fresh).not.toBe(old)
-    expect(await readers.read(fresh)).toBe('# New\n')
-    // The old ticket never comes to read the new file.
-    expect(readers.path(old)).toBeUndefined()
-    expect(await readers.read(old)).toBeUndefined()
+    expect(await readers.read(ticket)).toBe('# New\n')
+    expect(await readers.grant(replaced)).toBe(ticket)
   })
 
   it.skipIf(process.platform === 'win32')('refuses a granted file swapped for a FIFO without blocking', async () => {

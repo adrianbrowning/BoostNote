@@ -2,17 +2,6 @@ import { randomBytes } from 'node:crypto'
 import { constants } from 'node:fs'
 import { type FileHandle, lstat, open, realpath } from 'node:fs/promises'
 
-/** Which file a path held: its device and inode. */
-interface Identity {
-  readonly dev: bigint
-  readonly ino: bigint
-}
-
-/** The file a ticket was granted for: its real path and, so a later swap is caught, its identity. */
-interface Grant extends Identity {
-  readonly file: string
-}
-
 /** Never follows a symlink at the file itself and never blocks on a FIFO (Windows has neither flag). */
 const OPEN_FLAGS = constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0) | (constants.O_NONBLOCK ?? 0)
 
@@ -35,31 +24,25 @@ function refused(error: unknown): undefined {
  * Opens `file` without following a symlink and, when it is a regular file, runs `use` on the open
  * handle. `use`'s result counts only if, after it ran, the path still leads without any symlink to
  * the very file it used: `realpath(file)` is `file` and `lstat(file)` is a regular file with the
- * handle's identity. Checking after `use` covers what it read, so a file renamed over the path at
- * any point is never served. `undefined` when `file` is gone, anything else (a symlink, folder, FIFO
- * or device), or `use` declined.
+ * handle's device and inode. `O_NOFOLLOW` guards only the last component; comparing the handle with
+ * what the path names after the read anchors the read beneath the real parent folders, so a handle
+ * opened through a parent swapped for a symlink (even one restored before the check) is refused.
+ * `undefined` when `file` is gone or anything else (a symlink, folder, FIFO or device).
  */
-async function useRegular<T>(
-  file: string,
-  use: (opened: Identity, handle: FileHandle) => Promise<T | undefined>,
-): Promise<T | undefined> {
+async function useRegular<T>(file: string, use: (handle: FileHandle) => Promise<T>): Promise<T | undefined> {
   const handle = await open(file, OPEN_FLAGS).catch(refused)
   if (handle === undefined) return undefined
   try {
     const opened = await handle.stat({ bigint: true })
     if (!opened.isFile()) return undefined
-    const value = await use(opened, handle)
-    if (value === undefined || (await realpath(file).catch(refused)) !== file) return undefined
+    const value = await use(handle)
+    if ((await realpath(file).catch(refused)) !== file) return undefined
     const named = await lstat(file, { bigint: true }).catch(refused)
-    if (!named?.isFile() || !sameFile(named, opened)) return undefined
+    if (!named?.isFile() || named.dev !== opened.dev || named.ino !== opened.ino) return undefined
     return value
   } finally {
     await handle.close()
   }
-}
-
-function sameFile(a: Identity, b: Identity): boolean {
-  return a.dev === b.dev && a.ino === b.ino
 }
 
 /**
@@ -71,59 +54,49 @@ function sameFile(a: Identity, b: Identity): boolean {
  * not expire: it lives until the reader tab closes (`revoke`) or the app quits. One file has at
  * most one live ticket, so opening it again finds its existing tab.
  *
- * A ticket reads only the file the OS gave the app: the regular file at its real path with the
- * device and inode recorded at grant time. Once anything else sits at that path (a symlink, another
- * file renamed over it as editors save, a FIFO or device), reads are refused; opening the path from
- * the OS again grants the new file a new ticket and revokes the old one.
+ * A ticket reads only the path the OS gave the app, and only while it is a regular file at that
+ * same real path: once a symlink sits there or in a parent folder, or a FIFO or device, reads are
+ * refused. Another regular file renamed over it (an editor's atomic save) is that path's file now
+ * and reads under the same ticket.
  */
 export class ReaderGrants {
-  readonly #grants = new Map<string, Grant>()
+  readonly #paths = new Map<string, string>()
   readonly #tickets = new Map<string, string>()
 
   /**
-   * The live ticket of the regular file at real path `file`, granted now if it has none (or its
-   * ticket was for a file that has since been replaced); `undefined` when `file` is gone, is not
-   * its own real path, or is not a regular file.
+   * The live ticket of the regular file at real path `file`, granted now if it has none;
+   * `undefined` when `file` is gone, is not its own real path, or is not a regular file.
    */
   async grant(file: string): Promise<string | undefined> {
-    const identity = await useRegular(file, async ({ dev, ino }): Promise<Identity> => ({ dev, ino }))
-    if (identity === undefined) return undefined
-    const { dev, ino } = identity
+    if ((await useRegular(file, async () => true)) === undefined) return undefined
     const live = this.#tickets.get(file)
-    if (live !== undefined) {
-      const granted = this.#grants.get(live)
-      if (granted !== undefined && sameFile(granted, identity)) return live
-      this.revoke(live)
-    }
+    if (live !== undefined) return live
     const ticket = randomBytes(24).toString('hex')
-    this.#grants.set(ticket, { file, dev, ino })
+    this.#paths.set(ticket, file)
     this.#tickets.set(file, ticket)
     return ticket
   }
 
   /** The real path behind `ticket`; `undefined` when unknown or revoked. */
   path(ticket: string): string | undefined {
-    return this.#grants.get(ticket)?.file
+    return this.#paths.get(ticket)
   }
 
   /**
    * The text of the file behind `ticket`, read now; `undefined` when the ticket is unknown or
-   * revoked, or its path no longer holds the granted file (gone, replaced, swapped for a symlink).
+   * revoked, or its path no longer is a regular file at that real path (gone, a symlink, a FIFO).
    */
   async read(ticket: string): Promise<string | undefined> {
-    const grant = this.#grants.get(ticket)
-    if (grant === undefined) return undefined
-    return useRegular(grant.file, async (opened, handle) =>
-      sameFile(opened, grant) ? handle.readFile('utf8') : undefined,
-    )
+    const file = this.#paths.get(ticket)
+    return file === undefined ? undefined : useRegular(file, (handle) => handle.readFile('utf8'))
   }
 
   /** Ends `ticket` (its reader tab closed); `false` when it was unknown or already revoked. */
   revoke(ticket: string): boolean {
-    const grant = this.#grants.get(ticket)
-    if (grant === undefined) return false
-    this.#grants.delete(ticket)
-    this.#tickets.delete(grant.file)
+    const file = this.#paths.get(ticket)
+    if (file === undefined) return false
+    this.#paths.delete(ticket)
+    this.#tickets.delete(file)
     return true
   }
 }

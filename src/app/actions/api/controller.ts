@@ -408,7 +408,7 @@ export function createApiController(services: AppServices) {
       readerRead: guarded(async ({ params }: { params: { ticket: string } }) => {
         const file = readerFile(services, params.ticket)
         const raw = await services.vaults.readers.read(params.ticket)
-        // Gone, or its path no longer holds the file that was granted (the message names no path).
+        // Gone, or no longer a regular file at its real path, e.g. a symlink (the message names no path).
         if (raw === undefined) throw new HttpError(404, 'NOT_FOUND', `${path.basename(file)} is gone; open it again`)
         const { frontmatter, body } = parseNoteText(raw)
         const document: ReaderDocument = {
