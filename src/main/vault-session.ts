@@ -77,12 +77,15 @@ export class VaultSession {
 
   /**
    * The oldest queued request, removed; `undefined` when the queue is empty. Files that are gone or
-   * not `.md` are dropped. The real path is matched against the open vault, then the recent vaults.
+   * not `.md` are dropped, as are outside files that are not regular files (`ReaderGrants.grant`).
+   * The real path is matched against the open vault, then the recent vaults.
    */
   async takeOpenRequest(): Promise<OpenRequest | undefined> {
     for (let file = this.#openRequests.shift(); file !== undefined; file = this.#openRequests.shift()) {
       const real = await realpath(file).catch(() => undefined)
-      if (real !== undefined && /\.md$/i.test(real)) return this.#noteFor(real)
+      if (real === undefined || !/\.md$/i.test(real)) continue
+      const request = await this.#requestFor(real)
+      if (request !== undefined) return request
     }
     return undefined
   }
@@ -91,7 +94,7 @@ export class VaultSession {
    * The first known vault (open, then recent) whose real root holds `real`. A file in a hidden or
    * `*.assets` folder of that vault is no note of it and opens like an outside file, in a reader.
    */
-  async #noteFor(real: string): Promise<OpenRequest> {
+  async #requestFor(real: string): Promise<OpenRequest | undefined> {
     const open = this.#vault?.root
     const known = open === undefined ? this.recent : [open, ...this.recent]
     for (const root of known) {
@@ -101,7 +104,8 @@ export class VaultSession {
       if (isNoteId(id)) return { kind: 'note', vault: realRoot, id }
       break
     }
-    return { kind: 'external', ticket: this.readers.grant(real), name: path.basename(real) }
+    const ticket = await this.readers.grant(real)
+    return ticket === undefined ? undefined : { kind: 'external', ticket, name: path.basename(real) }
   }
 
   /**

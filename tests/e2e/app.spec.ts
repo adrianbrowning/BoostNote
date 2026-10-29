@@ -335,10 +335,23 @@ test('opens a .md outside every vault read-only in a reader tab, without touchin
     await expect(page.locator('[data-note-title]')).toHaveText('inside', { timeout: 20_000 })
     await expect(page.locator('[data-reader-tab]')).toHaveCount(2)
 
-    // Close in the banner closes the tab; the file opened again gets a fresh tab that still reads.
+    // Close in the banner closes the tab and revokes its ticket; the file opened again gets a fresh
+    // tab that still reads.
     await reader.click()
-    await page.locator('[data-reader-close]').click()
+    const [closeResponse] = await Promise.all([
+      page.waitForResponse(
+        (response) =>
+          response.request().method() === 'POST' &&
+          /^\/api\/reader\/[^/]+\/close$/.test(new URL(response.url()).pathname),
+      ),
+      page.locator('[data-reader-close]').click(),
+    ])
+    expect(closeResponse.status()).toBe(200)
+    const closedTicket = new URL(closeResponse.url()).pathname.split('/')[3]
     await expect(reader).toHaveCount(0)
+    expect(await page.evaluate((ticket) => fetch(`/api/reader/${ticket}`).then((r) => r.status), closedTicket)).toBe(
+      404,
+    )
     await expect(page.locator('[data-reader-tab]')).toHaveCount(1)
     await openFiles(readme)
     await expect(page.locator('[data-reader-body] h1')).toHaveText('Edited elsewhere', { timeout: 20_000 })

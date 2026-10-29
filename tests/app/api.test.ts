@@ -385,9 +385,14 @@ describe('reader', () => {
     await mkdir(path.dirname(file), { recursive: true })
     await writeFile(file, text)
     app.vaults.requestOpen(file)
-    const request = await readJson<OpenRequest | null>(await app.post(api.openRequest.href()))
-    if (request?.kind !== 'external') throw new Error(`Expected an external request, got ${JSON.stringify(request)}`)
+    const raw = await (await app.post(api.openRequest.href())).text()
+    const request: OpenRequest | null = JSON.parse(raw)
+    if (request?.kind !== 'external') throw new Error(`Expected an external request, got ${raw}`)
+    // Only the base name crosses the boundary: the ticket is opaque random hex, never the path.
+    expect(Object.keys(request).sort()).toEqual(['kind', 'name', 'ticket'])
+    expect(request.ticket).toMatch(/^[0-9a-f]{48}$/)
     expect(request.name).toBe(name)
+    expect(raw).not.toContain(app.dir)
     return { file, ticket: request.ticket }
   }
 
@@ -434,6 +439,19 @@ describe('reader', () => {
     const missing = await app.get(api.readerRead.href({ ticket: gone.ticket }))
     expect(missing.status).toBe(404)
     expect(await missing.text()).not.toContain(app.dir)
+  })
+
+  it('refuses a granted file swapped for a symlink, never reading what the link points at', async () => {
+    const { file, ticket } = await openOutside('swap.md', '# Granted\n')
+    const secret = path.join(app.dir, 'secret.txt')
+    await writeFile(secret, 'not for the page\n')
+    await rm(file)
+    await symlink(secret, file)
+    const response = await app.get(api.readerRead.href({ ticket }))
+    expect(response.status).toBe(404)
+    const text = await response.text()
+    expect(text).not.toContain('not for the page')
+    expect(text).not.toContain(app.dir)
   })
 })
 

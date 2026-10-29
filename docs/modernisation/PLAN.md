@@ -359,10 +359,16 @@ before the window exists is therefore not lost, and a second quick request does 
 
 Reader tabs: main keeps a `ReaderGrants` ticket per outside file (`src/app/reader-grants.ts`; the same
 real path gets the same live ticket, so opening it again activates its tab). The page only gets
-`{ kind: 'external', ticket, name }` with the base name, never a path. `GET /api/reader/:ticket` reads
-the file again each time and answers `{ name, body, frontmatter, html }`; main renders `html` with
-`src/markdown/render.ts` (it needs Node, so the page cannot). `POST /api/reader/:ticket/close` revokes
-the ticket when the tab closes; afterwards, and for unknown tickets, both routes answer `404`. In
+`{ kind: 'external', ticket, name }` with the base name, never a path; a ticket is 48 random hex
+characters and says nothing about the file. `GET /api/reader/:ticket` reads the file again each time
+and answers `{ name, body, frontmatter, html }`; main renders `html` with `src/markdown/render.ts` (it
+needs Node, so the page cannot). A ticket reads only the file that was granted: the grant records the
+regular file's device and inode, and each read opens the path without following a symlink and refuses
+(`404`, base name only) unless it is still a regular file at that real path with the recorded identity.
+A file swapped for a symlink, FIFO or device, or replaced by another file (an editor's atomic save),
+is refused; opening it from the OS again grants the new file a new ticket and revokes the old one.
+`POST /api/reader/:ticket/close` revokes the ticket when the tab closes; afterwards, and for unknown
+tickets, both routes answer `404`. In
 `Tabs` a tab is a note tab or a reader tab: reader tabs are never saved to `localStorage`, have no
 back/forward trail, are skipped by rebase/forget, stay open when the vault switches or closes, and
 are the only tabs while no vault is open. Grants live in memory, so reader tabs are gone after a restart.
