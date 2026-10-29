@@ -100,12 +100,13 @@ export class ReaderGrants {
   }
 
   /**
-   * The bytes of the file `src` (a relative link as written in the document, `img/a%20b.png`)
-   * names next to the file behind `ticket`. Follows the import's `resolveLink` rules: the real path
-   * must be a regular file inside the document's folder, so `../` and symlinks that leave it are
-   * refused; the read itself has `useRegular`'s guarantees. `undefined` when refused or gone.
+   * The bytes and base name of the file `src` (a relative link as written in the document,
+   * `img/a%20b.png`) names next to the file behind `ticket`. Follows the import's `resolveLink`
+   * rules: the real path must be a regular file inside the document's folder, so `../` and symlinks
+   * that leave it are refused; the read itself has `useRegular`'s guarantees. `undefined` when
+   * refused or gone.
    */
-  async asset(ticket: string, src: string): Promise<Buffer | undefined> {
+  async asset(ticket: string, src: string): Promise<{ bytes: Buffer; name: string } | undefined> {
     const file = this.#paths.get(ticket)
     if (file === undefined) return undefined
     const link = safeDecode(src.replace(/[?#].*$/, ''))
@@ -113,7 +114,8 @@ export class ReaderGrants {
     const folder = path.dirname(file)
     const real = await realpath(path.resolve(folder, link)).catch(refused)
     if (real === undefined || !isInside(folder, real)) return undefined
-    return useRegular(real, (handle) => handle.readFile())
+    const bytes = await useRegular(real, (handle) => handle.readFile())
+    return bytes === undefined ? undefined : { bytes, name: path.basename(real) }
   }
 
   /** Ends `ticket` (its reader tab closed); `false` when it was unknown or already revoked. */

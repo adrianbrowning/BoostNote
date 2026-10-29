@@ -471,6 +471,8 @@ describe('reader', () => {
     expect(image.headers.get('content-security-policy')).toContain('sandbox')
     expect(await image.text()).toBe('PNG bytes')
     expect(await (await app.get(url('img/b%20c.gif?v=1#x'))).text()).toBe('GIF bytes')
+    // The type comes from the file that was read, not from how the link spells it.
+    expect((await app.get(url('pic%2Epng'))).headers.get('content-type')).toBe('image/png')
   })
 
   it('refuses asset sources outside the file’s folder, symlink escapes, folders, and dead tickets', async () => {

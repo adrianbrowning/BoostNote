@@ -67,11 +67,11 @@ export function createRootController(services: AppServices) {
             throw new HttpError(404, 'NOT_FOUND', 'This file is no longer open; open it again')
           }
           // `asset` keeps the link inside the outside file's folder (also via symlinks), regular files only.
-          const bytes = await services.vaults.readers.asset(context.params.ticket, src)
-          if (bytes === undefined) throw new HttpError(404, 'NOT_FOUND', 'Asset not found')
-          return new Response(new Uint8Array(bytes), {
+          const asset = await services.vaults.readers.asset(context.params.ticket, src)
+          if (asset === undefined) throw new HttpError(404, 'NOT_FOUND', 'Asset not found')
+          return new Response(new Uint8Array(asset.bytes), {
             headers: {
-              'Content-Type': detectContentType(path.extname(src.replace(/[?#].*$/, ''))) ?? 'application/octet-stream',
+              'Content-Type': detectContentType(asset.name) ?? 'application/octet-stream',
               'Cache-Control': 'no-cache',
               'Content-Security-Policy': VAULT_ASSET_CSP,
             },
