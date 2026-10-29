@@ -203,7 +203,7 @@ JSON `{ error, message }`: `VaultError` `INVALID_PATH`/`NOT_A_VAULT` → 400, `N
 | `POST /api/export/note {id, format: html\|pdf\|markdown\|print}` · `POST /api/export/folder {folder}` | Export (phase 6) → `{ path }` (`null`: cancelled / printed) |
 | `POST /api/open-request` | Takes the oldest queued "open this `.md`" request → `{ kind: 'note', vault, id }`, `{ kind: 'external', ticket, name }` (outside file, reader tab) or `null` when the queue is empty (phase 6) |
 | `GET /api/reader/:ticket` · `POST /api/reader/:ticket/close` | A reader tab's outside file → `{ name, body, frontmatter, html }`, read fresh; close revokes the ticket. Unknown/revoked tickets: `404` |
-| `POST /api/reader/:ticket/open-folder` | Opens the ticket's file's folder as the vault and revokes the ticket → `{ id, workspace }`; `404` revoked/gone, `400` dot-name |
+| `POST /api/reader/:ticket/open-folder` | Opens the ticket's file's folder as the vault and revokes the ticket → `{ id, workspace }`; `404` revoked/gone, `400` for a name that can be no note (dot-name, upper-case `.MD`) |
 | `GET /export/mermaid` | Hidden page that lays out mermaid diagrams for export (phase 6) |
 
 ### Editor integration and conflict rules
@@ -352,15 +352,16 @@ delivers files through `open-file` (also before `ready`), Windows/Linux through 
 or `second-instance` argv. Main queues the file (`VaultSession.requestOpen`) and pushes SSE
 `open-request`; the workspace takes requests (`POST /api/open-request`) until the queue is empty,
 after hydrating and on that event. `takeOpenRequest` resolves the file's real path and drops files
-that are gone or not `.md` (lower-case, as the vault names notes). A file inside the open vault, else
-inside a recent vault (roots compared as real paths), is that vault's note (`work/plan.md` for a
-subfolder): the workspace saves the open note, switches vaults when needed, and opens the note in a
-new tab (or its existing tab). Any other file (outside every known vault, or in a hidden or `*.assets`
-folder of one) opens read-only in a **reader tab** and no vault is opened, so Recent and `lastVault`
-stay as they were. The preference "Opening a .md outside a vault" (`ui.outsideFile`: `reader`, the
-default, or `vault` = "Open its folder as vault") changes only that last case: with `vault` the file
-is a note of its own folder opened as the vault, as before reader tabs existed (a dot-name, which can
-be no note, still opens read-only). A request made before the window exists is therefore not lost,
+that are gone or not `.md` (any case). A file inside the open vault, else inside a recent vault
+(roots compared as real paths), is that vault's note (`work/plan.md` for a subfolder): the workspace
+saves the open note, switches vaults when needed, and opens the note in a new tab (or its existing
+tab). Any other file (outside every known vault, in a hidden or `*.assets` folder of one, or named
+so it can be no note: upper-case `.MD`, even inside a known vault) opens read-only in a **reader
+tab** and no vault is opened, so Recent and `lastVault` stay as they were. The preference "Opening a
+.md outside a vault" (`ui.outsideFile`: `reader`, the default, or `vault` = "Open its folder as
+vault") changes only that case: with `vault` the file is a note of its own folder opened as the
+vault, as before reader tabs existed, unless its name can be no note (a dot-name or upper-case
+`.MD`), which still opens read-only. A request made before the window exists is therefore not lost,
 and a second quick request does not replace the first.
 
 Reader tabs: main keeps a `ReaderGrants` ticket per outside file (`src/app/reader-grants.ts`; the same
@@ -388,8 +389,8 @@ vault (into Recent and `lastVault`), revokes the ticket and answers `{ id, works
 tab becomes that note's tab at its position. It runs in the vault queue
 (`VaultSession.openReaderFolder`), as is closing a reader (`VaultSession.closeReader`): a close that
 came first opens nothing (`404`), one that comes after finds the ticket revoked (`404`), and the page
-ignores Close on a reader whose open-folder is in flight. A dot-name answers `400` and the reader
-stays. In
+ignores Close on a reader whose open-folder is in flight. A name that can be no note (a dot-name or
+upper-case `.MD`) answers `400` naming only the base name, and the reader stays. In
 `Tabs` a tab is a note tab or a reader tab: reader tabs are never saved to `localStorage`, have no
 back/forward trail, are skipped by rebase/forget, stay open when the vault switches or closes, and
 are the only tabs while no vault is open. Grants live in memory, so reader tabs are gone after a restart.

@@ -281,30 +281,29 @@ describe('VaultSession', () => {
       await session.dispose()
     })
 
-    it('drops upper-case .MD files (no vault note); a dot-name stays a reader, even with "Open its folder as vault"', async () => {
+    it('opens upper-case .MD files and dot-names read-only in both preference modes, also inside a known vault', async () => {
       const settings = new SettingsStore(file)
       const session = new VaultSession({ settings, events })
+      const vault = await session.open(await folder('upper-vault'))
+      await writeFile(path.join(vault.root, 'NOTES.MD'), '# In vault\n')
       const loose = await folder('names')
       await writeFile(path.join(loose, 'README.MD'), '# Upper\n')
       await writeFile(path.join(loose, '.hidden.md'), '# Hidden\n')
-      session.requestOpen(path.join(loose, 'README.MD'))
-      session.requestOpen(path.join(loose, '.hidden.md'))
-      expect(await session.takeOpenRequest()).toEqual({
-        kind: 'external',
-        ticket: expect.any(String),
-        name: '.hidden.md',
-      })
-      expect(await session.takeOpenRequest()).toBeUndefined()
+      const reader = (name: string) => ({ kind: 'external', ticket: expect.any(String), name })
 
-      // Its folder as a vault would not hold it as a note, so it opens read-only.
-      settings.update({ ui: { ...settings.ui, outsideFile: 'vault' } })
-      session.requestOpen(path.join(loose, '.hidden.md'))
-      expect(await session.takeOpenRequest()).toEqual({
-        kind: 'external',
-        ticket: expect.any(String),
-        name: '.hidden.md',
-      })
-      expect(session.current).toBeUndefined()
+      // No vault would hold these as notes (notes end in lower-case .md and never start with a dot).
+      for (const outsideFile of ['reader', 'vault'] as const) {
+        settings.update({ ui: { ...settings.ui, outsideFile } })
+        session.requestOpen(path.join(loose, 'README.MD'))
+        session.requestOpen(path.join(loose, '.hidden.md'))
+        session.requestOpen(path.join(vault.root, 'NOTES.MD'))
+        expect(await session.takeOpenRequest()).toEqual(reader('README.MD'))
+        expect(await session.takeOpenRequest()).toEqual(reader('.hidden.md'))
+        expect(await session.takeOpenRequest()).toEqual(reader('NOTES.MD'))
+        expect(await session.takeOpenRequest()).toBeUndefined()
+      }
+      expect(session.current?.root).toBe(vault.root)
+      await session.dispose()
     })
   })
 

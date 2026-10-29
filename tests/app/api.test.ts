@@ -528,12 +528,18 @@ describe('reader', () => {
 
   it('refuses to open the folder of a file that is gone or can be no note there, keeping the vault', async () => {
     const vault = await app.openVault()
-    const hidden = await openOutside('.hidden.md', '# Hidden\n')
-    const refused = await app.post(api.readerOpenFolder.href({ ticket: hidden.ticket }))
-    expect(refused.status).toBe(400)
-    expect(await refused.text()).not.toContain(app.dir)
-    // The reader keeps working.
-    expect((await app.get(api.readerRead.href({ ticket: hidden.ticket }))).status).toBe(200)
+    // Neither name can be a note of the folder as a vault (dot-name, upper-case .MD).
+    for (const name of ['.hidden.md', 'README.MD']) {
+      const reader = await openOutside(name, '# Not a note name\n')
+      const refused = await app.post(api.readerOpenFolder.href({ ticket: reader.ticket }))
+      expect(refused.status, name).toBe(400)
+      const text = await refused.text()
+      expect(text).not.toContain(app.dir)
+      expect(JSON.parse(text)).toMatchObject({ error: 'INVALID_PATH', message: expect.stringContaining(name) })
+      expect(app.settings.read().lastVault).toBe(vault.root)
+      // The reader keeps working.
+      expect((await app.get(api.readerRead.href({ ticket: reader.ticket }))).status).toBe(200)
+    }
 
     const gone = await openOutside('gone.md', '# Gone\n')
     await rm(gone.file)

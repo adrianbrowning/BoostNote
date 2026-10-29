@@ -22,7 +22,8 @@ export interface VaultSessionOptions {
  * vault when the file is a note of it, else (outside every known vault, or in a hidden or `*.assets`
  * folder) a read-only reader: a `ReaderGrants` ticket and the file's base name, never its path. With
  * the preference `outsideFile: 'vault'` such a file is a note of its own folder as the vault instead,
- * unless its name can be no note there (a dot-name), which still opens read-only.
+ * unless its name can be no note there (a dot-name or upper-case `.MD`), which still opens read-only.
+ * An upper-case `.MD` file inside a known vault is no note of it either and opens read-only too.
  */
 export type OpenRequest =
   | {
@@ -79,14 +80,14 @@ export class VaultSession {
 
   /**
    * The oldest queued request, removed; `undefined` when the queue is empty. Files that are gone or
-   * not `.md` (lower-case, as the vault names notes) are dropped, as are outside files that are not
-   * regular files (`ReaderGrants.grant`). The real path is matched against the open vault, then the
-   * recent vaults, whatever the `outsideFile` preference.
+   * not `.md` (any case) are dropped, as are outside files that are not regular files
+   * (`ReaderGrants.grant`). The real path is matched against the open vault, then the recent vaults,
+   * whatever the `outsideFile` preference.
    */
   async takeOpenRequest(): Promise<OpenRequest | undefined> {
     for (let file = this.#openRequests.shift(); file !== undefined; file = this.#openRequests.shift()) {
       const real = await realpath(file).catch(() => undefined)
-      if (real === undefined || !real.endsWith('.md')) continue
+      if (real === undefined || !/\.md$/i.test(real)) continue
       const request = await this.#requestFor(real)
       if (request !== undefined) return request
     }
@@ -120,9 +121,9 @@ export class VaultSession {
    * A reader tab's "Open folder as vault": opens the folder of the file behind `ticket` (the path
    * main granted; the page sends only the ticket) as the vault and revokes the ticket. Answers the
    * file's note id there. Throws `VaultError('NOT_FOUND')` when the ticket is unknown or revoked
-   * (also while this waited its turn behind another vault switch, or loaded the folder) or its file
-   * is no longer a regular file at its real path, and `VaultError('INVALID_PATH')` when its name can
-   * be no note (a dot-name); the vault and the ticket then stay as they were. Runs in the vault
+   * (also while this waited its turn behind another vault switch) or its file is no longer a
+   * regular file at its real path, and `VaultError('INVALID_PATH')` when its name can be no note (a
+   * dot-name, upper-case `.MD`); the vault and the ticket then stay as they were. Runs in the vault
    * queue, as `closeReader` does, so a close either comes first (and this opens nothing) or finds
    * the ticket revoked. Messages name the file's base name at most.
    */
@@ -131,7 +132,12 @@ export class VaultSession {
       const granted = this.readers.path(ticket)
       if (granted === undefined) throw new VaultError('NOT_FOUND', 'This file is no longer open; open it again')
       const id = path.basename(granted)
-      if (!isNoteId(id)) throw new VaultError('INVALID_PATH', `${id} cannot be a note: its name starts with a dot`)
+      if (!isNoteId(id)) {
+        throw new VaultError(
+          'INVALID_PATH',
+          `${id} cannot be a note: notes end in .md (lower case) and do not start with a dot`,
+        )
+      }
       if ((await this.readers.regularPath(ticket)) === undefined) {
         throw new VaultError('NOT_FOUND', `${id} is gone; open it again`)
       }
