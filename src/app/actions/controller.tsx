@@ -1,5 +1,4 @@
 import { stat } from 'node:fs/promises'
-import * as path from 'node:path'
 import { openLazyFile } from 'remix/fs'
 import { detectContentType } from 'remix/mime'
 import { createFileResponse } from 'remix/response/file'
