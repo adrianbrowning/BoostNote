@@ -24,15 +24,19 @@ export interface OpenRequest {
 }
 
 /**
- * The open vault of the app (at most one) and the vault list in `settings.json`. Opening a vault
- * makes it `lastVault` (reopened on the next start) and moves it to the front of `vaults`; its
- * external changes are forwarded to the SSE hub as `vault` events. Plain Node, no Electron.
+ * The open vaults of the app and the vault lists in `settings.json`. Several vaults can be open at
+ * once (each watched, its external changes forwarded to the SSE hub as `vault` events naming its
+ * root); one of them is active: the one the window shows. `openVaults` is reopened on the next
+ * start with `lastVault` active again, and opening a vault moves it to the front of `vaults`
+ * (Recent). Plain Node, no Electron.
  */
 export class VaultSession {
   readonly #settings: SettingsStore
   readonly #events: EventHub
   readonly #debounceMs: number | undefined
-  #vault: Vault | undefined
+  /** Open vaults by root, in the order they were opened. */
+  readonly #vaults = new Map<string, Vault>()
+  #active: Vault | undefined
   #queue: Promise<unknown> = Promise.resolve()
   #openRequest: string | undefined
 
@@ -42,9 +46,19 @@ export class VaultSession {
     this.#debounceMs = options.debounceMs
   }
 
-  /** The open vault, if any. */
+  /** The active vault, if any vault is open. */
   get current(): Vault | undefined {
-    return this.#vault
+    return this.#active
+  }
+
+  /** Every open vault, in the order they were opened. */
+  get all(): Vault[] {
+    return [...this.#vaults.values()]
+  }
+
+  /** The open vault whose (real) root is `root`. */
+  get(root: string): Vault | undefined {
+    return this.#vaults.get(root)
   }
 
   /** Vault folders the user opened, most recent first. */
@@ -73,65 +87,90 @@ export class VaultSession {
   }
 
   /**
-   * Opens (and starts watching) the folder at `root`, closing the previous vault. Throws
-   * `VaultError('NOT_A_VAULT')` when the folder is missing; the previous vault then stays open.
+   * Makes the vault at `root` active, opening (and starting to watch) it unless it is open already;
+   * other open vaults stay open. Throws `VaultError('NOT_A_VAULT')` when the folder is missing; the
+   * active vault then stays as it was.
    */
   open(root: string): Promise<Vault> {
     return this.#exclusive(async () => {
-      const vault = await openVault(root, {
-        watch: true,
-        ...(this.#debounceMs === undefined ? {} : { debounceMs: this.#debounceMs }),
-      })
-      await this.#closeCurrent()
-      this.#vault = vault
-      vault.subscribe((event) => this.#events.broadcast({ type: 'vault', change: event.type, id: event.id }))
+      const vault = this.#vaults.get(await realpath(root).catch(() => root)) ?? (await this.#add(root))
+      this.#active = vault
       const others = this.recent.filter((item) => item !== vault.root && item !== root)
-      this.#settings.update({ vaults: [vault.root, ...others].slice(0, MAX_RECENT_VAULTS), lastVault: vault.root })
+      this.#settings.update({ vaults: [vault.root, ...others].slice(0, MAX_RECENT_VAULTS) })
+      this.#saveOpen()
       return vault
     })
   }
 
-  /** Closes the open vault; nothing is reopened on the next start. */
-  close(): Promise<void> {
+  /**
+   * Closes the open vault at `root` (nothing when it is not open). Closing the active vault makes
+   * the most recently used of the others active; closing the last one leaves none.
+   */
+  close(root: string): Promise<void> {
     return this.#exclusive(async () => {
-      await this.#closeCurrent()
-      this.#settings.update({ lastVault: undefined })
+      const vault = this.#vaults.get(await realpath(root).catch(() => root))
+      if (!vault) return
+      this.#vaults.delete(vault.root)
+      await vault.close()
+      if (this.#active === vault) {
+        const next = this.recent.find((item) => this.#vaults.has(item))
+        this.#active = next === undefined ? this.all.at(-1) : this.#vaults.get(next)
+      }
+      this.#saveOpen()
     })
   }
 
-  /** Reopens `lastVault` (app start). A vault folder that no longer exists is forgotten as `lastVault`. */
-  async restore(): Promise<Vault | undefined> {
-    const last = this.#settings.read().lastVault
-    if (!last) return undefined
-    try {
-      return await this.open(last)
-    } catch (error) {
-      if (error instanceof VaultError) {
-        this.#settings.update({ lastVault: undefined })
-        return undefined
+  /**
+   * Reopens the vaults that were open (app start), `lastVault` active. Settings from before
+   * multi-vault have only `lastVault`. Folders that no longer exist are dropped from the lists.
+   */
+  restore(): Promise<Vault | undefined> {
+    return this.#exclusive(async () => {
+      const { openVaults, lastVault } = this.#settings.read()
+      for (const root of openVaults ?? (lastVault ? [lastVault] : [])) {
+        try {
+          if (!this.#vaults.has(root)) await this.#add(root)
+        } catch (error) {
+          if (!(error instanceof VaultError)) throw error
+        }
       }
-      throw error
-    }
+      const last = lastVault && (await realpath(lastVault).catch(() => lastVault))
+      this.#active = (last && this.#vaults.get(last)) || this.all[0]
+      this.#saveOpen()
+      return this.#active
+    })
   }
 
   /** Removes `root` from the recent list. */
   forget(root: string): void {
-    const settings = this.#settings.read()
-    this.#settings.update({
-      vaults: this.recent.filter((item) => item !== root),
-      ...(settings.lastVault === root && this.#vault?.root !== root ? { lastVault: undefined } : {}),
+    this.#settings.update({ vaults: this.recent.filter((item) => item !== root) })
+  }
+
+  /** Stops watching every vault without touching the settings (app quit). */
+  dispose(): Promise<void> {
+    return this.#exclusive(async () => {
+      const vaults = this.all
+      this.#vaults.clear()
+      this.#active = undefined
+      await Promise.all(vaults.map((vault) => vault.close()))
     })
   }
 
-  /** Stops watching without touching the settings (app quit). */
-  dispose(): Promise<void> {
-    return this.#exclusive(() => this.#closeCurrent())
+  async #add(root: string): Promise<Vault> {
+    const vault = await openVault(root, {
+      watch: true,
+      ...(this.#debounceMs === undefined ? {} : { debounceMs: this.#debounceMs }),
+    })
+    this.#vaults.set(vault.root, vault)
+    vault.subscribe((event) =>
+      this.#events.broadcast({ type: 'vault', root: vault.root, change: event.type, id: event.id }),
+    )
+    return vault
   }
 
-  async #closeCurrent(): Promise<void> {
-    const vault = this.#vault
-    this.#vault = undefined
-    await vault?.close()
+  /** `openVaults` and `lastVault` follow the open vaults and the active one. */
+  #saveOpen(): void {
+    this.#settings.update({ openVaults: [...this.#vaults.keys()], lastVault: this.#active?.root })
   }
 
   #exclusive<T>(task: () => Promise<T>): Promise<T> {

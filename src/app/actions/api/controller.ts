@@ -20,9 +20,16 @@ export const MAX_IMPORT_PATHS = 200
 
 const FOLDER_COLOR = /^#[0-9a-f]{3,8}$/i
 
-function requireVault(services: AppServices): Vault {
-  const vault = services.vaults.current
-  if (!vault) throw new HttpError(409, 'NO_VAULT', 'No vault is open')
+/**
+ * The vault a request names with `?vault=<root>` (GET and POST alike). Several vaults can be open,
+ * so every vault-scoped call says which one; a vault that is not open (closed since the page asked)
+ * is a `409`, never another vault.
+ */
+function requireVault(services: AppServices, request: Request): Vault {
+  const root = new URL(request.url).searchParams.get('vault')
+  if (!root) throw new HttpError(400, 'BAD_REQUEST', 'Missing "vault"')
+  const vault = services.vaults.get(root)
+  if (!vault) throw new HttpError(409, 'NO_VAULT', `This vault is not open: ${root}`)
   return vault
 }
 
@@ -89,10 +96,13 @@ export function createApiController(services: AppServices) {
 
   return createController(routes.api, {
     actions: {
-      workspace: guarded(async () => json(await workspaceData(services))),
+      /** `?vault=<root>`: that open vault's lists; without it, the active vault's (the page's first render). */
+      workspace: guarded(async ({ url }: { url: URL }) =>
+        json(await workspaceData(services, url.searchParams.get('vault') ?? undefined)),
+      ),
 
-      search: guarded(async ({ url }: { url: URL }) => {
-        const vault = requireVault(services)
+      search: guarded(async ({ request, url }: { request: Request; url: URL }) => {
+        const vault = requireVault(services, request)
         const hits = vault.index.search(url.searchParams.get('q') ?? '', 500)
         return json({ ids: hits.map((hit) => hit.id) })
       }),
@@ -110,8 +120,10 @@ export function createApiController(services: AppServices) {
         return json({ cancelled: false, workspace: await workspaceData(services) })
       }),
 
-      vaultClose: guarded(async () => {
-        await services.vaults.close()
+      /** `{ path }`: closes that vault; the reply is the workspace of the vault that is active now. */
+      vaultClose: guarded(async ({ request }: { request: Request }) => {
+        const body = await readJsonObject(request)
+        await services.vaults.close(requireString(body.path, 'path'))
         return json(await workspaceData(services))
       }),
 
@@ -121,13 +133,13 @@ export function createApiController(services: AppServices) {
         return json(await workspaceData(services))
       }),
 
-      noteRead: guarded(async ({ url }: { url: URL }) => {
-        const vault = requireVault(services)
+      noteRead: guarded(async ({ request, url }: { request: Request; url: URL }) => {
+        const vault = requireVault(services, request)
         return json(toNoteDocument(await vault.readNote(requireString(url.searchParams.get('id'), 'id'))))
       }),
 
       noteCreate: guarded(async ({ request }: { request: Request }) => {
-        const vault = requireVault(services)
+        const vault = requireVault(services, request)
         const body = await readJsonObject(request)
         const folder = requireString(body.folder, 'folder', { allowEmpty: true })
         const title = body.title === undefined ? 'Untitled' : requireString(body.title, 'title')
@@ -135,7 +147,7 @@ export function createApiController(services: AppServices) {
       }),
 
       noteSave: guarded(async ({ request }: { request: Request }) => {
-        const vault = requireVault(services)
+        const vault = requireVault(services, request)
         const body = await readJsonObject(request)
         const id = requireString(body.id, 'id')
         const text = requireString(body.body, 'body', { allowEmpty: true })
@@ -193,27 +205,27 @@ export function createApiController(services: AppServices) {
       }),
 
       noteRename: guarded(async ({ request }: { request: Request }) => {
-        const vault = requireVault(services)
+        const vault = requireVault(services, request)
         const body = await readJsonObject(request)
         const note = await vault.renameNote(requireString(body.id, 'id'), requireString(body.name, 'name'))
         return json(toNoteDocument(note))
       }),
 
       noteMove: guarded(async ({ request }: { request: Request }) => {
-        const vault = requireVault(services)
+        const vault = requireVault(services, request)
         const body = await readJsonObject(request)
         const folder = requireString(body.folder, 'folder', { allowEmpty: true })
         return json(toNoteDocument(await vault.moveNote(requireString(body.id, 'id'), folder)))
       }),
 
       noteDelete: guarded(async ({ request }: { request: Request }) => {
-        const vault = requireVault(services)
+        const vault = requireVault(services, request)
         const body = await readJsonObject(request)
         return json(await vault.deleteNote(requireString(body.id, 'id')))
       }),
 
       noteReveal: guarded(async ({ request }: { request: Request }) => {
-        const vault = requireVault(services)
+        const vault = requireVault(services, request)
         const body = await readJsonObject(request)
         const id = requireString(body.id, 'id')
         // Validates the id (no traversal) and that the note exists.
@@ -222,10 +234,12 @@ export function createApiController(services: AppServices) {
         return json({ ok: true })
       }),
 
-      titleRenamesPlan: guarded(async () => json(await requireVault(services).planTitleRenames())),
+      titleRenamesPlan: guarded(async ({ request }: { request: Request }) =>
+        json(await requireVault(services, request).planTitleRenames()),
+      ),
 
       titleRenamesApply: guarded(async ({ request }: { request: Request }) => {
-        const vault = requireVault(services)
+        const vault = requireVault(services, request)
         const body = await readJsonObject(request)
         if (!Array.isArray(body.renames)) throw new HttpError(400, 'BAD_REQUEST', 'Missing or invalid "renames"')
         const renames: TitleRename[] = body.renames.map((item: unknown) => {
@@ -240,43 +254,43 @@ export function createApiController(services: AppServices) {
       }),
 
       linksPlan: guarded(async ({ request }: { request: Request }) => {
-        const vault = requireVault(services)
+        const vault = requireVault(services, request)
         return json(await vault.planLinkUpdates(readMoves(await readJsonObject(request))))
       }),
 
       linksApply: guarded(async ({ request }: { request: Request }) => {
-        const vault = requireVault(services)
+        const vault = requireVault(services, request)
         return json(await vault.applyLinkUpdates(readMoves(await readJsonObject(request))))
       }),
 
       folderCreate: guarded(async ({ request }: { request: Request }) => {
-        const vault = requireVault(services)
+        const vault = requireVault(services, request)
         const body = await readJsonObject(request)
         const parent = requireString(body.parent, 'parent', { allowEmpty: true })
         return json({ id: await vault.createFolder(parent, requireString(body.name, 'name')) }, { status: 201 })
       }),
 
       folderRename: guarded(async ({ request }: { request: Request }) => {
-        const vault = requireVault(services)
+        const vault = requireVault(services, request)
         const body = await readJsonObject(request)
         return json({ id: await vault.renameFolder(requireString(body.id, 'id'), requireString(body.name, 'name')) })
       }),
 
       folderMove: guarded(async ({ request }: { request: Request }) => {
-        const vault = requireVault(services)
+        const vault = requireVault(services, request)
         const body = await readJsonObject(request)
         const parent = requireString(body.parent, 'parent', { allowEmpty: true })
         return json({ id: await vault.moveFolder(requireString(body.id, 'id'), parent) })
       }),
 
       folderDelete: guarded(async ({ request }: { request: Request }) => {
-        const vault = requireVault(services)
+        const vault = requireVault(services, request)
         const body = await readJsonObject(request)
         return json(await vault.deleteFolder(requireString(body.id, 'id')))
       }),
 
       folderColor: guarded(async ({ request }: { request: Request }) => {
-        const vault = requireVault(services)
+        const vault = requireVault(services, request)
         const body = await readJsonObject(request)
         const color = body.color === null ? undefined : requireString(body.color, 'color')
         if (color !== undefined && !FOLDER_COLOR.test(color)) {
@@ -287,18 +301,18 @@ export function createApiController(services: AppServices) {
       }),
 
       trashRestore: guarded(async ({ request }: { request: Request }) => {
-        const vault = requireVault(services)
+        const vault = requireVault(services, request)
         const body = await readJsonObject(request)
         return json({ id: await vault.restore(requireString(body.id, 'id')) })
       }),
 
-      trashEmpty: guarded(async () => {
-        await requireVault(services).emptyTrash()
+      trashEmpty: guarded(async ({ request }: { request: Request }) => {
+        await requireVault(services, request).emptyTrash()
         return json({ ok: true })
       }),
 
       assetUpload: guarded(async ({ request, url }: { request: Request; url: URL }) => {
-        const vault = requireVault(services)
+        const vault = requireVault(services, request)
         const noteId = requireString(url.searchParams.get('note'), 'note')
         const declared = Number(request.headers.get('Content-Length') ?? 0)
         if (declared > MAX_ASSET_BYTES) throw new HttpError(413, 'TOO_LARGE', 'The file is too large')
@@ -327,7 +341,7 @@ export function createApiController(services: AppServices) {
       }),
 
       importFiles: guarded(async ({ request }: { request: Request }) => {
-        const vault = requireVault(services)
+        const vault = requireVault(services, request)
         const body = await readJsonObject(request)
         const folder = requireString(body.folder, 'folder', { allowEmpty: true })
         const paths = services.drops.take(requireString(body.ticket, 'ticket'))
@@ -373,11 +387,11 @@ export function createApiController(services: AppServices) {
       ),
 
       exportNote: guarded(async ({ request }: { request: Request }) =>
-        exportNote(services, requireVault(services), request),
+        exportNote(services, requireVault(services, request), request),
       ),
 
       exportFolder: guarded(async ({ request }: { request: Request }) =>
-        exportFolder(services, requireVault(services), request),
+        exportFolder(services, requireVault(services, request), request),
       ),
 
       openRequest: guarded(async () => {

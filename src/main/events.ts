@@ -46,9 +46,11 @@ export interface MenuEvent {
   index?: number
 }
 
-/** An external change in the open vault (the vault's own writes never produce one). */
+/** An external change in an open vault (the vault's own writes never produce one). */
 export interface VaultChangeEvent {
   type: 'vault'
+  /** Root of the vault that changed: several can be open, and note ids repeat across vaults. */
+  root: string
   change: VaultEventType
   /** Note id, or folder id for `tree-changed`. */
   id: string

@@ -138,9 +138,17 @@ test('an image dropped on the editor text is still stored as an asset of the ope
 })
 
 test('without an open vault a drop asks to open one first', async ({ app }) => {
-  const { page, dir } = app
+  const { page, dir, vault } = app
   await writeFiles(path.join(dir, 'drop-src'), { 'Lost.md': 'lost\n' })
-  await page.evaluate(() => fetch('/api/vaults/close', { method: 'POST' }))
+  await page.evaluate(
+    (root) =>
+      fetch('/api/vaults/close', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ path: root }),
+      }),
+    vault,
+  )
   await page.reload()
   await expect(page.locator('[data-vault="none"]')).toBeVisible()
   await dropFiles(page, 'main', [path.join(dir, 'drop-src', 'Lost.md')])

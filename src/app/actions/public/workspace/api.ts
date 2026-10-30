@@ -43,9 +43,26 @@ export interface VaultOpenResult {
   workspace?: WorkspaceData
 }
 
+/**
+ * The vault this page shows. Every request names it (`?vault=<root>`): several vaults can be open,
+ * and a request that was in flight when the page switched must fail (`409 NO_VAULT` once that vault
+ * is closed) rather than reach another vault. Set by `WorkspaceModel` whenever the vault changes.
+ */
+let pageVault: string | null = null
+
+export function setPageVault(root: string | null): void {
+  pageVault = root
+}
+
+/** `href` with `?vault=` (or `&vault=`) for the page's vault added. */
+function inVault(href: string): string {
+  if (pageVault === null) return href
+  return `${href}${href.includes('?') ? '&' : '?'}${new URLSearchParams({ vault: pageVault })}`
+}
+
 /** Fetches a route of this app's own (in-process, typed) router; non-2xx responses throw `ApiError`. */
 async function request<T>(href: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(href, init)
+  const response = await fetch(inVault(href), init)
   const data: unknown = await response.json().catch(() => null)
   if (!response.ok) throw new ApiError(response.status, data)
   const typed = data as T
@@ -66,7 +83,7 @@ function withQuery(href: string, params: Record<string, string>): string {
 
 /** URL of a file a note links to (`./todo.assets/x.png`), served by `GET /vault-assets/*`. */
 export function vaultAssetUrl(noteId: string, src: string): string {
-  return withQuery(routes.vaultAssets.href({ path: noteId }), { src })
+  return inVault(withQuery(routes.vaultAssets.href({ path: noteId }), { src }))
 }
 
 const api = routes.api
@@ -79,7 +96,7 @@ export const client = {
 
   pickVault: () => post<VaultOpenResult>(api.vaultPick.href()),
   openVault: (path: string) => post<VaultOpenResult>(api.vaultOpen.href(), { path }),
-  closeVault: () => post<WorkspaceData>(api.vaultClose.href()),
+  closeVault: (path: string) => post<WorkspaceData>(api.vaultClose.href(), { path }),
   forgetVault: (path: string) => post<WorkspaceData>(api.vaultForget.href(), { path }),
 
   readNote: (id: string) => request<NoteDocument>(withQuery(api.noteRead.href(), { id })),

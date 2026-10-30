@@ -105,18 +105,29 @@ export class TestApp {
     })
   }
 
-  get(href: string): Promise<Response> {
-    return this.router.fetch(new URL(href, origin))
+  /**
+   * Like the page, requests name a vault (`?vault=`): the active one, unless `href` names one
+   * itself. Pass `{ vault: null }` to send none.
+   */
+  get(href: string, options: { vault?: string | null } = {}): Promise<Response> {
+    return this.router.fetch(this.#url(href, options.vault))
   }
 
-  post(href: string, body: unknown = {}): Promise<Response> {
+  post(href: string, body: unknown = {}, options: { vault?: string | null } = {}): Promise<Response> {
     return this.router.fetch(
-      new Request(new URL(href, origin), {
+      new Request(this.#url(href, options.vault), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
       }),
     )
+  }
+
+  #url(href: string, vault: string | null | undefined): URL {
+    const url = new URL(href, origin)
+    const root = vault === undefined ? this.vaults.current?.root : vault
+    if (root && !url.searchParams.has('vault')) url.searchParams.set('vault', root)
+    return url
   }
 
   /** Creates `<dir>/<name>` and opens it as the vault. */

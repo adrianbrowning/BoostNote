@@ -149,8 +149,10 @@ export interface Settings {
   windowBounds?: WindowBounds
   /** Vault folders the user opened, most recent first. */
   vaults?: string[]
-  /** The vault reopened on start; absent after "Close Vault". */
+  /** The active vault: the one shown on start (and the CLI's default); absent when none is open. */
   lastVault?: string
+  /** Every vault open when the app last ran, reopened on start. Absent in settings from before multi-vault. */
+  openVaults?: string[]
   /** Preferences and layout; read through `normalizeUi`. */
   ui?: UiPreferences
 }
@@ -198,8 +200,9 @@ export class SettingsStore {
 function sanitize(value: unknown): Settings {
   if (typeof value !== 'object' || value === null || Array.isArray(value)) return {}
   const settings: Record<string, unknown> = { ...value }
-  if (!Array.isArray(settings.vaults) || !settings.vaults.every((item) => typeof item === 'string')) {
-    delete settings.vaults
+  for (const key of ['vaults', 'openVaults'] as const) {
+    const list = settings[key]
+    if (!Array.isArray(list) || !list.every((item) => typeof item === 'string')) delete settings[key]
   }
   if (typeof settings.lastVault !== 'string') delete settings.lastVault
   if (settings.ui !== undefined) settings.ui = normalizeUi(settings.ui)

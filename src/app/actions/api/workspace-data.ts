@@ -2,6 +2,7 @@ import * as path from 'node:path'
 
 import type { MigrationReport } from '../../../migrate/index.ts'
 import type { FolderNode, Note, NoteMeta, Vault } from '../../../vault/index.ts'
+import { HttpError } from '../../http.ts'
 import type { AppServices } from '../../services.ts'
 import type {
   FolderSummary,
@@ -39,13 +40,20 @@ function folderSummary(node: FolderNode): FolderSummary {
   }
 }
 
-export async function workspaceData(services: AppServices): Promise<WorkspaceData> {
-  const vault: Vault | undefined = services.vaults.current
-  const recent = services.vaults.recent.map((root) => ({ root, name: path.basename(root) }))
-  if (!vault) return { vault: null, recent, tree: null, notes: [], trash: [] }
+/**
+ * The lists of the open vault at `root` (default: the active vault), plus every open vault and the
+ * recent list. A `root` that is not open is a `409 NO_VAULT`.
+ */
+export async function workspaceData(services: AppServices, root?: string): Promise<WorkspaceData> {
+  const vault: Vault | undefined = root === undefined ? services.vaults.current : services.vaults.get(root)
+  if (root !== undefined && !vault) throw new HttpError(409, 'NO_VAULT', `This vault is not open: ${root}`)
+  const recent = services.vaults.recent.map((item) => ({ root: item, name: path.basename(item) }))
+  const open = services.vaults.all.map((item) => ({ root: item.root, name: path.basename(item.root) }))
+  if (!vault) return { vault: null, open, recent, tree: null, notes: [], trash: [] }
   const trash = await vault.listTrash()
   return {
     vault: { root: vault.root, name: path.basename(vault.root) },
+    open,
     recent,
     tree: folderSummary(vault.tree()),
     notes: vault.index.all().map(summary),
