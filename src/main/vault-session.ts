@@ -168,11 +168,12 @@ export class VaultSession {
 
   /**
    * A reader tab's "Add to vault…": imports the file behind `ticket` (the path main granted; the
-   * page sends only the ticket) and its linked images into `folder` of the open vault, once per
-   * ticket (`ReaderGrants.importOnce`, which ends the ticket when the import returns, also when it
-   * skipped the file). `answer` runs on the import's report before the queue moves on, so what it
-   * reads (the workspace) is the vault the file went into. Report sources are base names. Runs in
-   * the vault queue, so a vault switch or a reader close never lands in the middle. Throws
+   * page sends only the ticket) and its linked images into `folder` of the open vault
+   * (`ReaderGrants.importOnce`). The ticket ends when the import brought in the note; when it
+   * imported none (the file is already in `folder`, or skipped) the ticket stays, so the reader
+   * can try another folder. `answer` runs on the import's report before the queue moves on, so
+   * what it reads (the workspace) is the vault the file went into. Report sources are base names.
+   * Runs in the vault queue, so a vault switch or a reader close never lands in the middle. Throws
    * `VaultError('NOT_FOUND')` when the ticket is unknown or revoked or its file is no longer a
    * regular file at its real path, and `HttpError(409, 'NO_VAULT')` without an open vault; the
    * ticket then stays as it was, as it does when the import throws (a bad or missing folder).
@@ -183,8 +184,10 @@ export class VaultSession {
       if (granted === undefined) throw new VaultError('NOT_FOUND', 'This file is no longer open; open it again')
       const vault = this.#vault
       if (!vault) throw new HttpError(409, 'NO_VAULT', 'Open a vault first, then add the file to it')
-      const report = await this.readers.importOnce(ticket, (file, options) =>
-        vault.importFiles([file], folder, options),
+      const report = await this.readers.importOnce(
+        ticket,
+        (file, options) => vault.importFiles([file], folder, options),
+        (result) => result.notes.length > 0,
       )
       if (report === undefined) throw new VaultError('NOT_FOUND', `${path.basename(granted)} is gone; open it again`)
       return answer({

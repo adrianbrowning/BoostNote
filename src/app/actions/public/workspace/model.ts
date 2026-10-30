@@ -154,8 +154,9 @@ export class WorkspaceModel extends TypedEventTarget<{
   #refreshTimer: ReturnType<typeof setTimeout> | undefined
   #noticeTimer: ReturnType<typeof setTimeout> | undefined
   /**
-   * The running open-request drain or reader vault switch (`#inOpenOrder`); later ones queue behind
-   * it so vault switches and the tabs they open never interleave.
+   * The work running in open order (`#inOpenOrder`): an open-request drain, a reader's "Open folder
+   * as vault", or a reader's "Add to vault…" from its folder dialog to main's answer. Later ones
+   * queue behind it, so vault switches, imports and the tabs they open never interleave.
    */
   #openRequests: Promise<void> = Promise.resolve()
 
@@ -411,18 +412,13 @@ export class WorkspaceModel extends TypedEventTarget<{
         this.#busyReaders.delete(key)
       }
     }
-    await this.#removeTab(key, options.discard)
-  }
-
-  /** Removes tab `key` (whose reader ticket is already gone); the active tab's note is saved first unless `discard`. */
-  async #removeTab(key: number, discard?: boolean): Promise<void> {
     if (key !== this.tabs.activeKey) {
       this.tabs.close(key)
       this.#saveTabs()
       this.changed()
       return
     }
-    if (discard) this.session.close()
+    if (options.discard) this.session.close()
     await this.#switchTabs(() => this.tabs.close(key))
   }
 
@@ -454,14 +450,16 @@ export class WorkspaceModel extends TypedEventTarget<{
 
   /**
    * A reader tab's "Add to vault…": asks for a folder of the open vault (`dropFolder` first); main
-   * then imports the tab's file and its images there, once per ticket, and revokes the ticket (the
+   * then imports the tab's file and its images there and revokes the ticket once a note came in (the
    * page sends only the ticket and the folder id). The open note is saved before the request (a
    * refused save leaves the vault and the ticket as they were). The reader tab becomes the new
-   * note's tab at the same position and the notice is the one of a drop; when main skipped the file
-   * the tab closes (its ticket is gone). Nothing happens without an open vault (the button is
-   * disabled) or while the reader is closing, opening its folder or already being added. The whole
-   * action (choosing included) runs in open order: after a running open-request drain, in the vault
-   * that drain left open, and a drain that starts meanwhile waits for it.
+   * note's tab at the same position and the notice is the one of a drop; when main imported no
+   * note (the file is already in that folder, or skipped) the notice says "Nothing imported: …" and
+   * the reader tab stays, its ticket live, so another folder can be chosen. The button is disabled
+   * without an open vault; nothing happens while the reader is closing, opening its folder or
+   * already being added. The whole action (choosing included) runs in open order: after a running
+   * open-request drain, in the vault that drain left open (an error notice when it left none), and
+   * a drain that starts meanwhile waits for it.
    */
   async addReaderToVault(key: number): Promise<void> {
     const tab = this.tabs.tabs.find((item): item is ReaderTab => item.key === key && item.kind === 'reader')
@@ -486,7 +484,6 @@ export class WorkspaceModel extends TypedEventTarget<{
           const { report, workspace } = await client.importReader(tab.ticket, folder)
           this.#showData(workspace)
           await this.#reportImport(report, folder, (id) => this.#readerImported(key, id))
-          if (report.notes.length === 0) await this.#removeTab(key)
         })
       })
     } finally {
@@ -783,7 +780,11 @@ export class WorkspaceModel extends TypedEventTarget<{
     return this.#inOpenOrder(() => this.#drainOpenRequests())
   }
 
-  /** Runs `task` after the open-request drain or reader vault switch running now (and those queued before). */
+  /**
+   * Runs `task` after the work in open order running now (and that queued before): an open-request
+   * drain, a reader's "Open folder as vault", or a reader's "Add to vault…" (its folder dialog
+   * included, so a drain waits while the user chooses).
+   */
   #inOpenOrder(task: () => Promise<void>): Promise<void> {
     const run = this.#openRequests.then(task)
     this.#openRequests = run.catch(() => undefined)

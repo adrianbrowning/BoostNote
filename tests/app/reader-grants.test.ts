@@ -184,6 +184,15 @@ describe('ReaderGrants', () => {
     expect(await readers.grant(granted)).not.toBe(ticket)
   })
 
+  it('keeps the ticket when the import’s result says nothing was imported, so it can be retried', async () => {
+    const ticket = await grant(await file('empty.md', '# Empty\n'))
+    const imported = (notes: string[]) => notes.length > 0
+    expect(await readers.importOnce(ticket, async () => [], imported)).toEqual([])
+    expect(await readers.read(ticket)).toBe('# Empty\n')
+    expect(await readers.importOnce(ticket, async () => ['empty.md'], imported)).toEqual(['empty.md'])
+    expect(readers.path(ticket)).toBeUndefined()
+  })
+
   it('refuses a second import while the first runs, and keeps the ticket when the import fails', async () => {
     const ticket = await grant(await file('fail.md', '# Fail\n'))
     const { promise: failing, reject } = Promise.withResolvers<string>()

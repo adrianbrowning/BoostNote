@@ -636,6 +636,31 @@ describe('reader', () => {
     expect(vault.index.all().map((note) => note.id)).toEqual(['work/readme.md'])
   })
 
+  it('keeps the ticket when adding a reader’s file imports no note, so another folder can be chosen', async () => {
+    const vault = await app.openVault()
+    await vault.createFolder('', 'work')
+    // An upper-case .MD in the vault root opens in a reader; adding it to the root skips it.
+    const file = path.join(vault.root, 'README.MD')
+    await writeFile(file, '# Readme\n')
+    app.vaults.requestOpen(file)
+    const request = await readJson<OpenRequest | null>(await app.post(api.openRequest.href()))
+    if (request?.kind !== 'external') throw new Error(`Expected an external request, got ${JSON.stringify(request)}`)
+    const { ticket } = request
+
+    const skipped = await app.post(api.readerImport.href({ ticket }), { folder: '' })
+    expect(skipped.status).toBe(201)
+    const { report } = await readJson<ReaderImportResult>(skipped)
+    expect(report.notes).toEqual([])
+    expect(report.skipped).toEqual([{ source: 'README.MD', reason: expect.stringContaining('already in') }])
+    expect((await app.get(api.readerRead.href({ ticket }))).status).toBe(200)
+
+    const imported = await app.post(api.readerImport.href({ ticket }), { folder: 'work' })
+    expect(imported.status).toBe(201)
+    const result = await readJson<ReaderImportResult>(imported)
+    expect(result.report.notes).toEqual([{ source: 'README.MD', id: expect.stringMatching(/^work\/README\.md$/i) }])
+    expect((await app.get(api.readerRead.href({ ticket }))).status).toBe(404)
+  })
+
   it('adds a reader’s file with its images only, leaving links to other or hidden files as they are', async () => {
     const vault = await app.openVault()
     const text = '# Keys\n\n![k](.ssh/id_rsa) ![d](img/dot.svg)\n'

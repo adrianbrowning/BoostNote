@@ -159,11 +159,13 @@ export class ReaderGrants {
   }
 
   /**
-   * A reader tab's "Add to vault…": runs `run` (the import) on the real path behind `ticket`, at
-   * most once per ticket. The ticket is claimed before anything is awaited, so a second call while
-   * one runs gets `undefined`; it ends (`revoke`) when `run` resolves and stays live when `run`
-   * throws, so a failed import can be retried. `undefined` without calling `run` when the ticket is
-   * unknown, revoked or claimed, or its path no longer is a regular file at that real path.
+   * A reader tab's "Add to vault…": runs `run` (the import) on the real path behind `ticket`, one
+   * run at a time and none after one imported. The ticket is claimed before anything is awaited, so
+   * a second call while one runs gets `undefined`; it ends (`revoke`) when `run` resolves with a
+   * result `imported` accepts (by default any), and stays live when `imported` refuses it (nothing
+   * was imported) or `run` throws, so the import can be retried. `undefined` without calling `run`
+   * when the ticket is unknown, revoked or claimed, or its path no longer is a regular file at that
+   * real path.
    *
    * `run` gets the `read` and `refuseAsset` options for `Vault.importFiles`. `refuseAsset` is
    * `assetRefusal`, so a link to anything but an image of the folder (`.ssh/id_rsa`, `notes.txt`)
@@ -175,6 +177,7 @@ export class ReaderGrants {
   async importOnce<T>(
     ticket: string,
     run: (file: string, options: ReaderImport) => Promise<T>,
+    imported: (result: T) => boolean = () => true,
   ): Promise<T | undefined> {
     if (!this.#paths.has(ticket) || this.#importing.has(ticket)) return undefined
     this.#importing.add(ticket)
@@ -195,7 +198,7 @@ export class ReaderGrants {
         })
       }
       const result = await run(file, { read, refuseAsset })
-      this.revoke(ticket)
+      if (imported(result)) this.revoke(ticket)
       return result
     } finally {
       this.#importing.delete(ticket)

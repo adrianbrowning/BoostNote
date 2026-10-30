@@ -478,6 +478,52 @@ test('"Add to vault…" in a reader imports the file and its images into the cho
   }
 })
 
+test('"Add to vault…" that imports nothing keeps the reader tab, so another folder can be chosen', async () => {
+  const app = await launchApp({
+    'inside.md': '# Inside\n',
+    'work/keep.md': '# Keep\n',
+    'README.MD': '# Upper readme\n',
+  })
+  try {
+    const { page } = app
+    await expect(page.locator('[data-note="inside.md"]')).toBeVisible({ timeout: 20_000 })
+    // An upper-case .MD of the vault is no note there: it opens in a reader tab.
+    await app.electronApp.evaluate(
+      ({ app: electronApp }, target) => {
+        electronApp.emit('open-file', { preventDefault() {} }, target)
+      },
+      path.join(app.vault, 'README.MD'),
+    )
+    const reader = page.locator('[role="tab"][data-reader-tab="README.MD"]')
+    await expect(reader).toHaveAttribute('aria-selected', 'true', { timeout: 20_000 })
+    await expect(page.locator('[data-reader-body] h1')).toHaveText('Upper readme')
+
+    // Into its own folder (the vault root, the default): nothing imported, the reader stays.
+    await page.locator('[data-reader-add]').click()
+    const dialog = page.getByRole('dialog', { name: 'Add to vault' })
+    await expect(dialog.locator('select')).toHaveValue('')
+    await dialog.getByRole('button', { name: 'Add' }).click()
+    await expect(dialog).toHaveCount(0)
+    await expect(page.locator('[data-notice]')).toContainText(
+      'Nothing imported: README.MD is already in the vault root',
+    )
+    await expect(reader).toHaveAttribute('aria-selected', 'true')
+    await expect(page.locator('[data-reader-body] h1')).toHaveText('Upper readme')
+
+    // Into another folder: imported, and the reader tab becomes the note's tab.
+    await page.locator('[data-reader-add]').click()
+    await dialog.locator('select').selectOption('work')
+    await dialog.getByRole('button', { name: 'Add' }).click()
+    await expect(page.locator('[data-notice]')).toContainText('Imported 1 note into work')
+    await expect(page.locator('[data-reader-tab]')).toHaveCount(0)
+    await expect(page.locator('[role="tab"][aria-selected="true"]')).toHaveAttribute('data-tab', 'work/README.md')
+    await expect(page.locator('[data-note="work/README.md"]')).toBeVisible()
+  } finally {
+    await app.electronApp.close()
+    await rm(app.dir, { recursive: true, force: true })
+  }
+})
+
 declare global {
   interface Window {
     /** The page-side fetch wrapper of the next test: holds the import's answer, fails saves on demand. */

@@ -204,7 +204,7 @@ JSON `{ error, message }`: `VaultError` `INVALID_PATH`/`NOT_A_VAULT` → 400, `N
 | `POST /api/open-request` | Takes the oldest queued "open this `.md`" request → `{ kind: 'note', vault, id }`, `{ kind: 'external', ticket, name }` (outside file, reader tab) or `null` when the queue is empty (phase 6) |
 | `GET /api/reader/:ticket` · `POST /api/reader/:ticket/close` | A reader tab's outside file → `{ name, body, frontmatter, html }`, read fresh; close revokes the ticket. Unknown/revoked tickets: `404` |
 | `POST /api/reader/:ticket/open-folder` | Opens the ticket's file's folder as the vault and revokes the ticket → `{ id, workspace }`; `404` revoked/gone, `400` for a name that can be no note (dot-name, upper-case `.MD`) |
-| `POST /api/reader/:ticket/import {folder}` | "Add to vault…": imports the ticket's file and its images into `folder` of the open vault once and revokes the ticket → `201 { report, workspace }` (report sources are base names); `404` revoked/gone, `409 NO_VAULT`, `400`/`404` for a bad/missing folder (the ticket stays) |
+| `POST /api/reader/:ticket/import {folder}` | "Add to vault…": imports the ticket's file and its images into `folder` of the open vault and revokes the ticket once a note came in → `201 { report, workspace }` (report sources are base names; with no note imported, `notes: []`, the ticket stays); `404` revoked/gone, `409 NO_VAULT`, `400`/`404` for a bad/missing folder (the ticket stays) |
 | `GET /export/mermaid` | Hidden page that lays out mermaid diagrams for export (phase 6) |
 
 ### Editor integration and conflict rules
@@ -405,9 +405,11 @@ vault's note.
 "Add to vault…" (disabled without an open vault, with the reason next to it) asks in the page for a
 folder of the open vault (`dropFolder` first) and posts `POST /api/reader/:ticket/import { folder }`.
 `VaultSession.importReader` runs in the vault queue: it checks the ticket and the open vault, then
-`ReaderGrants.importOnce` claims the ticket (a second import while one runs, or after, is refused),
-runs `vault.importFiles([file], folder, { read, refuseAsset })` and revokes the ticket when the import
-returns; when it throws (a bad or missing folder) the ticket stays. `refuseAsset`
+`ReaderGrants.importOnce` claims the ticket (a second import while one runs, or after one imported,
+is refused), runs `vault.importFiles([file], folder, { read, refuseAsset })` and revokes the ticket
+when the import brought in the note. When it imported none (the file is already in that folder, or
+skipped) or throws (a bad or missing folder) the ticket stays, so the user can choose another folder;
+the page shows "Nothing imported: …" and keeps the reader tab. `refuseAsset`
 (`ImportOptions.refuseAsset`) is the reader assets rule above: a link to anything else (`.ssh/id_rsa`,
 `notes.txt`, a symlink to a dot-folder) stays as it is and is listed in the report's `unresolved`
 (vault id, link and reason); the rest of the import goes on. Drop import keeps its own rules.

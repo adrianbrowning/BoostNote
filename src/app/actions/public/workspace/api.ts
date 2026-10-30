@@ -137,7 +137,7 @@ export const client = {
   closeReader: (ticket: string) => post<unknown>(api.readerClose.href({ ticket })),
   /** Main opens the folder of the reader tab's file as the vault and revokes the ticket. */
   openReaderFolder: (ticket: string) => post<ReaderFolderResult>(api.readerOpenFolder.href({ ticket })),
-  /** Main imports the reader tab's file into `folder` of the open vault once and revokes the ticket. */
+  /** Main imports the reader tab's file into `folder` of the open vault and revokes the ticket once a note came in. */
   importReader: (ticket: string, folder: string) =>
     post<ReaderImportResult>(api.readerImport.href({ ticket }), { folder }),
 }
