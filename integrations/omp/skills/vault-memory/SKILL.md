@@ -18,7 +18,7 @@ a human: short, plain, one fact per bullet.
 | `projects/<slug>/MEMORY.md`        | This project: decisions, constraints, gotchas, commands       |
 | `projects/<slug>/<topic>.md`       | A topic too long for a bullet; link it from `MEMORY.md`       |
 
-`<slug>` is the `project-folder` in the `<vault-memory>` block. Only the two `MEMORY.md` notes load
+`projects/<slug>/` is the "Project folder" line in the `<vault-memory>` block. Only the two `MEMORY.md` notes load
 automatically; topic notes are reached by their link or by `search_notes`.
 
 ## What is worth keeping

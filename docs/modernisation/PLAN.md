@@ -577,9 +577,9 @@ the vault. The originals are only read: never moved, renamed or changed.
 checkout with `omp plugin link`; not in the packaged app (`electron-builder.yml` ships `src/` only).
 
 - **Layout:** `global/MEMORY.md` (every project) and `projects/<slug>/MEMORY.md`; longer topics are
-  notes beside them, linked from `MEMORY.md`. `<slug>` is omp Hindsight's rule: the lowercased name of
-  the repository's main checkout (from `git rev-parse --git-common-dir`, so worktrees share it), else
-  the working folder's name.
+  notes beside them, linked from `MEMORY.md`. `<slug>` is the lowercased name of the folder holding
+  the git directory from `git rev-parse --git-common-dir` (`repo/.git` → `repo`, bare `repo.git` →
+  `repo`), so all worktrees of one repository share it; outside git, the working folder's name.
 - **Reading:** `before_agent_start` returns one hidden `custom_message` (`boostnote-vault-memory`,
   attribution `agent`) with both notes, frontmatter stripped, 12,000 characters each at most. The
   message is persisted in the session; the handler skips when the branch already has one, so resume

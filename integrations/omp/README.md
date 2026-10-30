@@ -22,7 +22,10 @@ pnpm install
 omp plugin link "$PWD/integrations/omp"
 ```
 
-Start a new omp session. The first prompt creates the vault folders if they are missing.
+Start a new omp session. The first prompt creates the vault folders if they are missing. A link
+keeps the plugin in place, so the default `BOOSTNOTE_CLI` finds this checkout's CLI; if you copy the
+folder elsewhere, set `BOOSTNOTE_CLI` to the full path of `src/cli/index.js` or of an installed
+`boostnote`.
 
 | Variable                 | Default                           | Use                             |
 | ------------------------ | --------------------------------- | ------------------------------- |
@@ -32,6 +35,8 @@ Start a new omp session. The first prompt creates the vault folders if they are 
 Keep the memory vault apart from your own notes: the agent writes to it without asking each time.
 Open it in Boostnote (File › Open Vault…) to read, fix or prune what it saved.
 
-`<slug>` is the lowercased name of the repository's main checkout (worktrees share it), else the name
-of the working folder. omp's own memory (`memory.backend`) works without this plugin; turn it `off` if
+`<slug>` is the lowercased name of the folder that holds the repository's git directory
+(`git rev-parse --git-common-dir`; for `repo/.git` that is `repo`, for a bare `repo.git` it is
+`repo`), so all worktrees of one repository share it; outside git it is the working folder's name.
+omp's own memory (`memory.backend`) works without this plugin; turn it `off` if
 you do not want two memories.
