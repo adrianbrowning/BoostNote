@@ -368,9 +368,15 @@ handle, and then requires that `realpath` is still the granted path and that `ls
 regular file with the handle's device and inode; otherwise it answers `404` (base name only). So a
 symlink at the file or a parent folder (even one swapped back before the check), a FIFO or a device
 is refused, while another regular file renamed over it (an editor's atomic save) reads under the
-same ticket.
+same ticket. Not detected: a process running as the same user that flips a parent folder to a
+symlink again between the after-read `realpath` and `lstat` checks; this race is accepted (no native
+`openat` helper).
+Relative images in `html` point at `GET /reader-assets/:ticket?src=`, which follows the import's
+`resolveLink` rules against the file's folder (real path a regular file inside that folder, so `../`
+and symlink escapes are refused) and reads with the same checks; refused sources answer `404`. In the
+reader, http(s) links open in the browser; relative `.md` and wiki links are inert.
 `POST /api/reader/:ticket/close` revokes the ticket when the tab closes; afterwards, and for unknown
-tickets, both routes answer `404`. In
+tickets, all three routes answer `404`. In
 `Tabs` a tab is a note tab or a reader tab: reader tabs are never saved to `localStorage`, have no
 back/forward trail, are skipped by rebase/forget, stay open when the vault switches or closes, and
 are the only tabs while no vault is open. Grants live in memory, so reader tabs are gone after a restart.

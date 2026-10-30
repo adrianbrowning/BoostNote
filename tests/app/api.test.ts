@@ -453,6 +453,59 @@ describe('reader', () => {
     expect(text).not.toContain('not for the page')
     expect(text).not.toContain(app.dir)
   })
+
+  it('serves files next to the outside file and points its images at them', async () => {
+    const { ticket } = await openOutside('pics.md', '![a](pic.png) ![b](img/b%20c.gif)\n')
+    await writeFile(path.join(app.dir, 'outside', 'pic.png'), 'PNG bytes')
+    await mkdir(path.join(app.dir, 'outside', 'img'))
+    await writeFile(path.join(app.dir, 'outside', 'img', 'b c.gif'), 'GIF bytes')
+    const url = (src: string) => `${routes.readerAssets.href({ ticket })}?src=${encodeURIComponent(src)}`
+
+    const document = await readJson<{ html: string }>(await app.get(api.readerRead.href({ ticket })))
+    expect(document.html).toBe(
+      `<p><img src="/reader-assets/${ticket}?src=pic.png" alt="a" /> <img src="/reader-assets/${ticket}?src=img%2Fb%2520c.gif" alt="b" /></p>\n`,
+    )
+    const image = await app.get(url('pic.png'))
+    expect(image.status).toBe(200)
+    expect(image.headers.get('content-type')).toBe('image/png')
+    expect(image.headers.get('content-security-policy')).toContain('sandbox')
+    expect(await image.text()).toBe('PNG bytes')
+    expect(await (await app.get(url('img/b%20c.gif?v=1#x'))).text()).toBe('GIF bytes')
+    // The type comes from the file that was read, not from how the link spells it.
+    expect((await app.get(url('pic%2Epng'))).headers.get('content-type')).toBe('image/png')
+  })
+
+  it('refuses asset sources outside the file’s folder, symlink escapes, folders, and dead tickets', async () => {
+    const { ticket } = await openOutside('doc.md', '# Doc\n')
+    const outside = path.join(app.dir, 'outside')
+    await writeFile(path.join(app.dir, 'secret.txt'), 'not for the page\n')
+    await symlink(path.join(app.dir, 'secret.txt'), path.join(outside, 'link.txt'))
+    await symlink(app.dir, path.join(outside, 'up'))
+    await mkdir(path.join(outside, 'folder'))
+    await writeFile(path.join(outside, 'pic.png'), 'PNG')
+    const url = (src: string, t = ticket) => `${routes.readerAssets.href({ ticket: t })}?src=${encodeURIComponent(src)}`
+
+    for (const src of [
+      '../secret.txt',
+      '..%2Fsecret.txt',
+      'link.txt',
+      'up/secret.txt',
+      path.join(app.dir, 'secret.txt'),
+      'file:///etc/passwd',
+      'folder',
+      'missing.png',
+      '',
+    ]) {
+      const response = await app.get(url(src))
+      expect(response.status, src).toBeGreaterThanOrEqual(400)
+      const text = await response.text()
+      expect(text, src).not.toContain('not for the page')
+      expect(text, src).not.toContain(app.dir)
+    }
+    expect((await app.get(url('pic.png', 'made-up'))).status).toBe(404)
+    await app.post(api.readerClose.href({ ticket }))
+    expect((await app.get(url('pic.png'))).status).toBe(404)
+  })
 })
 
 describe('drop import', () => {
