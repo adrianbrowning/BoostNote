@@ -344,12 +344,13 @@ export async function planImport(options: {
       if (!target || !('asset' in target)) continue
       const { data: content } = await readSource(target.asset, 'asset')
       bytes += content.byteLength
+      overLimits()
       const name = assetFileName(content, path.extname(target.asset))
       if (!assets.has(name)) {
-        assets.set(name, { source: target.asset, name, ...(options.read ? { data: content } : {}) })
         files++
+        overLimits()
+        assets.set(name, { source: target.asset, name, ...(options.read ? { data: content } : {}) })
       }
-      overLimits()
       usedOthers.add(target.asset)
       targets.set(relPath, { asset: name })
     }
