@@ -167,4 +167,156 @@ describe('ReaderGrants', () => {
     await rm(gone)
     expect(await readers.read(ticket)).toBeUndefined()
   })
+
+  it('imports a ticket’s file once: the ticket ends when the import resolves, a second import is refused', async () => {
+    const granted = await file('once.md', '# Once\n')
+    const ticket = await grant(granted)
+    const seen: string[] = []
+    const run = async (target: string) => {
+      seen.push(target)
+      return 'imported'
+    }
+    expect(await readers.importOnce(ticket, run)).toBe('imported')
+    expect(await readers.importOnce(ticket, run)).toBeUndefined()
+    expect(seen).toEqual([granted])
+    expect(readers.path(ticket)).toBeUndefined()
+    // The file may be opened again later: a new ticket.
+    expect(await readers.grant(granted)).not.toBe(ticket)
+  })
+
+  it('keeps the ticket when the import’s result says nothing was imported, so it can be retried', async () => {
+    const ticket = await grant(await file('empty.md', '# Empty\n'))
+    const imported = (notes: string[]) => notes.length > 0
+    expect(await readers.importOnce(ticket, async () => [], imported)).toEqual([])
+    expect(await readers.read(ticket)).toBe('# Empty\n')
+    expect(await readers.importOnce(ticket, async () => ['empty.md'], imported)).toEqual(['empty.md'])
+    expect(readers.path(ticket)).toBeUndefined()
+  })
+
+  it('refuses a second import while the first runs, and keeps the ticket when the import fails', async () => {
+    const ticket = await grant(await file('fail.md', '# Fail\n'))
+    const { promise: failing, reject } = Promise.withResolvers<string>()
+    const started = Promise.withResolvers<void>()
+    const first = readers.importOnce(ticket, () => {
+      started.resolve()
+      return failing
+    })
+    expect(await readers.importOnce(ticket, async () => 'again')).toBeUndefined()
+    await started.promise
+    reject(new Error('disk full'))
+    await expect(first).rejects.toThrow('disk full')
+    expect(await readers.read(ticket)).toBe('# Fail\n')
+    expect(await readers.importOnce(ticket, async () => 'retried')).toBe('retried')
+  })
+
+  it('imports nothing for an unknown ticket or a file that is gone', async () => {
+    const gone = await file('gone.md', '# Gone\n')
+    const ticket = await grant(gone)
+    await rm(gone)
+    const run = vi.fn(async () => 'imported')
+    expect(await readers.importOnce(ticket, run)).toBeUndefined()
+    expect(await readers.importOnce('made-up', run)).toBeUndefined()
+    expect(run).not.toHaveBeenCalled()
+  })
+
+  it('hands the import a read of the granted file and of files in its folder only, with their bytes and times', async () => {
+    const granted = await file('doc/note.md', '# Note\n')
+    const pic = await file('doc/img/pic.png', 'PNG')
+    const other = await file('doc/other.md', '# Other\n')
+    const secret = await file('secret.png', 'not for the page')
+    const ticket = await grant(granted)
+    const reads = await readers.importOnce(ticket, async (target, { read }) => ({
+      note: await read(target, 'note'),
+      pic: await read(pic, 'asset'),
+      otherNote: await read(other, 'note'),
+      outside: await read(secret, 'asset'),
+    }))
+    expect(reads?.note?.data.toString()).toBe('# Note\n')
+    expect(reads?.note?.mtime).toEqual((await stat(granted)).mtime)
+    expect(reads?.pic?.data.toString()).toBe('PNG')
+    // Only the granted file is the note; linked files must lie in its folder.
+    expect(reads?.otherNote).toBeUndefined()
+    expect(reads?.outside).toBeUndefined()
+  })
+
+  it('serves as assets only images whose link and real path have no dot-file or dot-folder', async () => {
+    const granted = await file('doc/note.md', '# Note\n')
+    await file('doc/img/pic.png', 'PNG')
+    await file('doc/.x/key.png', 'not for the page')
+    await file('doc/notes.txt', 'not for the page')
+    await symlink(path.join(dir, 'doc', '.x', 'key.png'), path.join(dir, 'doc', 'shot.png'))
+    const ticket = await grant(granted)
+    const bytes = async (src: string) => (await readers.asset(ticket, src))?.bytes.toString()
+    expect(await bytes('img/pic.png')).toBe('PNG')
+    expect(await bytes('./img/../img/pic.png')).toBe('PNG')
+    // Hidden as written, even where the path normalizes past it; hidden after the symlink.
+    expect(await bytes('img/.x/../pic.png')).toBeUndefined()
+    expect(await bytes('.x/key.png')).toBeUndefined()
+    expect(await bytes('shot.png')).toBeUndefined()
+    expect(await bytes('notes.txt')).toBeUndefined()
+  })
+
+  it('hands the import a rule leaving links to anything but the folder’s images alone, and reads no other file', async () => {
+    const granted = await file('doc/note.md', '# Note\n')
+    const pic = await file('doc/img/pic.PNG', 'PNG')
+    const key = await file('doc/.ssh/id_rsa', 'not for the vault')
+    const hidden = await file('doc/.x/key.png', 'not for the vault')
+    const text = await file('doc/notes.txt', 'not for the vault')
+    // An image name for a file that is not one: the import hands over the real path behind it.
+    const photo = path.join(dir, 'doc', 'photo.png')
+    await symlink(text, photo)
+    const ticket = await grant(granted)
+    const result = await readers.importOnce(ticket, async (_target, { read, refuseAsset }) => ({
+      refusals: {
+        pic: refuseAsset('img/pic.PNG', pic),
+        key: refuseAsset('.ssh/id_rsa', key),
+        hidden: refuseAsset('.x/key.png', hidden),
+        text: refuseAsset('notes.txt', text),
+        photo: refuseAsset('photo.png', await realpath(photo)),
+        writtenHidden: refuseAsset('img/.x/../pic.PNG', pic),
+      },
+      reads: [
+        (await read(pic, 'asset'))?.data.toString(),
+        await read(key, 'asset'),
+        await read(hidden, 'asset'),
+        await read(text, 'asset'),
+        await read(photo, 'asset'),
+      ],
+    }))
+    expect(result).toEqual({
+      refusals: {
+        pic: undefined,
+        key: 'not an image',
+        hidden: 'hidden file or folder',
+        text: 'not an image',
+        photo: 'not an image',
+        writtenHidden: 'hidden file or folder',
+      },
+      reads: ['PNG', undefined, undefined, undefined, undefined],
+    })
+  })
+
+  it('refuses the import’s read of a file or a linked file’s parent folder swapped for a symlink after the check', async () => {
+    const granted = await file('doc/swap.md', '# Granted\n')
+    const secret = await file('secret.md', 'not for the page\n')
+    const pic = await file('doc/pic.png', 'PNG')
+    const inner = await file('doc/img/inner.png', 'PNG')
+    await file('elsewhere/inner.png', 'not for the page')
+    const ticket = await grant(granted)
+    const result = await readers.importOnce(ticket, async (target, { read }) => {
+      // Between `importOnce`'s own check (and the import's `realpath`) and its read of each file.
+      await rm(target)
+      await symlink(secret, target)
+      await rm(pic)
+      await symlink(secret, pic)
+      await rm(path.join(dir, 'doc', 'img'), { recursive: true })
+      await symlink(path.join(dir, 'elsewhere'), path.join(dir, 'doc', 'img'))
+      return {
+        note: await read(target, 'note'),
+        pic: await read(pic, 'asset'),
+        inner: await read(inner, 'asset'),
+      }
+    })
+    expect(result).toEqual({ note: undefined, pic: undefined, inner: undefined })
+  })
 })

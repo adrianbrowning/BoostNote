@@ -90,6 +90,16 @@ export interface ReaderFolderResult {
   workspace: WorkspaceData
 }
 
+/**
+ * `POST /api/reader/:ticket/import` (`{ folder }`): the reader's file was imported into `folder` of
+ * the open vault and its ticket ended. The report's `source` paths are base names; `workspace` is
+ * the vault it was imported into, read right after the import.
+ */
+export interface ReaderImportResult {
+  report: ImportFilesReport
+  workspace: WorkspaceData
+}
+
 export interface FolderSummary {
   /** `''` for the vault root. */
   id: string

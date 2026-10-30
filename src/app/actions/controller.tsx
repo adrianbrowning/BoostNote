@@ -65,7 +65,8 @@ export function createRootController(services: AppServices) {
           if (services.vaults.readers.path(context.params.ticket) === undefined) {
             throw new HttpError(404, 'NOT_FOUND', 'This file is no longer open; open it again')
           }
-          // `asset` keeps the link inside the outside file's folder (also via symlinks), regular files only.
+          // `asset` does the checks: an image inside the outside file's folder with no dot-file or
+          // dot-folder, as written and after symlinks, and a regular file.
           const asset = await services.vaults.readers.asset(context.params.ticket, src)
           if (asset === undefined) throw new HttpError(404, 'NOT_FOUND', 'Asset not found')
           return new Response(new Uint8Array(asset.bytes), {
