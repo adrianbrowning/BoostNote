@@ -1,0 +1,12 @@
+{
+  "name": "boostnote-omp-memory",
+  "version": "0.1.0",
+  "private": true,
+  "description": "omp plugin: a Boostnote vault as the agent's global and per-project memory",
+  "type": "module",
+  "omp": {
+    "extensions": [
+      "./extension.ts"
+    ]
+  }
+}
