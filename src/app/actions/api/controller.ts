@@ -3,12 +3,20 @@ import * as path from 'node:path'
 import { isDeepStrictEqual } from 'node:util'
 import { createController } from 'remix/router'
 
+import { renderMarkdown } from '../../../markdown/index.ts'
 import { migrateStorage } from '../../../migrate/index.ts'
-import { type LinkMove, type Note, type TitleRename, type Vault, VaultError } from '../../../vault/index.ts'
+import {
+  type LinkMove,
+  type Note,
+  parseNoteText,
+  type TitleRename,
+  type Vault,
+  VaultError,
+} from '../../../vault/index.ts'
 import { errorResponse, HttpError, json, readJsonObject, requireString } from '../../http.ts'
 import { routes } from '../../routes.ts'
 import type { AppServices } from '../../services.ts'
-import type { OpenRequest, SaveConflictBody } from '../public/workspace/types.ts'
+import type { OpenRequest, ReaderDocument, SaveConflictBody } from '../public/workspace/types.ts'
 import { exportFolder, exportNote } from './export.ts'
 import { parseUiPatch, preferencesState, savePreferences } from './preferences.ts'
 import { importSummary, toJsonValue, toNoteDocument, workspaceData } from './workspace-data.ts'
@@ -24,6 +32,18 @@ function requireVault(services: AppServices): Vault {
   const vault = services.vaults.current
   if (!vault) throw new HttpError(409, 'NO_VAULT', 'No vault is open')
   return vault
+}
+
+/** A ticket that was never granted or whose reader tab closed (the message names no path). */
+function readerClosed(): HttpError {
+  return new HttpError(404, 'NOT_FOUND', 'This file is no longer open; open it again')
+}
+
+/** The real path behind a reader ticket of `/api/reader/:ticket`. */
+function readerFile(services: AppServices, ticket: string): string {
+  const file = services.vaults.readers.path(ticket)
+  if (file === undefined) throw readerClosed()
+  return file
 }
 
 /** The `moves` of a `/api/links/*` body: `[{ from, to, kind: 'note' | 'folder' }]`. */
@@ -383,6 +403,27 @@ export function createApiController(services: AppServices) {
       openRequest: guarded(async () => {
         const pending: OpenRequest | null = (await services.vaults.takeOpenRequest()) ?? null
         return json(pending)
+      }),
+
+      readerRead: guarded(async ({ params }: { params: { ticket: string } }) => {
+        const file = readerFile(services, params.ticket)
+        const raw = await services.vaults.readers.read(params.ticket)
+        // Gone, or no longer a regular file at its real path, e.g. a symlink (the message names no path).
+        if (raw === undefined) throw new HttpError(404, 'NOT_FOUND', `${path.basename(file)} is gone; open it again`)
+        const { frontmatter, body } = parseNoteText(raw)
+        const document: ReaderDocument = {
+          name: path.basename(file),
+          body,
+          frontmatter: toJsonValue(frontmatter) as ReaderDocument['frontmatter'],
+          // `render.ts` needs Node (crypto, sanitize-html), so main renders; the page only shows it.
+          html: (await renderMarkdown(raw)).html,
+        }
+        return json(document)
+      }),
+
+      readerClose: guarded(async ({ params }: { params: { ticket: string } }) => {
+        if (!services.vaults.readers.revoke(params.ticket)) throw readerClosed()
+        return json({ ok: true })
       }),
     },
   })

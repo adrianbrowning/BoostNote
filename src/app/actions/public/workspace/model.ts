@@ -4,7 +4,7 @@ import { ApiError, client } from './api.ts'
 import type { DropTicket } from './drop-import.ts'
 import { NoteSession } from './note-session.ts'
 import { baseName, folderChain, parentOf } from './paths.ts'
-import { type Tab, Tabs } from './tabs.ts'
+import { type ReaderTab, type Tab, Tabs } from './tabs.ts'
 import type {
   FolderSummary,
   JsonValue,
@@ -13,6 +13,7 @@ import type {
   NoteSummary,
   PaneLayout,
   PreferencesState,
+  ReaderDocument,
   TitleRename,
   TitleRenameReport,
   UiPatch,
@@ -138,6 +139,8 @@ export class WorkspaceModel extends TypedEventTarget<{
   connection: Connection = 'connecting'
   readonly session = new NoteSession()
   tabs = new Tabs()
+  /** The file of the reader tab with `ticket` as last read (`null` unless a reader tab is active). */
+  reader: { ticket: string; document: ReaderDocument } | null = null
   preferences: UiPreferences
   hotkeyRegistered: boolean
   /** Newer release shown in the status bar. */
@@ -284,7 +287,7 @@ export class WorkspaceModel extends TypedEventTarget<{
     } catch {
       // A corrupt entry restores no tabs.
     }
-    this.tabs = Tabs.restore(snapshot, this.hasNote)
+    this.tabs.restore(snapshot, this.hasNote)
     await this.#loadActiveTab()
   }
 
@@ -301,9 +304,16 @@ export class WorkspaceModel extends TypedEventTarget<{
     await this.#loadActiveTab()
   }
 
-  /** Makes the session show the active tab's note (or nothing without tabs). */
+  /** Makes the session show the active tab's note, or reads the active reader tab's file (nothing without tabs). */
   async #loadActiveTab(): Promise<void> {
-    const id = this.tabs.active?.path
+    const tab = this.tabs.active
+    if (tab?.kind === 'reader') {
+      if (this.session.note) this.session.close()
+      await this.#loadReader(tab)
+      return
+    }
+    this.reader = null
+    const id = tab?.path
     if (id === undefined) {
       if (this.session.note) this.session.close()
       this.changed()
@@ -328,6 +338,31 @@ export class WorkspaceModel extends TypedEventTarget<{
   }
 
   /**
+   * Reads the reader tab's file again. A `404` (ticket revoked, or the file is gone) closes the tab;
+   * closing still revokes the ticket, so a file that went away does not keep a live grant.
+   */
+  async #loadReader(tab: ReaderTab): Promise<void> {
+    // Another reader's content never shows under this tab while it loads (or after it failed).
+    if (this.reader?.ticket !== tab.ticket) {
+      this.reader = null
+      this.changed()
+    }
+    try {
+      const document = await client.readReader(tab.ticket)
+      if (this.tabs.active !== tab) return
+      this.reader = { ticket: tab.ticket, document }
+      this.changed()
+    } catch (error) {
+      if (!(error instanceof ApiError && error.status === 404)) {
+        this.fail(error)
+        return
+      }
+      this.notify('error', error.message)
+      await this.closeTab(tab.key)
+    }
+  }
+
+  /**
    * Opens a note after saving the current one (refused while that has an unresolved conflict): in
    * the active tab, pushing onto its back trail, or with `newTab` in a new tab after it.
    */
@@ -342,10 +377,22 @@ export class WorkspaceModel extends TypedEventTarget<{
 
   /**
    * Closes a tab (the active one by default). Closing the active tab saves its note first; `discard`
-   * drops unsaved edits instead (the "Close" of a note removed on disk).
+   * drops unsaved edits instead (the "Close" of a note removed on disk). A reader tab closes once
+   * main revoked its ticket (a `404` means it already was); if revoking fails the tab stays open.
    */
   async closeTab(key = this.tabs.activeKey, options: { discard?: boolean } = {}): Promise<void> {
     if (key === null) return
+    const tab = this.tabs.tabs.find((item) => item.key === key)
+    if (tab?.kind === 'reader') {
+      try {
+        await client.closeReader(tab.ticket)
+      } catch (error) {
+        if (!(error instanceof ApiError && error.status === 404)) {
+          this.fail(error)
+          return
+        }
+      }
+    }
     if (key !== this.tabs.activeKey) {
       this.tabs.close(key)
       this.#saveTabs()
@@ -619,10 +666,12 @@ export class WorkspaceModel extends TypedEventTarget<{
   }
 
   /**
-   * `.md` files opened from Finder/Explorer, taken from main until its queue is empty: each switches
-   * to its vault (unless that is already open) and opens the note in a new tab (or its existing tab).
-   * Called after hydration and on SSE `open-request`; a call made while a drain runs starts its own
-   * drain after that one, so a request queued as the running drain ends is still taken.
+   * `.md` files opened from Finder/Explorer, taken from main until its queue is empty. A note of a
+   * known vault switches to that vault (unless it is already open) and opens in a new tab (or its
+   * existing tab); an outside file opens in a reader tab (its existing one when it already has one)
+   * and leaves the vault alone. Called after hydration and on SSE `open-request`; a call made while
+   * a drain runs starts its own drain after that one, so a request queued as the running drain ends
+   * is still taken.
    */
   takeOpenRequest(): Promise<void> {
     this.#openRequests = this.#openRequests.then(() => this.#drainOpenRequests())
@@ -632,13 +681,18 @@ export class WorkspaceModel extends TypedEventTarget<{
   async #drainOpenRequests(): Promise<void> {
     await this.attempt(async () => {
       for (let request = await client.takeOpenRequest(); request; request = await client.takeOpenRequest()) {
+        if (request.kind === 'external') {
+          const { ticket, name } = request
+          await this.#switchTabs(() => this.tabs.openReader(ticket, name))
+          continue
+        }
         if (this.data.vault?.root !== request.vault) {
           if (!(await this.leaveNote())) return
           const result = await client.openVault(request.vault)
           if (result.workspace) await this.#switched(result.workspace)
         }
         const id = request.id
-        const tab = this.tabs.tabs.find((item) => item.path === id)
+        const tab = this.tabs.tabs.find((item) => item.kind === 'note' && item.path === id)
         if (tab) await this.activateTab(tab.key)
         else await this.openNote(id, { newTab: true })
       }
@@ -901,7 +955,7 @@ export class WorkspaceModel extends TypedEventTarget<{
     if (folderGone || tagGone) this.selection = { kind: 'all' }
     // Background tabs (and trail entries) of notes that are gone; the active tab keeps its note
     // until the user resolves the removal (conflict bar).
-    const active = this.tabs.active?.path
+    const active = this.tabs.active?.kind === 'note' ? this.tabs.active.path : undefined
     this.tabs.forget((path) => path !== active && !this.hasNote(path))
     this.#saveTabs()
     if (this.query.trim() !== '') void this.#search()

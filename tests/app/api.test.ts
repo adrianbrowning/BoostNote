@@ -1,4 +1,4 @@
-import { mkdir, readFile, symlink, writeFile } from 'node:fs/promises'
+import { mkdir, readFile, rm, symlink, writeFile } from 'node:fs/promises'
 import * as path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { MAX_IMPORT_PATHS } from '../../src/app/actions/api/controller.ts'
@@ -7,6 +7,7 @@ import type {
   ImportSummary,
   LinkUpdateReport,
   NoteDocument,
+  OpenRequest,
   SaveConflictBody,
   TitleRenamePlan,
   TitleRenameReport,
@@ -374,6 +375,83 @@ describe('vaults', () => {
     expect((await app.post(api.openExternal.href(), { url: 'file:///etc/passwd' })).status).toBe(400)
     expect((await app.post(api.openExternal.href(), { url: 'javascript:alert(1)' })).status).toBe(400)
     expect(app.opened).toEqual(['https://example.com/a'])
+  })
+})
+
+describe('reader', () => {
+  /** Opens `<dir>/outside/<name>` from the OS and takes the request as the page does. */
+  async function openOutside(name: string, text: string): Promise<{ file: string; ticket: string }> {
+    const file = path.join(app.dir, 'outside', name)
+    await mkdir(path.dirname(file), { recursive: true })
+    await writeFile(file, text)
+    app.vaults.requestOpen(file)
+    const raw = await (await app.post(api.openRequest.href())).text()
+    const request: OpenRequest | null = JSON.parse(raw)
+    if (request?.kind !== 'external') throw new Error(`Expected an external request, got ${raw}`)
+    // Only the base name crosses the boundary: the ticket is opaque random hex, never the path.
+    expect(Object.keys(request).sort()).toEqual(['kind', 'name', 'ticket'])
+    expect(request.ticket).toMatch(/^[0-9a-f]{48}$/)
+    expect(request.name).toBe(name)
+    expect(raw).not.toContain(app.dir)
+    return { file, ticket: request.ticket }
+  }
+
+  it('reads an outside file through its ticket, fresh each time, naming only its base name', async () => {
+    const { file, ticket } = await openOutside('readme.md', '---\ntags: [a]\n---\n# Readme\n\n<script>x()</script>\n')
+    const first = await app.get(api.readerRead.href({ ticket }))
+    expect(first.status).toBe(200)
+    const text = await first.text()
+    expect(JSON.parse(text)).toEqual({
+      name: 'readme.md',
+      body: '# Readme\n\n<script>x()</script>\n',
+      frontmatter: { tags: ['a'] },
+      // Rendered and sanitised like an export: the script is gone.
+      html: '<h1 id="readme">Readme</h1>\n\n',
+    })
+    expect(text).not.toContain(app.dir)
+
+    await writeFile(file, 'Changed\n')
+    expect(await readJson(await app.get(api.readerRead.href({ ticket })))).toEqual({
+      name: 'readme.md',
+      body: 'Changed\n',
+      frontmatter: {},
+      html: '<p>Changed</p>\n',
+    })
+    // No vault was opened for it.
+    expect(app.vaults.current).toBeUndefined()
+    expect(app.settings.read()).toEqual({})
+  })
+
+  it('refuses a ticket after its reader closed, unknown tickets, and a file that is gone', async () => {
+    const { ticket } = await openOutside('a.md', '# A\n')
+    const gone = await openOutside('b.md', '# B\n')
+    const closed = await app.post(api.readerClose.href({ ticket }))
+    expect(closed.status).toBe(200)
+    expect(await closed.json()).toEqual({ ok: true })
+    const after = await app.get(api.readerRead.href({ ticket }))
+    expect(after.status).toBe(404)
+    expect(await after.text()).not.toContain(app.dir)
+    expect((await app.get(api.readerRead.href({ ticket: 'made-up' }))).status).toBe(404)
+    expect((await app.post(api.readerClose.href({ ticket }))).status).toBe(404)
+    expect((await app.post(api.readerClose.href({ ticket: 'made-up' }))).status).toBe(404)
+
+    await rm(gone.file)
+    const missing = await app.get(api.readerRead.href({ ticket: gone.ticket }))
+    expect(missing.status).toBe(404)
+    expect(await missing.text()).not.toContain(app.dir)
+  })
+
+  it('refuses a granted file swapped for a symlink, never reading what the link points at', async () => {
+    const { file, ticket } = await openOutside('swap.md', '# Granted\n')
+    const secret = path.join(app.dir, 'secret.txt')
+    await writeFile(secret, 'not for the page\n')
+    await rm(file)
+    await symlink(secret, file)
+    const response = await app.get(api.readerRead.href({ ticket }))
+    expect(response.status).toBe(404)
+    const text = await response.text()
+    expect(text).not.toContain('not for the page')
+    expect(text).not.toContain(app.dir)
   })
 })
 

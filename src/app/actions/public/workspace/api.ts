@@ -10,6 +10,7 @@ import type {
   NoteDocument,
   OpenRequest,
   PreferencesState,
+  ReaderDocument,
   SaveConflictBody,
   TitleRename,
   TitleRenamePlan,
@@ -129,4 +130,7 @@ export const client = {
     post<ExportResult>(api.exportNote.href(), { id, format }),
   exportFolder: (folder: string) => post<ExportResult>(api.exportFolder.href(), { folder }),
   takeOpenRequest: () => post<OpenRequest | null>(api.openRequest.href()),
+  readReader: (ticket: string) => request<ReaderDocument>(api.readerRead.href({ ticket })),
+  /** Revokes a reader tab's ticket (the tab closed). */
+  closeReader: (ticket: string) => post<unknown>(api.readerClose.href({ ticket })),
 }

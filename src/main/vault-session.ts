@@ -1,6 +1,7 @@
 import { realpath } from 'node:fs/promises'
 import * as path from 'node:path'
 
+import { ReaderGrants } from '../app/reader-grants.ts'
 import { openVault, type Vault, VaultError } from '../vault/index.ts'
 import { isInside, noteSegments } from '../vault/paths.ts'
 import type { EventHub } from './events.ts'
@@ -17,16 +18,19 @@ export interface VaultSessionOptions {
 }
 
 /**
- * A markdown file opened from the OS (Finder, Explorer, argv), as a note to open: in the open vault
- * or a recent vault when the file lies inside one, else in the file's own folder as the vault.
+ * A markdown file opened from the OS (Finder, Explorer, argv): a note of the open vault or a recent
+ * vault when the file is a note of it, else (outside every known vault, or in a hidden or `*.assets`
+ * folder) a read-only reader: a `ReaderGrants` ticket and the file's base name, never its path.
  */
-export interface OpenRequest {
-  kind: 'note'
-  /** Real path of the vault root. */
-  vault: string
-  /** Note id inside that vault (`work/plan.md`). */
-  id: string
-}
+export type OpenRequest =
+  | {
+      kind: 'note'
+      /** Real path of the vault root. */
+      vault: string
+      /** Note id inside that vault (`work/plan.md`). */
+      id: string
+    }
+  | { kind: 'external'; ticket: string; name: string }
 
 /**
  * The open vault of the app (at most one) and the vault list in `settings.json`. Opening a vault
@@ -40,6 +44,8 @@ export class VaultSession {
   #vault: Vault | undefined
   #queue: Promise<unknown> = Promise.resolve()
   readonly #openRequests: string[] = []
+  /** Tickets of the outside files opened in reader tabs (`GET /api/reader/:ticket`). */
+  readonly readers = new ReaderGrants()
 
   constructor(options: VaultSessionOptions) {
     this.#settings = options.settings
@@ -60,8 +66,9 @@ export class VaultSession {
   /**
    * Queues a `.md` file the OS asked the app to open and tells the workspace (SSE `open-request`).
    * The workspace takes the queue (`takeOpenRequest` until `undefined`) after hydrating or on the
-   * event, saves the open note, switches vaults and opens the note, so a request made before the
-   * window exists is not lost and a second quick request does not replace the first.
+   * event: a note switches vaults when needed and opens in a tab, an outside file opens in a reader
+   * tab. A request made before the window exists is not lost and a second quick request does not
+   * replace the first.
    */
   requestOpen(file: string): void {
     this.#openRequests.push(path.resolve(file))
@@ -70,21 +77,24 @@ export class VaultSession {
 
   /**
    * The oldest queued request, removed; `undefined` when the queue is empty. Files that are gone or
-   * not `.md` are dropped. The real path is matched against the open vault, then the recent vaults.
+   * not `.md` are dropped, as are outside files that are not regular files (`ReaderGrants.grant`).
+   * The real path is matched against the open vault, then the recent vaults.
    */
   async takeOpenRequest(): Promise<OpenRequest | undefined> {
     for (let file = this.#openRequests.shift(); file !== undefined; file = this.#openRequests.shift()) {
       const real = await realpath(file).catch(() => undefined)
-      if (real !== undefined && /\.md$/i.test(real)) return this.#noteFor(real)
+      if (real === undefined || !/\.md$/i.test(real)) continue
+      const request = await this.#requestFor(real)
+      if (request !== undefined) return request
     }
     return undefined
   }
 
   /**
    * The first known vault (open, then recent) whose real root holds `real`. A file in a hidden or
-   * `*.assets` folder of that vault is no note of it and opens like an outside file (its folder as vault).
+   * `*.assets` folder of that vault is no note of it and opens like an outside file, in a reader.
    */
-  async #noteFor(real: string): Promise<OpenRequest> {
+  async #requestFor(real: string): Promise<OpenRequest | undefined> {
     const open = this.#vault?.root
     const known = open === undefined ? this.recent : [open, ...this.recent]
     for (const root of known) {
@@ -94,7 +104,8 @@ export class VaultSession {
       if (isNoteId(id)) return { kind: 'note', vault: realRoot, id }
       break
     }
-    return { kind: 'note', vault: path.dirname(real), id: path.basename(real) }
+    const ticket = await this.readers.grant(real)
+    return ticket === undefined ? undefined : { kind: 'external', ticket, name: path.basename(real) }
   }
 
   /**
