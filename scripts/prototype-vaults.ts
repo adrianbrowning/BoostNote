@@ -15,9 +15,20 @@ try {
   if (values.shots) {
     const dir = path.resolve(values.shots)
     await mkdir(dir, { recursive: true })
-    for (const key of ['A', 'B', 'C']) {
+    for (const key of ['A', 'B', 'C', 'D']) {
       await app.page.goto(`boost://app/prototype/vaults?variant=${key}`)
       await app.page.locator(`[data-variant="${key}"]`).waitFor()
+      // D's question is the dropdown itself: shoot it open, with a tab in each vault.
+      if (key === 'D') {
+        await app.page.getByRole('button', { name: /Standup notes/ }).click()
+        await app.page.locator('[data-vault-switcher]').click()
+        await app.page.getByRole('menuitemradio', { name: /AgentMemory/ }).click()
+        await app.page
+          .getByRole('button', { name: /MEMORY/ })
+          .first()
+          .click()
+        await app.page.locator('[data-vault-switcher]').click()
+      }
       await app.page.screenshot({ path: path.join(dir, `variant-${key}.png`) })
     }
     console.log(`Screenshots in ${dir}`)

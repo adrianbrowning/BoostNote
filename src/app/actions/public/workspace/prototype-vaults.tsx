@@ -11,6 +11,7 @@ const VARIANTS = [
   { key: 'A', name: 'Vault rail' },
   { key: 'B', name: 'One sidebar, many vaults' },
   { key: 'C', name: 'Window per vault' },
+  { key: 'D', name: 'Open vaults in the dropdown' },
 ] as const
 type VariantKey = (typeof VARIANTS)[number]['key']
 
@@ -50,6 +51,7 @@ export const PrototypeVaults = clientEntry(
     let mixedActive: ProtoTab | null = null
     const collapsed = new Set<string>()
     let windowMenu = false
+    let vaultMenu = false
 
     const update = () => void handle.update()
     const setVariant = (next: VariantKey) => {
@@ -259,6 +261,135 @@ export const PrototypeVaults = clientEntry(
       )
     }
 
+    // ── D: today's vault dropdown, but vaults stay open: switch keeps each vault's tabs ────
+    const variantD = () => {
+      const vault = vaultOf(active)
+      const view = viewOf(active)
+      const pick = (root: string) => {
+        vaultMenu = false
+        openVault(root)
+      }
+      return (
+        <div mix={[shellStyle, multiGridStyle]}>
+          <aside mix={sidebarStyle}>
+            <div mix={menuAnchorStyle}>
+              <button
+                type="button"
+                mix={[
+                  vaultSwitcherStyle,
+                  on('click', () => {
+                    vaultMenu = !vaultMenu
+                    update()
+                  }),
+                ]}
+                title={vault.root}
+                aria-expanded={vaultMenu ? 'true' : 'false'}
+                data-vault-switcher
+              >
+                {dot(vault)}
+                <span mix={labelStyle}>{vault.name}</span>
+                <span aria-hidden="true">▾</span>
+              </button>
+              {vaultMenu ? (
+                <div mix={[menuStyle, dropdownStyle]} role="menu">
+                  <p mix={[paneHeading, menuHeadingStyle]}>Open</p>
+                  {open.map((root) => {
+                    const item = vaultOf(root)
+                    const tabs = viewOf(root).tabs.length
+                    return (
+                      <div key={root} mix={menuRowStyle}>
+                        <button
+                          type="button"
+                          role="menuitemradio"
+                          aria-checked={root === active ? 'true' : 'false'}
+                          mix={[menuItemStyle, growStyle, on('click', () => pick(root))]}
+                        >
+                          <span mix={checkStyle}>{root === active ? '✓' : ''}</span>
+                          {dot(item)}
+                          <span mix={labelStyle}>{item.name}</span>
+                          {tabs > 0 ? <span mix={countStyle}>{tabs === 1 ? '1 tab' : `${tabs} tabs`}</span> : null}
+                        </button>
+                        <button
+                          type="button"
+                          mix={[iconButton, on('click', () => closeVault(root))]}
+                          aria-label={`Close ${item.name}`}
+                          title={`Close ${item.name} (its tabs are remembered)`}
+                        >
+                          ×
+                        </button>
+                      </div>
+                    )
+                  })}
+                  {closed().length > 0 ? <p mix={[paneHeading, menuHeadingStyle]}>Recent</p> : null}
+                  {closed().map((item) => (
+                    <button
+                      key={item.root}
+                      type="button"
+                      role="menuitem"
+                      mix={[menuItemStyle, on('click', () => pick(item.root))]}
+                    >
+                      <span mix={checkStyle} />
+                      {dot(item)}
+                      <span mix={labelStyle}>{item.name}</span>
+                    </button>
+                  ))}
+                  <hr mix={menuRuleStyle} />
+                  <button type="button" role="menuitem" mix={[menuItemStyle, muted]} disabled>
+                    <span mix={checkStyle} />
+                    Open Folder…
+                  </button>
+                  <button type="button" role="menuitem" mix={[menuItemStyle, muted]} disabled>
+                    <span mix={checkStyle} />
+                    Import Boostnote Storage…
+                  </button>
+                  <hr mix={menuRuleStyle} />
+                  <button
+                    type="button"
+                    role="menuitem"
+                    mix={[
+                      menuItemStyle,
+                      on('click', () => {
+                        vaultMenu = false
+                        closeVault(active)
+                      }),
+                    ]}
+                  >
+                    <span mix={checkStyle} />
+                    Close {vault.name}
+                  </button>
+                </div>
+              ) : null}
+            </div>
+            {folderRows(vault, view.folder, (folder) => {
+              view.folder = folder
+              update()
+            })}
+          </aside>
+          <section mix={noteListStyle}>
+            {noteRows(
+              inFolder(vault, view.folder).map((item) => ({ vault, note: item })),
+              (tab) => tab.root === active && tab.id === view.active,
+              false,
+            )}
+          </section>
+          <main mix={editorStyle}>
+            <div mix={tabStripStyle}>
+              {view.tabs.map((id) => (
+                <button
+                  key={id}
+                  type="button"
+                  mix={[tabStyle, on('click', () => openNote(active, id))]}
+                  aria-pressed={id === view.active ? 'true' : 'false'}
+                >
+                  {vault.notes.find((item) => item.id === id)?.title}
+                </button>
+              ))}
+            </div>
+            {editor(view.active ? { root: active, id: view.active } : null, false)}
+          </main>
+        </div>
+      )
+    }
     // ── B: every open vault is a section of one sidebar; tabs mix vaults ────────────────
     const variantB = () => {
       const pickAll = () => {
@@ -509,6 +640,7 @@ export const PrototypeVaults = clientEntry(
           {variant === 'A' && !empty ? variantA() : null}
           {variant === 'B' && !empty ? variantB() : null}
           {variant === 'C' ? variantC() : null}
+          {variant === 'D' && !empty ? variantD() : null}
           <div mix={switcherStyle} data-prototype-switcher>
             <button type="button" mix={[switchArrowStyle, on('click', () => cycle(-1))]} aria-label="Previous variant">
               ‹
@@ -713,6 +845,7 @@ const menuStyle = css({
 })
 const menuItemStyle = css({
   display: 'flex',
+  alignItems: 'center',
   gap: '6px',
   padding: '4px 8px',
   border: 0,
@@ -798,3 +931,22 @@ const stateStyle = css({
     fontSize: '11px',
   },
 })
+const vaultSwitcherStyle = css({
+  display: 'flex',
+  alignItems: 'center',
+  gap: '6px',
+  width: '100%',
+  padding: '6px 8px',
+  marginBottom: '6px',
+  border: 0,
+  borderRadius: '6px',
+  background: 'transparent',
+  fontWeight: 600,
+  textAlign: 'left',
+  cursor: 'pointer',
+  '&:hover, &[aria-expanded="true"]': { background: 'var(--bg-hover)' },
+})
+const dropdownStyle = css({ zIndex: 20, top: '36px', minWidth: '240px', border: '1px solid var(--border)' })
+const menuHeadingStyle = css({ margin: '6px 8px 2px' })
+const menuRowStyle = css({ display: 'flex', alignItems: 'center' })
+const growStyle = css({ flex: 1, minWidth: 0, alignItems: 'center' })
