@@ -114,7 +114,10 @@ function showMainWindow(): void {
   const window = liveWindow()
   if (!window) {
     mainWindow = createMainWindow({ settings, isQuitting: () => leaving })
-    mainWindow.on('focus', () => void vaults.current?.refresh().catch(() => undefined))
+    // Catches changes the watchers missed; the hidden vaults too, so switching shows them current.
+    mainWindow.on('focus', () => {
+      for (const vault of vaults.all) void vault.refresh().catch(() => undefined)
+    })
     if (process.platform !== 'darwin') guardClose(mainWindow)
     return
   }

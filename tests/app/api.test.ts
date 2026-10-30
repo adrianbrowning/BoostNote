@@ -73,10 +73,13 @@ describe('error mapping', () => {
     expect(await duplicate.json()).toMatchObject({ error: 'EXISTS' })
   })
 
-  it('rejects API calls without an open vault and malformed bodies', async () => {
+  it('rejects API calls that name no vault or a vault that is not open, and malformed bodies', async () => {
     const noVault = await app.post(api.noteCreate.href(), { folder: '' })
-    expect(noVault.status).toBe(409)
-    expect(await noVault.json()).toMatchObject({ error: 'NO_VAULT' })
+    expect(noVault.status).toBe(400)
+    expect(await noVault.json()).toMatchObject({ error: 'BAD_REQUEST' })
+    const notOpen = await app.post(api.noteCreate.href(), { folder: '' }, { vault: path.join(app.dir, 'nope') })
+    expect(notOpen.status).toBe(409)
+    expect(await notOpen.json()).toMatchObject({ error: 'NO_VAULT' })
 
     await app.openVault()
     const bad = await app.router.fetch(
@@ -303,11 +306,14 @@ describe('assets', () => {
   it('uploads an asset next to the note and serves it with its content type', async () => {
     const png = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1, 2, 3])
     const upload = await app.router.fetch(
-      new Request(new URL(`${api.assetUpload.href()}?note=note.md&ext=png`, 'http://app'), {
-        method: 'POST',
-        headers: { 'Content-Type': 'image/png' },
-        body: png,
-      }),
+      new Request(
+        new URL(`${api.assetUpload.href()}?note=note.md&ext=png&vault=${encodeURIComponent(vault.root)}`, 'http://app'),
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'image/png' },
+          body: png,
+        },
+      ),
     )
     expect(upload.status).toBe(201)
     const { href } = await readJson<{ href: string }>(upload)
@@ -363,10 +369,45 @@ describe('vaults', () => {
     app.picks.push(undefined)
     expect(await readJson(await app.post(api.vaultPick.href()))).toEqual({ cancelled: true })
 
-    const closed = await readJson<WorkspaceData>(await app.post(api.vaultClose.href()))
+    const closed = await readJson<WorkspaceData>(
+      await app.post(api.vaultClose.href(), { path: app.vaults.current?.root }),
+    )
     expect(closed.vault).toBeNull()
     expect(closed.recent.map((item) => item.name)).toEqual(['picked'])
     expect((await app.post(api.vaultOpen.href(), { path: path.join(app.dir, 'missing') })).status).toBe(400)
+  })
+
+  it('keeps several vaults open and answers each request from the vault it names', async () => {
+    const a = await app.openVault('a')
+    await a.createNote('', 'only in a')
+    const b = await app.openVault('b')
+    await b.createNote('', 'only in b')
+    const inA = { vault: a.root }
+
+    const workspaceA = await readJson<WorkspaceData>(await app.get(api.workspace.href(), inA))
+    expect(workspaceA.vault?.name).toBe('a')
+    expect(workspaceA.notes.map((note) => note.id)).toEqual(['only in a.md'])
+    expect(workspaceA.open.map((item) => item.name)).toEqual(['a', 'b'])
+    expect((await app.get(`${api.noteRead.href()}?id=only in b.md`, inA)).status).toBe(404)
+    expect((await app.get(`${api.noteRead.href()}?id=only in b.md`)).status).toBe(200) // b is active
+
+    // Switching to an open vault reuses it; the other stays open.
+    const switched = await readJson<{ workspace: WorkspaceData }>(
+      await app.post(api.vaultOpen.href(), { path: a.root }),
+    )
+    expect(switched.workspace.vault?.name).toBe('a')
+    expect(app.vaults.get(a.root)).toBe(a)
+    expect(app.vaults.get(b.root)).toBe(b)
+  })
+
+  it('refuses a request for a vault closed since the page asked, instead of using another vault', async () => {
+    const a = await app.openVault('a')
+    const b = await app.openVault('b')
+    const after = await readJson<WorkspaceData>(await app.post(api.vaultClose.href(), { path: a.root }))
+    expect(after.vault?.root).toBe(b.root)
+    const late = await app.post(api.noteCreate.href(), { folder: '' }, { vault: a.root })
+    expect(late.status).toBe(409)
+    expect(b.index.all()).toEqual([])
   })
 
   it('opens only http(s) links externally', async () => {
@@ -429,7 +470,11 @@ describe('drop import', () => {
   })
 
   it('needs an open vault', async () => {
-    const response = await app.post(api.importFiles.href(), { ticket: app.drops.grant([app.dir]), folder: '' })
+    const response = await app.post(
+      api.importFiles.href(),
+      { ticket: app.drops.grant([app.dir]), folder: '' },
+      { vault: path.join(app.dir, 'vault') },
+    )
     expect(response.status).toBe(409)
   })
 })

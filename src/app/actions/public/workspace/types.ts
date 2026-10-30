@@ -90,6 +90,8 @@ export interface VaultSummary {
 /** Everything the sidebar and note list render. `vault` is `null` when no vault is open. */
 export interface WorkspaceData {
   vault: VaultSummary | null
+  /** Every open vault (`vault` is one of them), in the order they were opened. */
+  open: VaultSummary[]
   recent: VaultSummary[]
   tree: FolderSummary | null
   notes: NoteSummary[]

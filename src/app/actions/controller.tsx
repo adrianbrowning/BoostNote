@@ -39,10 +39,11 @@ export function createRootController(services: AppServices) {
       vendor(context) {
         return serveVendorFile(context.request, context.params.path)
       },
+      /** `GET /vault-assets/<note id>?vault=<root>&src=<link>`: the open vault is named, like `/api`. */
       async vaultAssets(context) {
         try {
-          const vault = services.vaults.current
-          if (!vault) throw new HttpError(404, 'NO_VAULT', 'No vault is open')
+          const vault = services.vaults.get(requireString(context.url.searchParams.get('vault'), 'vault'))
+          if (!vault) throw new HttpError(404, 'NO_VAULT', 'This vault is not open')
           // `vault.assetPath` rejects links that leave the vault (also via symlinks) or enter dot-directories.
           const file = await vault.assetPath(
             context.params.path,

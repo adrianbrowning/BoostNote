@@ -1,6 +1,6 @@
 import { TypedEventTarget } from 'remix/component'
 
-import { ApiError, client } from './api.ts'
+import { ApiError, client, setPageVault } from './api.ts'
 import type { DropTicket } from './drop-import.ts'
 import { NoteSession } from './note-session.ts'
 import { baseName, folderChain, parentOf } from './paths.ts'
@@ -151,6 +151,7 @@ export class WorkspaceModel extends TypedEventTarget<{
   constructor(initial: WorkspaceData, preferences: PreferencesState) {
     super()
     this.data = initial
+    setPageVault(initial.vault?.root ?? null)
     this.preferences = preferences.ui
     this.hotkeyRegistered = preferences.hotkeyRegistered
     this.update = preferences.update
@@ -855,9 +856,11 @@ export class WorkspaceModel extends TypedEventTarget<{
     })
   }
 
+  /** Closes the vault on screen; another open vault (the most recently used) takes its place. */
   async closeVault(): Promise<void> {
-    if (!(await this.leaveNote())) return
-    await this.attempt(async () => this.#switched(await client.closeVault()))
+    const root = this.data.vault?.root
+    if (!root || !(await this.leaveNote())) return
+    await this.attempt(async () => this.#switched(await client.closeVault(root)))
   }
 
   async forgetVault(path: string): Promise<void> {
@@ -870,6 +873,7 @@ export class WorkspaceModel extends TypedEventTarget<{
   #switched(data: WorkspaceData): Promise<void> {
     this.session.close()
     this.data = data
+    setPageVault(data.vault?.root ?? null)
     this.selection = { kind: 'all' }
     this.expanded.clear()
     this.importOpen = false
@@ -898,8 +902,9 @@ export class WorkspaceModel extends TypedEventTarget<{
     this.changed()
   }
 
-  /** SSE `vault` event: an external change. */
+  /** SSE `vault` event: an external change. Changes in the other open vaults don't concern this page. */
   onVaultChange(change: VaultChangeEvent): void {
+    if (change.root !== this.data.vault?.root) return
     if (change.id === this.openId) {
       if (change.change === 'note-removed') this.session.externalRemoval()
       else void this.session.externalChange()

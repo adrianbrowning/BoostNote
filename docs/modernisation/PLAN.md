@@ -107,7 +107,7 @@ tests/         Vitest tests mirroring src/; tests/e2e for Playwright (phase 6)
 ```
 
 App-level settings live in `<userData>/settings.json` (owned by main: window bounds, `vaults`,
-`lastVault`, and the `ui` section of preferences and pane layout, see phase 5). `userData` is `<appData>/Boostnote Modern`, deliberately not legacy Boostnote's
+`openVaults`, `lastVault`, and the `ui` section of preferences and pane layout, see phase 5). `userData` is `<appData>/Boostnote Modern`, deliberately not legacy Boostnote's
 `<appData>/Boostnote`: sharing it would make both apps contend for the single-instance lock and let
 Chromium 140+ migrate the Electron 4 profile in place. A `--user-data-dir=<dir>` switch overrides it
 (tests, side-by-side profiles).
@@ -167,10 +167,16 @@ small entries because the three panes share live state (selection, the dirty edi
 - `sidebar.tsx`, `note-list.tsx`, `editor-pane.tsx`, `overlays.tsx`, `import-dialog.tsx` — plain
   components inside the entry; `api.ts` is the typed client of `/api`, `types.ts` the shared JSON shapes.
 
-Main side: `VaultSession` (`src/main/vault-session.ts`, plain Node) holds the open vault (opened with
-`{ watch: true }`), keeps `vaults[]` (most recent first, max 10) and `lastVault` in `settings.json`,
-reopens `lastVault` before the first window loads and forwards watcher events to the SSE hub as
-`event: vault` (`{ type: 'vault', change, id }`). The router is built by `createAppRouter(services)`;
+Main side: `VaultSession` (`src/main/vault-session.ts`, plain Node) holds the open vaults (each opened
+with `{ watch: true }`, by real root, in opening order) and the active one, the vault the window
+shows. Opening an open vault only makes it active; closing the active vault makes the most recently
+used other open vault active. It keeps `vaults[]` (Recent: most recent first, max 10), `openVaults`
+and `lastVault` (the active vault; also the CLI's default) in `settings.json`, reopens every
+`openVaults` folder with `lastVault` active before the first window loads (folders that are gone are
+dropped; settings from before several vaults could be open have only `lastVault`), and forwards
+every vault's watcher events to the SSE hub as `event: vault` (`{ type: 'vault', root, change, id }`;
+note ids repeat across vaults, so the page ignores other roots). On window focus every open vault
+is refreshed. The router is built by `createAppRouter(services)`;
 `AppServices` (`src/app/services.ts`) is everything Electron-specific (folder picker =
 `dialog.showOpenDialog`, `shell.openExternal`, `shell.showItemInFolder`, legacy storage discovery),
 so controllers never import Electron and tests pass fakes. The File menu (New Note ⌘N, New Folder
@@ -179,17 +185,22 @@ the workspace performs them because it knows the selected folder and open note.
 
 ### Routes
 
-All URLs are path-only. Ids travel in query strings or JSON bodies (note ids are paths). Errors are
-JSON `{ error, message }`: `VaultError` `INVALID_PATH`/`NOT_A_VAULT` → 400, `NOT_FOUND` → 404,
-`EXISTS` → 409; `MigrationError` → 400 (`TARGET_NOT_EMPTY` → 409); no open vault → 409 `NO_VAULT`.
+All URLs are path-only. Ids travel in query strings or JSON bodies (note ids are paths). Every
+vault-scoped route (all of `/api/*` except vaults, import, preferences, open-external and
+open-request, and `/vault-assets`) names its vault with `?vault=<root>`, which the client adds to
+every request (`setPageVault` in `api.ts`): a request still in flight after the page switched fails
+with `409 NO_VAULT` once its vault is closed, rather than reaching another vault. Errors are JSON
+`{ error, message }`: `VaultError` `INVALID_PATH`/`NOT_A_VAULT` → 400, `NOT_FOUND` → 404,
+`EXISTS` → 409; `MigrationError` → 400 (`TARGET_NOT_EMPTY` → 409); no `vault` → 400, a vault that is
+not open → 409 `NO_VAULT`.
 
 | Route | Purpose |
 | --- | --- |
-| `GET /` | Workspace document (SSR with the open vault's lists) |
-| `GET /vault-assets/<note id>?src=<link>` | File a note links to, resolved by `vault.assetPath` (no `..`, dot-dirs or symlink escapes); `Content-Type` from the extension, `nosniff`, `CSP: sandbox` |
-| `GET /api/workspace` | `{ vault, recent, tree, notes, trash }` |
+| `GET /` | Workspace document (SSR with the active vault's lists) |
+| `GET /vault-assets/<note id>?vault=&src=<link>` | File a note links to, resolved by `vault.assetPath` (no `..`, dot-dirs or symlink escapes); `Content-Type` from the extension, `nosniff`, `CSP: sandbox` |
+| `GET /api/workspace[?vault=]` | `{ vault, open, recent, tree, notes, trash }` of that open vault (default: the active one); `open` lists every open vault |
 | `GET /api/search?q=` | `{ ids }`, best first (vault index) |
-| `POST /api/vaults/pick` · `open {path}` · `close` · `forget {path}` | Folder dialog + open; open a recent vault; close; drop from Recent |
+| `POST /api/vaults/pick` · `open {path}` · `close {path}` · `forget {path}` | Folder dialog + open; open or switch to a vault (others stay open); close that vault; drop from Recent. Each answers with the workspace of the vault active afterwards |
 | `GET /api/notes/read?id=` | `NoteDocument`: summary + `frontmatter` + `body` + `hash` |
 | `POST /api/notes/save {id, body, baseHash, frontmatter?}` | Writes if the file's hash is still `baseHash` (`null`: must not exist); 409 `CONFLICT` with the disk version otherwise |
 | `POST /api/notes/create {folder}` · `rename {id, name}` · `move {id, folder}` · `delete {id}` · `reveal {id}` | Note CRUD (delete → trash), Reveal in Finder |
