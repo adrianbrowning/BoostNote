@@ -39,6 +39,14 @@ export interface MenuAction {
   run(): void
   danger?: boolean
   disabled?: boolean
+  /** Set: a radio item (✓ when `true`), e.g. the vault on screen. */
+  checked?: boolean
+  /** Muted text after the label ("2 tabs"). */
+  detail?: string
+  /** Tooltip, and the render key when labels can repeat (two vaults named `notes`). */
+  title?: string
+  /** A small × button at the end of the row (close this vault). */
+  secondary?: { label: string; run(): void }
 }
 
 export interface MenuColors {
@@ -47,7 +55,7 @@ export interface MenuColors {
   pick(color: string | null): void
 }
 
-export type MenuEntry = MenuAction | MenuColors | { kind: 'separator' }
+export type MenuEntry = MenuAction | MenuColors | { kind: 'separator' } | { kind: 'heading'; label: string }
 
 export interface ContextMenu {
   x: number
@@ -856,11 +864,33 @@ export class WorkspaceModel extends TypedEventTarget<{
     })
   }
 
-  /** Closes the vault on screen; another open vault (the most recently used) takes its place. */
-  async closeVault(): Promise<void> {
-    const root = this.data.vault?.root
-    if (!root || !(await this.leaveNote())) return
+  /**
+   * Closes an open vault (default: the one on screen). Closing the vault on screen switches to the
+   * most recently used other open vault; closing another one only updates the vault lists.
+   */
+  async closeVault(root = this.data.vault?.root): Promise<void> {
+    if (!root) return
+    if (root !== this.data.vault?.root) {
+      await this.attempt(async () => {
+        this.data = await client.closeVault(root)
+        this.changed()
+      })
+      return
+    }
+    if (!(await this.leaveNote())) return
     await this.attempt(async () => this.#switched(await client.closeVault(root)))
+  }
+
+  /** How many tabs an open vault keeps (its saved tabs; the vault on screen: its live tabs). */
+  tabCount(root: string): number {
+    if (root === this.data.vault?.root) return this.tabs.tabs.length
+    try {
+      const snapshot: unknown = JSON.parse(localStorage.getItem(tabsStorageKey(root)) ?? 'null')
+      const tabs = typeof snapshot === 'object' && snapshot !== null && 'tabs' in snapshot ? snapshot.tabs : []
+      return Array.isArray(tabs) ? tabs.length : 0
+    } catch {
+      return 0
+    }
   }
 
   async forgetVault(path: string): Promise<void> {
