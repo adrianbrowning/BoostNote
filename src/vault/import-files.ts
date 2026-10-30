@@ -43,6 +43,13 @@ export interface ImportOptions {
    * the file cannot change between the check and the copy (a reader tab's identity-checked reads).
    */
   read?: (real: string, kind: 'note' | 'asset') => Promise<ImportRead | undefined>
+  /**
+   * Why a linked file that would be copied is left alone instead, or `undefined` to copy it.
+   * `link` is the link's path as written (decoded, relative to the note's folder, not normalized),
+   * `real` the real path it resolves to. A refused link stays as it is and is listed in
+   * `unresolved` with the reason; the import goes on. Without it every linked file is copied.
+   */
+  refuseAsset?: (link: string, real: string) => string | undefined
 }
 
 /** What `Vault.importFiles` did. Paths in `source` are absolute paths as given (or found in a dropped folder). */
@@ -116,6 +123,7 @@ export async function planImport(options: {
   dir: string
   limits?: Partial<ImportLimits>
   read?: ImportOptions['read']
+  refuseAsset?: ImportOptions['refuseAsset']
 }): Promise<ImportPlan> {
   const { folder, dir } = options
   const limits = { ...DEFAULT_IMPORT_LIMITS, ...options.limits }
@@ -309,7 +317,12 @@ export async function planImport(options: {
         unresolved.set(relPath, 'note not part of this import')
         targets.set(relPath, null)
       } else {
-        targets.set(relPath, { asset: resolved.real })
+        const refusal = options.refuseAsset?.(relPath, resolved.real)
+        if (refusal === undefined) targets.set(relPath, { asset: resolved.real })
+        else {
+          unresolved.set(relPath, refusal)
+          targets.set(relPath, null)
+        }
       }
     }
     const assets = new Map<string, PlannedAsset>()

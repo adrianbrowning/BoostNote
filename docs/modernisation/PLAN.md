@@ -381,7 +381,11 @@ symlink again between the after-read `realpath` and `lstat` checks; this race is
 `openat` helper).
 Relative images in `html` point at `GET /reader-assets/:ticket?src=`, which follows the import's
 `resolveLink` rules against the file's folder (real path a regular file inside that folder, so `../`
-and symlink escapes are refused) and reads with the same checks; refused sources answer `404`. In the
+and symlink escapes are refused) and reads with the same checks. Reader assets are images only, with
+no dot-files: the link as written and its real path (symlinks resolved) must both end in an image
+extension (png, jpg, jpeg, gif, webp, svg, avif, bmp, ico; any case) and have no dot-file or
+dot-folder below the file's folder (`assetRefusal` in `src/app/reader-grants.ts`, the one rule for
+this route and for "Add to vault…"). Refused sources answer `404` with no path. In the
 reader, http(s) links open in the browser; relative `.md` and wiki links are inert.
 `POST /api/reader/:ticket/close` revokes the ticket when the tab closes; afterwards, and for unknown
 tickets, all these routes answer `404`. The banner's "Open folder as vault" posts
@@ -402,10 +406,14 @@ vault's note.
 folder of the open vault (`dropFolder` first) and posts `POST /api/reader/:ticket/import { folder }`.
 `VaultSession.importReader` runs in the vault queue: it checks the ticket and the open vault, then
 `ReaderGrants.importOnce` claims the ticket (a second import while one runs, or after, is refused),
-runs `vault.importFiles([file], folder, { read })` and revokes the ticket when the import returns;
-when it throws (a bad or missing folder) the ticket stays. `read` (`ImportOptions.read`) is the
-reader's identity-checked read: the note must be the granted file and each linked image a regular
-file inside its folder, read without following symlinks, and the bytes it read are the ones written,
+runs `vault.importFiles([file], folder, { read, refuseAsset })` and revokes the ticket when the import
+returns; when it throws (a bad or missing folder) the ticket stays. `refuseAsset`
+(`ImportOptions.refuseAsset`) is the reader assets rule above: a link to anything else (`.ssh/id_rsa`,
+`notes.txt`, a symlink to a dot-folder) stays as it is and is listed in the report's `unresolved`
+(vault id, link and reason); the rest of the import goes on. Drop import keeps its own rules.
+`read` (`ImportOptions.read`) is the
+reader's identity-checked read: the note must be the granted file and each linked image a file the
+rule allows by its real path, read without following symlinks, and the bytes it read are the ones written,
 so a file or parent folder swapped for a symlink after the checks fails the import instead of
 copying another file. The workspace in the answer is read in the same queue turn. The page saves the
 open note before the request (a refused save sends nothing), shows the drop import's notice

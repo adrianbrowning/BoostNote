@@ -216,7 +216,7 @@ describe('ReaderGrants', () => {
     const other = await file('doc/other.md', '# Other\n')
     const secret = await file('secret.png', 'not for the page')
     const ticket = await grant(granted)
-    const reads = await readers.importOnce(ticket, async (target, read) => ({
+    const reads = await readers.importOnce(ticket, async (target, { read }) => ({
       note: await read(target, 'note'),
       pic: await read(pic, 'asset'),
       otherNote: await read(other, 'note'),
@@ -230,6 +230,57 @@ describe('ReaderGrants', () => {
     expect(reads?.outside).toBeUndefined()
   })
 
+  it('serves as assets only images whose link and real path have no dot-file or dot-folder', async () => {
+    const granted = await file('doc/note.md', '# Note\n')
+    await file('doc/img/pic.png', 'PNG')
+    await file('doc/.x/key.png', 'not for the page')
+    await file('doc/notes.txt', 'not for the page')
+    await symlink(path.join(dir, 'doc', '.x', 'key.png'), path.join(dir, 'doc', 'shot.png'))
+    const ticket = await grant(granted)
+    const bytes = async (src: string) => (await readers.asset(ticket, src))?.bytes.toString()
+    expect(await bytes('img/pic.png')).toBe('PNG')
+    expect(await bytes('./img/../img/pic.png')).toBe('PNG')
+    // Hidden as written, even where the path normalizes past it; hidden after the symlink.
+    expect(await bytes('img/.x/../pic.png')).toBeUndefined()
+    expect(await bytes('.x/key.png')).toBeUndefined()
+    expect(await bytes('shot.png')).toBeUndefined()
+    expect(await bytes('notes.txt')).toBeUndefined()
+  })
+
+  it('hands the import a rule leaving links to anything but the folder’s images alone, and reads no other file', async () => {
+    const granted = await file('doc/note.md', '# Note\n')
+    const pic = await file('doc/img/pic.PNG', 'PNG')
+    const key = await file('doc/.ssh/id_rsa', 'not for the vault')
+    const hidden = await file('doc/.x/key.png', 'not for the vault')
+    const text = await file('doc/notes.txt', 'not for the vault')
+    const ticket = await grant(granted)
+    const result = await readers.importOnce(ticket, async (_target, { read, refuseAsset }) => ({
+      refusals: {
+        pic: refuseAsset('img/pic.PNG', pic),
+        key: refuseAsset('.ssh/id_rsa', key),
+        hidden: refuseAsset('.x/key.png', hidden),
+        text: refuseAsset('notes.txt', text),
+        writtenHidden: refuseAsset('img/.x/../pic.PNG', pic),
+      },
+      reads: [
+        (await read(pic, 'asset'))?.data.toString(),
+        await read(key, 'asset'),
+        await read(hidden, 'asset'),
+        await read(text, 'asset'),
+      ],
+    }))
+    expect(result).toEqual({
+      refusals: {
+        pic: undefined,
+        key: 'not an image',
+        hidden: 'hidden file or folder',
+        text: 'not an image',
+        writtenHidden: 'hidden file or folder',
+      },
+      reads: ['PNG', undefined, undefined, undefined],
+    })
+  })
+
   it('refuses the import’s read of a file or a linked file’s parent folder swapped for a symlink after the check', async () => {
     const granted = await file('doc/swap.md', '# Granted\n')
     const secret = await file('secret.md', 'not for the page\n')
@@ -237,7 +288,7 @@ describe('ReaderGrants', () => {
     const inner = await file('doc/img/inner.png', 'PNG')
     await file('elsewhere/inner.png', 'not for the page')
     const ticket = await grant(granted)
-    const result = await readers.importOnce(ticket, async (target, read) => {
+    const result = await readers.importOnce(ticket, async (target, { read }) => {
       // Between `importOnce`'s own check (and the import's `realpath`) and its read of each file.
       await rm(target)
       await symlink(secret, target)

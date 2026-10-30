@@ -6,7 +6,32 @@ import * as path from 'node:path'
 import type { ImportOptions } from '../vault/index.ts'
 import { isInside, safeDecode } from '../vault/paths.ts'
 
-type ImportReader = NonNullable<ImportOptions['read']>
+/** What `importOnce` hands its import for `Vault.importFiles`. */
+type ReaderImport = Required<Pick<ImportOptions, 'read' | 'refuseAsset'>>
+
+/** Extensions (any case) of the files a document's links may reach: images only. */
+const IMAGE = /\.(?:png|jpe?g|gif|webp|svg|avif|bmp|ico)$/i
+
+/**
+ * The one rule for the files an outside document links to, used by `/reader-assets` (`asset`) and
+ * by "Add to vault…" (`importOnce`): why the file is refused, or `undefined` when it may be read.
+ * `link` is the link as written (decoded, relative to `folder`, the document's folder, not
+ * normalized) and `real` its real path after symlinks. Both must name an image and have no hidden
+ * segment, and `real` must lie inside `folder`; so `.ssh/id_rsa`, `notes.txt`, `.hidden/pic.png`,
+ * `img/.x/../pic.png` and a `pic.png` symlink to `.secret/key.png` are all refused.
+ */
+function assetRefusal(folder: string, link: string, real: string): string | undefined {
+  const relative = path.relative(folder, real)
+  if (relative === '' || !isInside(folder, real)) return 'outside the file’s folder'
+  if (!IMAGE.test(link) || !IMAGE.test(real)) return 'not an image'
+  // A dot-file or dot-folder anywhere in either path (`.x/../pic.png` too); `.` and `..` are not
+  // hidden entries, and leaving `folder` is refused above.
+  const segments = `${link}/${relative}`.split(/[\\/]/)
+  if (segments.some((segment) => segment.startsWith('.') && segment !== '.' && segment !== '..')) {
+    return 'hidden file or folder'
+  }
+  return undefined
+}
 
 /** Never follows a symlink at the file itself and never blocks on a FIFO (Windows has neither flag). */
 const OPEN_FLAGS = constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0) | (constants.O_NONBLOCK ?? 0)
@@ -68,7 +93,8 @@ async function useRegular<T>(file: string, use: (handle: FileHandle) => Promise<
  * the path to still be its own real path and to name the file it read; see `useRegular` for the one
  * accepted race (a parent folder flipped to a symlink between those checks). Another regular file
  * renamed over it (an editor's atomic save) is that path's file now and reads under the same ticket.
- * Files the document links to (`asset`) are read with the same checks, inside the file's folder.
+ * Files the document links to (`asset`) are read with the same checks, and only when `assetRefusal`
+ * allows them: images inside the file's folder, with no dot-file or dot-folder on the way.
  */
 export class ReaderGrants {
   readonly #paths = new Map<string, string>()
@@ -115,10 +141,10 @@ export class ReaderGrants {
 
   /**
    * The bytes and base name of the file `src` (a relative link as written in the document,
-   * `img/a%20b.png`) names next to the file behind `ticket`. Follows the import's `resolveLink`
-   * rules: the real path must be a regular file inside the document's folder, so `../` and symlinks
-   * that leave it are refused; the read itself has `useRegular`'s guarantees. `undefined` when
-   * refused or gone.
+   * `img/a%20b.png`) names next to the file behind `ticket`, when `assetRefusal` allows it (an
+   * image inside the document's folder with no hidden segment, as written and after symlinks), so
+   * `../`, symlinks that leave the folder, dot-files and non-images are refused; the read itself
+   * has `useRegular`'s guarantees. `undefined` when refused or gone.
    */
   async asset(ticket: string, src: string): Promise<{ bytes: Buffer; name: string } | undefined> {
     const file = this.#paths.get(ticket)
@@ -127,7 +153,7 @@ export class ReaderGrants {
     if (link === '' || link.includes('\0') || /^(?:[a-z][a-z\d+.-]*:|[/\\])/i.test(link)) return undefined
     const folder = path.dirname(file)
     const real = await realpath(path.resolve(folder, link)).catch(refused)
-    if (real === undefined || !isInside(folder, real)) return undefined
+    if (real === undefined || assetRefusal(folder, link, real) !== undefined) return undefined
     const bytes = await useRegular(real, (handle) => handle.readFile())
     return bytes === undefined ? undefined : { bytes, name: path.basename(real) }
   }
@@ -139,27 +165,36 @@ export class ReaderGrants {
    * throws, so a failed import can be retried. `undefined` without calling `run` when the ticket is
    * unknown, revoked or claimed, or its path no longer is a regular file at that real path.
    *
-   * `run` gets `read` for `Vault.importFiles` (`ImportOptions.read`): the note may only be the
-   * granted file and a linked `asset` must lie inside its folder, and each is read with `read`'s
-   * checks (`useRegular`), so a file swapped for a symlink after the check above is refused rather
-   * than copied into the vault.
+   * `run` gets the `read` and `refuseAsset` options for `Vault.importFiles`. `refuseAsset` is
+   * `assetRefusal`, so a link to anything but an image of the folder (`.ssh/id_rsa`, `notes.txt`)
+   * stays as it is and is reported, and the rest of the import goes on. `read` lets the note be only
+   * the granted file and a linked `asset` only a file `assetRefusal` allows by its real path, and
+   * reads each with `read`'s checks (`useRegular`), so a file swapped for a symlink after the
+   * check above is refused rather than copied into the vault.
    */
-  async importOnce<T>(ticket: string, run: (file: string, read: ImportReader) => Promise<T>): Promise<T | undefined> {
+  async importOnce<T>(
+    ticket: string,
+    run: (file: string, options: ReaderImport) => Promise<T>,
+  ): Promise<T | undefined> {
     if (!this.#paths.has(ticket) || this.#importing.has(ticket)) return undefined
     this.#importing.add(ticket)
     try {
       const file = await this.regularPath(ticket)
       if (file === undefined) return undefined
       const folder = path.dirname(file)
-      const read: ImportReader = async (real, kind) => {
-        if (kind === 'note' ? real !== file : !isInside(folder, real)) return undefined
+      const refuseAsset = (link: string, real: string) => assetRefusal(folder, link, real)
+      const read: ReaderImport['read'] = async (real, kind) => {
+        // The note only as the granted file; a linked file only as `assetRefusal` allows its real path.
+        if (kind === 'note' ? real !== file : refuseAsset(path.relative(folder, real), real) !== undefined) {
+          return undefined
+        }
         return useRegular(real, async (handle) => {
           const data = await handle.readFile()
           const { atime, mtime } = await handle.stat()
           return { data, atime, mtime }
         })
       }
-      const result = await run(file, read)
+      const result = await run(file, { read, refuseAsset })
       this.revoke(ticket)
       return result
     } finally {

@@ -183,7 +183,9 @@ export class VaultSession {
       if (granted === undefined) throw new VaultError('NOT_FOUND', 'This file is no longer open; open it again')
       const vault = this.#vault
       if (!vault) throw new HttpError(409, 'NO_VAULT', 'Open a vault first, then add the file to it')
-      const report = await this.readers.importOnce(ticket, (file, read) => vault.importFiles([file], folder, { read }))
+      const report = await this.readers.importOnce(ticket, (file, options) =>
+        vault.importFiles([file], folder, options),
+      )
       if (report === undefined) throw new VaultError('NOT_FOUND', `${path.basename(granted)} is gone; open it again`)
       return answer({
         ...report,

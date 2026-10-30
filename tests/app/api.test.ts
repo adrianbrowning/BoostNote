@@ -1,4 +1,4 @@
-import { mkdir, readFile, realpath, rm, symlink, writeFile } from 'node:fs/promises'
+import { mkdir, readdir, readFile, realpath, rm, symlink, writeFile } from 'node:fs/promises'
 import * as path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { MAX_IMPORT_PATHS } from '../../src/app/actions/api/controller.ts'
@@ -510,6 +510,39 @@ describe('reader', () => {
     expect((await app.get(url('pic.png'))).status).toBe(404)
   })
 
+  it('serves only images, and no dot-file or dot-folder even behind a symlink', async () => {
+    const { ticket } = await openOutside('doc.md', '# Doc\n')
+    const outside = path.join(app.dir, 'outside')
+    for (const [name, text] of Object.entries({
+      '.ssh/id_rsa': 'not for the page',
+      'notes.txt': 'not for the page',
+      '.hidden/pic.png': 'not for the page',
+      '.secret/key.png': 'not for the page',
+      'img/dot.svg': '<svg/>',
+      // In `img/`: next to the `pic.png` symlink it would be the same name on a case-insensitive disk.
+      'img/pic.PNG': 'PNG',
+    })) {
+      await mkdir(path.dirname(path.join(outside, name)), { recursive: true })
+      await writeFile(path.join(outside, name), text)
+    }
+    await symlink(path.join(outside, '.secret', 'key.png'), path.join(outside, 'pic.png'))
+    const url = (src: string) => `${routes.readerAssets.href({ ticket })}?src=${encodeURIComponent(src)}`
+
+    for (const src of ['.ssh/id_rsa', 'notes.txt', '.hidden/pic.png', 'pic.png', 'img/../.secret/key.png']) {
+      const response = await app.get(url(src))
+      expect(response.status, src).toBe(404)
+      const text = await response.text()
+      expect(text, src).not.toContain('not for the page')
+      expect(text, src).not.toContain(app.dir)
+    }
+    const svg = await app.get(url('img/dot.svg'))
+    expect(svg.status).toBe(200)
+    expect(await svg.text()).toBe('<svg/>')
+    const upper = await app.get(url('img/pic.PNG'))
+    expect(upper.status).toBe(200)
+    expect(await upper.text()).toBe('PNG')
+  })
+
   it('opens the folder of a reader’s file as the vault from the ticket only, and revokes the ticket', async () => {
     const other = await app.openVault()
     const { file, ticket } = await openOutside('readme.md', '# Readme\n')
@@ -592,6 +625,28 @@ describe('reader', () => {
     const again = await app.post(api.readerImport.href({ ticket }), { folder: 'work' })
     expect(again.status).toBe(404)
     expect(vault.index.all().map((note) => note.id)).toEqual(['work/readme.md'])
+  })
+
+  it('adds a reader’s file with its images only, leaving links to other or hidden files as they are', async () => {
+    const vault = await app.openVault()
+    const text = '# Keys\n\n![k](.ssh/id_rsa) ![d](img/dot.svg)\n'
+    const { file, ticket } = await openOutside('keys.md', text)
+    const outside = path.dirname(file)
+    await mkdir(path.join(outside, '.ssh'))
+    await writeFile(path.join(outside, '.ssh', 'id_rsa'), 'not for the vault')
+    await mkdir(path.join(outside, 'img'))
+    await writeFile(path.join(outside, 'img', 'dot.svg'), '<svg/>')
+    const response = await app.post(api.readerImport.href({ ticket }), { folder: '' })
+    expect(response.status).toBe(201)
+    const { report } = await readJson<ReaderImportResult>(response)
+    expect(JSON.stringify(report)).not.toContain(app.dir)
+    expect(report).toMatchObject({ notes: [{ source: 'keys.md', id: 'keys.md' }], assets: 1, links: 1 })
+    expect(report.unresolved).toEqual([{ id: 'keys.md', link: '.ssh/id_rsa', reason: expect.any(String) }])
+    const note = await readFile(path.join(vault.root, 'keys.md'), 'utf8')
+    const asset = /^# Keys\n\n!\[k\]\(\.ssh\/id_rsa\) !\[d\]\(\.\/keys\.assets\/([^)]+\.svg)\)\n$/.exec(note)?.[1]
+    expect(asset).toBeDefined()
+    expect(await readdir(path.join(vault.root, 'keys.assets'))).toEqual([asset])
+    expect(await readFile(path.join(vault.root, 'keys.assets', asset ?? ''), 'utf8')).toBe('<svg/>')
   })
 
   it('refuses to add a reader’s file without a vault, into a bad folder, or when it is gone; the reader stays', async () => {
