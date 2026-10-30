@@ -20,7 +20,10 @@ export interface VaultSessionOptions {
 /**
  * A markdown file opened from the OS (Finder, Explorer, argv): a note of the open vault or a recent
  * vault when the file is a note of it, else (outside every known vault, or in a hidden or `*.assets`
- * folder) a read-only reader: a `ReaderGrants` ticket and the file's base name, never its path.
+ * folder) a read-only reader: a `ReaderGrants` ticket and the file's base name, never its path. With
+ * the preference `outsideFile: 'vault'` such a file is a note of its own folder as the vault instead,
+ * unless its name can be no note there (a dot-name or upper-case `.MD`), which still opens read-only.
+ * An upper-case `.MD` file inside a known vault is no note of it either and opens read-only too.
  */
 export type OpenRequest =
   | {
@@ -77,8 +80,9 @@ export class VaultSession {
 
   /**
    * The oldest queued request, removed; `undefined` when the queue is empty. Files that are gone or
-   * not `.md` are dropped, as are outside files that are not regular files (`ReaderGrants.grant`).
-   * The real path is matched against the open vault, then the recent vaults.
+   * not `.md` (any case) are dropped, as are outside files that are not regular files
+   * (`ReaderGrants.grant`). The real path is matched against the open vault, then the recent vaults,
+   * whatever the `outsideFile` preference.
    */
   async takeOpenRequest(): Promise<OpenRequest | undefined> {
     for (let file = this.#openRequests.shift(); file !== undefined; file = this.#openRequests.shift()) {
@@ -92,7 +96,8 @@ export class VaultSession {
 
   /**
    * The first known vault (open, then recent) whose real root holds `real`. A file in a hidden or
-   * `*.assets` folder of that vault is no note of it and opens like an outside file, in a reader.
+   * `*.assets` folder of that vault is no note of it and counts as an outside file (a reader, or its
+   * folder as the vault with `outsideFile: 'vault'`, as before reader tabs existed).
    */
   async #requestFor(real: string): Promise<OpenRequest | undefined> {
     const open = this.#vault?.root
@@ -104,8 +109,60 @@ export class VaultSession {
       if (isNoteId(id)) return { kind: 'note', vault: realRoot, id }
       break
     }
+    const name = path.basename(real)
+    if (this.#settings.ui.outsideFile === 'vault' && isNoteId(name)) {
+      return { kind: 'note', vault: path.dirname(real), id: name }
+    }
     const ticket = await this.readers.grant(real)
-    return ticket === undefined ? undefined : { kind: 'external', ticket, name: path.basename(real) }
+    return ticket === undefined ? undefined : { kind: 'external', ticket, name }
+  }
+
+  /**
+   * A reader tab's "Open folder as vault": opens the folder of the file behind `ticket` (the path
+   * main granted; the page sends only the ticket) as the vault and revokes the ticket. Answers the
+   * file's note id there. Throws `VaultError('NOT_FOUND')` when the ticket is unknown or revoked
+   * (also while this waited its turn behind another vault switch), its file is no longer a regular
+   * file at its real path, or the folder resolved to another folder while it loaded (a parent swapped
+   * for a symlink), and `VaultError('INVALID_PATH')` when its name can be no note (a
+   * dot-name, upper-case `.MD`); the vault and the ticket then stay as they were. Runs in the vault
+   * queue, as `closeReader` does, so a close either comes first (and this opens nothing) or finds
+   * the ticket revoked. Messages name the file's base name at most.
+   */
+  openReaderFolder(ticket: string): Promise<string> {
+    return this.#exclusive(async () => {
+      const granted = this.readers.path(ticket)
+      if (granted === undefined) throw new VaultError('NOT_FOUND', 'This file is no longer open; open it again')
+      const id = path.basename(granted)
+      if (!isNoteId(id)) {
+        throw new VaultError(
+          'INVALID_PATH',
+          `${id} cannot be a note: notes end in .md (lower case) and do not start with a dot`,
+        )
+      }
+      const gone = () => new VaultError('NOT_FOUND', `${id} is gone; open it again`)
+      if ((await this.readers.regularPath(ticket)) === undefined) throw gone()
+      const root = path.dirname(granted)
+      const vault = await this.#load(root).catch((error: unknown) => {
+        // The folder went away meanwhile (`openVault`'s message would name its path).
+        throw error instanceof VaultError && error.code === 'NOT_A_VAULT' ? gone() : error
+      })
+      // A parent folder swapped for a symlink while it loaded: that is another folder, not the granted one.
+      if (vault.root !== root) {
+        await vault.close()
+        throw gone()
+      }
+      await this.#switchTo(vault, root)
+      this.readers.revoke(ticket)
+      return id
+    })
+  }
+
+  /**
+   * A reader tab closed: revokes its ticket (`false` when unknown or already revoked). Queued with
+   * the vault switches, so it never lands in the middle of `openReaderFolder`.
+   */
+  closeReader(ticket: string): Promise<boolean> {
+    return this.#exclusive(async () => this.readers.revoke(ticket))
   }
 
   /**
@@ -113,18 +170,24 @@ export class VaultSession {
    * `VaultError('NOT_A_VAULT')` when the folder is missing; the previous vault then stays open.
    */
   open(root: string): Promise<Vault> {
-    return this.#exclusive(async () => {
-      const vault = await openVault(root, {
-        watch: true,
-        ...(this.#debounceMs === undefined ? {} : { debounceMs: this.#debounceMs }),
-      })
-      await this.#closeCurrent()
-      this.#vault = vault
-      vault.subscribe((event) => this.#events.broadcast({ type: 'vault', change: event.type, id: event.id }))
-      const others = this.recent.filter((item) => item !== vault.root && item !== root)
-      this.#settings.update({ vaults: [vault.root, ...others].slice(0, MAX_RECENT_VAULTS), lastVault: vault.root })
-      return vault
+    return this.#exclusive(async () => this.#switchTo(await this.#load(root), root))
+  }
+
+  #load(root: string): Promise<Vault> {
+    return openVault(root, {
+      watch: true,
+      ...(this.#debounceMs === undefined ? {} : { debounceMs: this.#debounceMs }),
     })
+  }
+
+  /** Makes the loaded `vault` (opened from `root`) the open vault: first in Recent, and `lastVault`. */
+  async #switchTo(vault: Vault, root: string): Promise<Vault> {
+    await this.#closeCurrent()
+    this.#vault = vault
+    vault.subscribe((event) => this.#events.broadcast({ type: 'vault', change: event.type, id: event.id }))
+    const others = this.recent.filter((item) => item !== vault.root && item !== root)
+    this.#settings.update({ vaults: [vault.root, ...others].slice(0, MAX_RECENT_VAULTS), lastVault: vault.root })
+    return vault
   }
 
   /** Closes the open vault; nothing is reopened on the next start. */

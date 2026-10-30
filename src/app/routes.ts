@@ -59,5 +59,7 @@ export const routes = route({
     readerRead: get('/reader/:ticket'),
     /** The reader tab closed: revokes its ticket. */
     readerClose: post('/reader/:ticket/close'),
+    /** A reader tab's "Open folder as vault": main opens the ticket's file's folder as the vault (`ReaderFolderResult`). */
+    readerOpenFolder: post('/reader/:ticket/open-folder'),
   }),
 })

@@ -3,12 +3,17 @@ import { css, on, ref } from 'remix/component'
 
 import type { WorkspaceModel } from './model.ts'
 import { button, input, muted, primaryButton } from './styles.ts'
-import type { ThemePreference, UiPatch } from './types.ts'
+import type { OutsideFilePreference, ThemePreference, UiPatch } from './types.ts'
 
 const THEMES: Array<[ThemePreference, string]> = [
   ['system', 'Match system'],
   ['light', 'Light'],
   ['dark', 'Dark'],
+]
+
+const OUTSIDE_FILE: Array<[OutsideFilePreference, string]> = [
+  ['reader', 'Read only'],
+  ['vault', 'Open its folder as vault'],
 ]
 
 const KEY_NAMES: Record<string, string> = {
@@ -57,8 +62,9 @@ export function acceleratorOf(event: KeyboardEvent, isMac: boolean): string | nu
 }
 
 /**
- * Preferences (⌘,): theme, editor font/size/line width, spellcheck, delete confirmation and the
- * global show/hide hotkey. Every change is saved (and applied) right away.
+ * Preferences (⌘,): theme, editor font/size/line width, spellcheck, delete confirmation, how a
+ * `.md` outside every vault opens, and the global show/hide hotkey. Every change is saved (and
+ * applied) right away.
  */
 export function PreferencesDialog(handle: Handle<{ model: WorkspaceModel }>) {
   let recording = false
@@ -195,6 +201,26 @@ export function PreferencesDialog(handle: Handle<{ model: WorkspaceModel }>) {
               mix={on('change', (event) => void save({ checkUpdates: event.currentTarget.checked }))}
             />
             <span>Check for updates automatically</span>
+          </label>
+
+          <label mix={rowStyle}>
+            <span>Opening a .md outside a vault</span>
+            <select
+              name="outsideFile"
+              mix={[
+                input,
+                on('change', (event) => {
+                  const outsideFile = OUTSIDE_FILE.find(([value]) => value === event.currentTarget.value)?.[0]
+                  if (outsideFile) void save({ outsideFile })
+                }),
+              ]}
+            >
+              {OUTSIDE_FILE.map(([value, label]) => (
+                <option key={value} value={value} selected={prefs.outsideFile === value}>
+                  {label}
+                </option>
+              ))}
+            </select>
           </label>
 
           <fieldset mix={hotkeyStyle}>
