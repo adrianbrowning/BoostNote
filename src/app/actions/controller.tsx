@@ -7,11 +7,13 @@ import { assets } from '../assets.ts'
 import { errorResponse, HttpError, requireString } from '../http.ts'
 import { routes } from '../routes.ts'
 import type { AppServices } from '../services.ts'
+import { Document } from '../ui/document.tsx'
 import { serveVendorFile } from '../vendor.ts'
 import { preferencesState } from './api/preferences.ts'
 import { workspaceData } from './api/workspace-data.ts'
 import { HomePage } from './home-page.tsx'
 import { MermaidRendererPage } from './mermaid-renderer-page.tsx'
+import { PrototypeVaults } from './public/workspace/prototype-vaults.tsx'
 
 /**
  * Vault files are user content: even when one is opened as a document (an `.svg` or `.html` asset),
@@ -32,6 +34,13 @@ export function createRootController(services: AppServices) {
       },
       mermaidRenderer(context) {
         return context.render(<MermaidRendererPage />)
+      },
+      prototypeVaults(context) {
+        return context.render(
+          <Document title="Boostnote: multi-vault prototype">
+            <PrototypeVaults variant={context.url.searchParams.get('variant') ?? 'A'} />
+          </Document>,
+        )
       },
       events(context) {
         return services.events.subscribe(context.request.signal)
