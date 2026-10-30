@@ -18,19 +18,45 @@ function isSelected(selection: Selection, other: Selection): boolean {
 export function Sidebar(handle: Handle<{ model: WorkspaceModel }>) {
   let dropTarget: string | null = null
 
+  /**
+   * The vault switcher: open vaults first (✓ the one on screen, its tab count, × to close it), then
+   * Recent vaults that are not open. Switching keeps the other vaults open with their tabs.
+   */
   const vaultMenu = (rect: DOMRect) => {
     const { model } = handle.props
-    const current = model.data.vault?.root
+    const { vault: current, open } = model.data
+    const openRoots = new Set(open.map((vault) => vault.root))
+    const tabs = (root: string) => {
+      const count = model.tabCount(root)
+      return count === 0 ? undefined : count === 1 ? '1 tab' : `${count} tabs`
+    }
+    const openEntries: MenuEntry[] = open.map((vault) => ({
+      kind: 'action',
+      label: vault.name,
+      title: vault.root,
+      checked: vault.root === current?.root,
+      ...(tabs(vault.root) ? { detail: tabs(vault.root) } : {}),
+      run: () => {
+        if (vault.root !== current?.root) void model.openVault(vault.root)
+      },
+      secondary: { label: `Close ${vault.name}`, run: () => void model.closeVault(vault.root) },
+    }))
     const recent: MenuEntry[] = model.data.recent
-      .filter((vault) => vault.root !== current)
-      .map((vault) => ({ kind: 'action', label: vault.name, run: () => void model.openVault(vault.root) }))
+      .filter((vault) => !openRoots.has(vault.root))
+      .map((vault) => ({
+        kind: 'action',
+        label: vault.name,
+        title: vault.root,
+        run: () => void model.openVault(vault.root),
+      }))
     model.openMenu(rect.left, rect.bottom + 4, [
-      ...recent,
-      ...(recent.length > 0 ? [{ kind: 'separator' } as const] : []),
+      ...(openEntries.length > 0 ? [{ kind: 'heading', label: 'Open' } as const, ...openEntries] : []),
+      ...(recent.length > 0 ? [{ kind: 'heading', label: 'Recent' } as const, ...recent] : []),
+      ...(openEntries.length + recent.length > 0 ? [{ kind: 'separator' } as const] : []),
       { kind: 'action', label: 'Open Folder…', run: () => void model.pickVault() },
       { kind: 'action', label: 'Import Boostnote Storage…', run: () => model.setImportOpen(true) },
       { kind: 'separator' },
-      { kind: 'action', label: 'Close Vault', run: () => void model.closeVault() },
+      { kind: 'action', label: current ? `Close ${current.name}` : 'Close Vault', run: () => void model.closeVault() },
     ])
   }
 

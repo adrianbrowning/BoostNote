@@ -166,6 +166,11 @@ small entries because the three panes share live state (selection, the dirty edi
   and conflict handling.
 - `sidebar.tsx`, `note-list.tsx`, `editor-pane.tsx`, `overlays.tsx`, `import-dialog.tsx` — plain
   components inside the entry; `api.ts` is the typed client of `/api`, `types.ts` the shared JSON shapes.
+- **Vault menu** (the vault name at the top of the sidebar, `sidebar.tsx`): *Open* lists every open
+  vault (✓ the one on screen, its tab count from `boostnote.tabs:<root>`, × closes it), then
+  *Recent* the remembered vaults that are not open, Open Folder…, Import Boostnote Storage… and
+  Close <vault>. Choosing an open vault switches to it at once: it is already indexed and watched,
+  and its tabs come back as they were. Closing a vault that is not on screen only updates the lists.
 
 Main side: `VaultSession` (`src/main/vault-session.ts`, plain Node) holds the open vaults (each opened
 with `{ watch: true }`, by real root, in opening order) and the active one, the vault the window

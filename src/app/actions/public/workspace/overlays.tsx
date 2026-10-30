@@ -27,7 +27,7 @@ export function ContextMenuView(handle: Handle<{ model: WorkspaceModel }>) {
           role="menu"
           mix={[
             menuStyle,
-            ref((node) => node.querySelector<HTMLElement>('[role="menuitem"]')?.focus()),
+            ref((node) => node.querySelector<HTMLElement>('[role^="menuitem"]')?.focus()),
             on('keydown', (event) => {
               if (event.key === 'Escape') model.closeMenu()
             }),
@@ -36,6 +36,13 @@ export function ContextMenuView(handle: Handle<{ model: WorkspaceModel }>) {
         >
           {menu.entries.map((entry, index) => {
             if (entry.kind === 'separator') return <hr key={`sep-${index}`} mix={separatorStyle} />
+            if (entry.kind === 'heading') {
+              return (
+                <p key={`heading-${entry.label}`} mix={headingStyle} role="presentation">
+                  {entry.label}
+                </p>
+              )
+            }
             if (entry.kind === 'colors') {
               return (
                 <fieldset key="colors" mix={colorsStyle} aria-label="Folder colour">
@@ -73,11 +80,17 @@ export function ContextMenuView(handle: Handle<{ model: WorkspaceModel }>) {
                 </fieldset>
               )
             }
-            return (
+            // A radio item (the vault on screen ✓) or a plain one; the role and `aria-checked` go together.
+            const role =
+              entry.checked === undefined
+                ? ({ role: 'menuitem' } as const)
+                : ({ role: 'menuitemradio', 'aria-checked': entry.checked ? 'true' : 'false' } as const)
+            const item = (
               <button
-                key={entry.label}
+                key={entry.title ?? entry.label}
                 type="button"
-                role="menuitem"
+                {...role}
+                title={entry.title}
                 disabled={entry.disabled}
                 data-danger={entry.danger ? 'true' : undefined}
                 mix={[
@@ -88,8 +101,37 @@ export function ContextMenuView(handle: Handle<{ model: WorkspaceModel }>) {
                   }),
                 ]}
               >
-                {entry.label}
+                {entry.checked === undefined ? null : (
+                  <span mix={checkStyle} aria-hidden="true">
+                    {entry.checked ? '✓' : ''}
+                  </span>
+                )}
+                <span mix={itemLabelStyle}>{entry.label}</span>
+                {entry.detail ? <span mix={detailStyle}>{entry.detail}</span> : null}
               </button>
+            )
+            const secondary = entry.secondary
+            if (!secondary) return item
+            return (
+              <div key={entry.title ?? entry.label} mix={itemRowStyle}>
+                {item}
+                <button
+                  type="button"
+                  role="menuitem"
+                  aria-label={secondary.label}
+                  title={secondary.label}
+                  mix={[
+                    itemStyle,
+                    secondaryStyle,
+                    on('click', () => {
+                      model.closeMenu()
+                      secondary.run()
+                    }),
+                  ]}
+                >
+                  ×
+                </button>
+              </div>
             )
           })}
         </div>
@@ -249,6 +291,10 @@ const menuStyle = css({
 })
 
 const itemStyle = css({
+  display: 'flex',
+  alignItems: 'center',
+  gap: '6px',
+  minWidth: 0,
   padding: '5px 10px',
   border: 0,
   borderRadius: '4px',
@@ -258,6 +304,20 @@ const itemStyle = css({
   '&:hover, &:focus-visible': { background: 'var(--bg-selected)', outline: 'none' },
   '&[data-danger]': { color: 'var(--danger)' },
   '&:disabled': { opacity: 0.5 },
+})
+
+const itemRowStyle = css({ display: 'flex', '& > :first-child': { flex: 1 } })
+const itemLabelStyle = css({ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' })
+const checkStyle = css({ width: '12px', flex: 'none' })
+const detailStyle = css({ flex: 'none', fontSize: '11px', color: 'var(--text-muted)' })
+const secondaryStyle = css({ flex: 'none', padding: '5px 8px', color: 'var(--text-muted)' })
+const headingStyle = css({
+  margin: '6px 10px 2px',
+  fontSize: '11px',
+  fontWeight: 600,
+  letterSpacing: '0.06em',
+  textTransform: 'uppercase',
+  color: 'var(--text-muted)',
 })
 
 const separatorStyle = css({ margin: '4px 0', border: 0, borderTop: '1px solid var(--border)' })

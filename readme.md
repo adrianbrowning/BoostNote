@@ -27,6 +27,8 @@ choose, so any editor, `git` or sync tool works with them. The background and de
 - **Tabs** with per-tab back/forward, restored per vault. A **properties panel** for frontmatter.
 - **Export:** a note as standalone HTML (math, diagrams and images included, no scripts), PDF, or
   Markdown with its assets; print; a folder or the whole vault as a static HTML site.
+- **Several vaults open at once.** The vault menu at the top of the sidebar lists the open vaults
+  and switches between them at once, each keeping its tabs; open vaults are reopened on the next start.
 - **Open `.md` files** from Finder/Explorer: the file's folder opens as a vault.
 - **Drop `.md` files and folders** onto the app to copy them into the vault: onto a folder in the
   sidebar, or anywhere else for the selected folder. Images and files they link to are copied into
