@@ -2,6 +2,7 @@ import { realpath } from 'node:fs/promises'
 import * as path from 'node:path'
 
 import { openVault, type Vault, VaultError } from '../vault/index.ts'
+import { isInside, noteSegments } from '../vault/paths.ts'
 import type { EventHub } from './events.ts'
 import type { SettingsStore } from './settings.ts'
 
@@ -15,11 +16,15 @@ export interface VaultSessionOptions {
   debounceMs?: number
 }
 
-/** A markdown file opened from the OS (Finder, Explorer, argv): its folder becomes the vault. */
+/**
+ * A markdown file opened from the OS (Finder, Explorer, argv), as a note to open: in the open vault
+ * or a recent vault when the file lies inside one, else in the file's own folder as the vault.
+ */
 export interface OpenRequest {
-  /** Real path of the file's folder. */
+  kind: 'note'
+  /** Real path of the vault root. */
   vault: string
-  /** Note id inside that vault (the file name). */
+  /** Note id inside that vault (`work/plan.md`). */
   id: string
 }
 
@@ -34,7 +39,7 @@ export class VaultSession {
   readonly #debounceMs: number | undefined
   #vault: Vault | undefined
   #queue: Promise<unknown> = Promise.resolve()
-  #openRequest: string | undefined
+  readonly #openRequests: string[] = []
 
   constructor(options: VaultSessionOptions) {
     this.#settings = options.settings
@@ -53,23 +58,43 @@ export class VaultSession {
   }
 
   /**
-   * Remembers a `.md` file the OS asked the app to open and tells the workspace (SSE `open-request`).
-   * The workspace takes it (`takeOpenRequest`) after hydrating or on the event, saves the open note,
-   * switches vaults and opens the note, so a request made before the window exists is not lost.
+   * Queues a `.md` file the OS asked the app to open and tells the workspace (SSE `open-request`).
+   * The workspace takes the queue (`takeOpenRequest` until `undefined`) after hydrating or on the
+   * event, saves the open note, switches vaults and opens the note, so a request made before the
+   * window exists is not lost and a second quick request does not replace the first.
    */
   requestOpen(file: string): void {
-    this.#openRequest = path.resolve(file)
+    this.#openRequests.push(path.resolve(file))
     this.#events.broadcast({ type: 'open-request' })
   }
 
-  /** The pending open request, cleared; `undefined` when there is none or the file is gone. */
+  /**
+   * The oldest queued request, removed; `undefined` when the queue is empty. Files that are gone or
+   * not `.md` are dropped. The real path is matched against the open vault, then the recent vaults.
+   */
   async takeOpenRequest(): Promise<OpenRequest | undefined> {
-    const file = this.#openRequest
-    this.#openRequest = undefined
-    if (file === undefined) return undefined
-    const real = await realpath(file).catch(() => undefined)
-    if (real === undefined || !/\.md$/i.test(real)) return undefined
-    return { vault: path.dirname(real), id: path.basename(real) }
+    for (let file = this.#openRequests.shift(); file !== undefined; file = this.#openRequests.shift()) {
+      const real = await realpath(file).catch(() => undefined)
+      if (real !== undefined && /\.md$/i.test(real)) return this.#noteFor(real)
+    }
+    return undefined
+  }
+
+  /**
+   * The first known vault (open, then recent) whose real root holds `real`. A file in a hidden or
+   * `*.assets` folder of that vault is no note of it and opens like an outside file (its folder as vault).
+   */
+  async #noteFor(real: string): Promise<OpenRequest> {
+    const open = this.#vault?.root
+    const known = open === undefined ? this.recent : [open, ...this.recent]
+    for (const root of known) {
+      const realRoot = await realpath(root).catch(() => undefined)
+      if (realRoot === undefined || !isInside(realRoot, real)) continue
+      const id = path.relative(realRoot, real).split(path.sep).join('/')
+      if (isNoteId(id)) return { kind: 'note', vault: realRoot, id }
+      break
+    }
+    return { kind: 'note', vault: path.dirname(real), id: path.basename(real) }
   }
 
   /**
@@ -138,5 +163,15 @@ export class VaultSession {
     const run = this.#queue.then(task, task)
     this.#queue = run.catch(() => undefined)
     return run
+  }
+}
+
+function isNoteId(id: string): boolean {
+  try {
+    noteSegments(id)
+    return true
+  } catch (error) {
+    if (error instanceof VaultError) return false
+    throw error
   }
 }

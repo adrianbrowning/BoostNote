@@ -147,6 +147,8 @@ export class WorkspaceModel extends TypedEventTarget<{
   #searchAbort: AbortController | undefined
   #refreshTimer: ReturnType<typeof setTimeout> | undefined
   #noticeTimer: ReturnType<typeof setTimeout> | undefined
+  /** The running open-request drain; later calls queue behind it so vault switches never interleave. */
+  #openRequests: Promise<void> = Promise.resolve()
 
   constructor(initial: WorkspaceData, preferences: PreferencesState) {
     super()
@@ -617,21 +619,29 @@ export class WorkspaceModel extends TypedEventTarget<{
   }
 
   /**
-   * A `.md` file opened from Finder/Explorer: switches to its folder as the vault (unless that is
-   * already open) and opens the note in a new tab. Called after hydration and on SSE `open-request`.
+   * `.md` files opened from Finder/Explorer, taken from main until its queue is empty: each switches
+   * to its vault (unless that is already open) and opens the note in a new tab (or its existing tab).
+   * Called after hydration and on SSE `open-request`; a call made while a drain runs starts its own
+   * drain after that one, so a request queued as the running drain ends is still taken.
    */
-  async takeOpenRequest(): Promise<void> {
+  takeOpenRequest(): Promise<void> {
+    this.#openRequests = this.#openRequests.then(() => this.#drainOpenRequests())
+    return this.#openRequests
+  }
+
+  async #drainOpenRequests(): Promise<void> {
     await this.attempt(async () => {
-      const request = await client.takeOpenRequest()
-      if (!request) return
-      if (this.data.vault?.root !== request.vault) {
-        if (!(await this.leaveNote())) return
-        const result = await client.openVault(request.vault)
-        if (result.workspace) await this.#switched(result.workspace)
+      for (let request = await client.takeOpenRequest(); request; request = await client.takeOpenRequest()) {
+        if (this.data.vault?.root !== request.vault) {
+          if (!(await this.leaveNote())) return
+          const result = await client.openVault(request.vault)
+          if (result.workspace) await this.#switched(result.workspace)
+        }
+        const id = request.id
+        const tab = this.tabs.tabs.find((item) => item.path === id)
+        if (tab) await this.activateTab(tab.key)
+        else await this.openNote(id, { newTab: true })
       }
-      const tab = this.tabs.tabs.find((item) => item.path === request.id)
-      if (tab) await this.activateTab(tab.key)
-      else await this.openNote(request.id, { newTab: true })
     })
   }
 
