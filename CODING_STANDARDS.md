@@ -8,6 +8,10 @@ Rules a reviewer checks on a diff. Mechanical rules live in Biome, `tsc` and the
   open vault takes its path from main: a native dialog (`services.pickFolder`, save dialogs) or a
   ticket main granted (`DropGrants`). A route body that carries an absolute path the page chose is a
   finding, even when the page "got it from a drop".
+- **OS-granted paths are read through `ReaderGrants`.** Every read of a path the OS granted (the
+  reader file, reader assets, the reader import) goes through `ReaderGrants` / `useRegular`: open
+  with `O_NOFOLLOW | O_NONBLOCK`, regular file only, then an after-read `realpath` and dev+ino
+  check. A bare `readFile`, `realpath` or `copyFile` on a granted path is a finding.
 - **Vault access goes through `src/vault`.** Controllers and the CLI read and write notes through
   `Vault` methods (atomic, traversal-checked, `#track`ed); a direct `fs` write into the vault is a
   finding.
