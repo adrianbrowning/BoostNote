@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "boostnote-memory": {
+      "type": "stdio",
+      "command": "${BOOSTNOTE_CLI}",
+      "args": ["--vault", "${BOOSTNOTE_MEMORY_VAULT}", "mcp"]
+    }
+  }
+}

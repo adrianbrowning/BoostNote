@@ -114,6 +114,9 @@ path of the installed `boostnote` as `command` then. From a checkout, use `"comm
 `"args": ["/path/to/BoostNote/src/cli/index.js", "mcp", "--vault", "/path/to/vault"]` (not
 `pnpm cli`, which prints its own banner on stdout).
 
+**omp memory:** [`integrations/omp`](integrations/omp/README.md) is an omp plugin that uses this MCP
+server to give the agent a memory vault of its own, with global and per-project notes.
+
 ## Development
 
 Requires Node.js 24+ and pnpm 10 (`corepack enable`).

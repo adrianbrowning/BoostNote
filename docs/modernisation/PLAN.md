@@ -570,6 +570,29 @@ the vault. The originals are only read: never moved, renamed or changed.
   run. A folder cannot be put in a file input, so folder drops are covered by the vault/route tests
   and the manual smoke run, not by e2e.
 
+## omp vault memory
+
+`integrations/omp/` is an omp extension package (`package.json` `omp.extensions`; omp also finds its
+`skills/` and `.mcp.json`) that makes a dedicated vault the agent's long-term memory. Installed from a
+checkout with `omp plugin link`; not in the packaged app (`electron-builder.yml` ships `src/` only).
+
+- **Layout:** `global/MEMORY.md` (every project) and `projects/<slug>/MEMORY.md`; longer topics are
+  notes beside them, linked from `MEMORY.md`. `<slug>` is the lowercased name of the folder holding
+  the git directory from `git rev-parse --git-common-dir` (`repo/.git` → `repo`, bare `repo.git` →
+  `repo`), so all worktrees of one repository share it; outside git, the working folder's name.
+- **Reading:** `before_agent_start` returns one hidden `custom_message` (`boostnote-vault-memory`,
+  attribution `agent`) with both notes, frontmatter stripped, 12,000 characters each at most. The
+  message is persisted in the session; the handler skips when the branch already has one, so resume
+  and `--continue` do not load it again. Memory edits made during a session show from the next one.
+- **Writing:** the agent uses the existing MCP tools (`read_note`, then `append_to_note` /
+  `write_note` with `baseHash`, `create_note` for a new `MEMORY.md`); the `vault-memory` skill says
+  what is worth keeping. No new CLI/MCP operation was needed.
+- **Wiring:** omp expands `${VAR}` in `.mcp.json` after extension modules load, but not nested
+  defaults (`${A:-${B}}` comes out broken). So `.mcp.json` names plain `${BOOSTNOTE_CLI}` and
+  `${BOOSTNOTE_MEMORY_VAULT}`, and the extension sets them at module load when the shell has not
+  (this checkout's `src/cli/index.js`, `~/AgentMemory`), and creates `global/` because the MCP server
+  refuses a missing vault folder. Never `$BOOSTNOTE_VAULT` or `lastVault`: those are the user's notes.
+
 ## Phases (stack bottom → top)
 
 1. `modernise/01-foundation` — toolchain, Electron 45 shell, `boost://` → Remix router,
