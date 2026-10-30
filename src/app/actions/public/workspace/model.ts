@@ -455,12 +455,13 @@ export class WorkspaceModel extends TypedEventTarget<{
   /**
    * A reader tab's "Add to vault…": asks for a folder of the open vault (`dropFolder` first); main
    * then imports the tab's file and its images there, once per ticket, and revokes the ticket (the
-   * page sends only the ticket and the folder id). The reader tab becomes the new note's tab at the
-   * same position and the notice is the one of a drop; when main skipped the file the tab closes
-   * (its ticket is gone). Nothing happens without an open vault (the button is disabled) or while
-   * the reader is closing, opening its folder or already being added. The whole action (choosing
-   * included) runs in open order: after a running open-request drain, in the vault that drain left
-   * open, and a drain that starts meanwhile waits for it.
+   * page sends only the ticket and the folder id). The open note is saved before the request (a
+   * refused save leaves the vault and the ticket as they were). The reader tab becomes the new
+   * note's tab at the same position and the notice is the one of a drop; when main skipped the file
+   * the tab closes (its ticket is gone). Nothing happens without an open vault (the button is
+   * disabled) or while the reader is closing, opening its folder or already being added. The whole
+   * action (choosing included) runs in open order: after a running open-request drain, in the vault
+   * that drain left open, and a drain that starts meanwhile waits for it.
    */
   async addReaderToVault(key: number): Promise<void> {
     const tab = this.tabs.tabs.find((item): item is ReaderTab => item.key === key && item.kind === 'reader')
@@ -480,17 +481,32 @@ export class WorkspaceModel extends TypedEventTarget<{
           value: this.dropFolder,
           confirm: 'Add',
         })
-        if (folder === null) return
+        if (folder === null || !(await this.leaveNote())) return
         await this.attempt(async () => {
           const { report, workspace } = await client.importReader(tab.ticket, folder)
           this.#showData(workspace)
-          await this.#reportImport(report, folder, (id) => this.#switchTabs(() => this.tabs.replaceReader(key, id)))
+          await this.#reportImport(report, folder, (id) => this.#readerImported(key, id))
           if (report.notes.length === 0) await this.#removeTab(key)
         })
       })
     } finally {
       this.#busyReaders.delete(key)
     }
+  }
+
+  /**
+   * Reader tab `key`'s file became note `id`: the tab turns into the note's tab at its position. Still
+   * active, the tab switches to the note after the save as usual. When the user moved to another tab
+   * meanwhile (or that save was refused), the tab is replaced anyway (its ticket is gone, so it never
+   * stays) and the active tab stays, its note not saved for this.
+   */
+  async #readerImported(key: number, id: string): Promise<void> {
+    if (key === this.tabs.activeKey) await this.#switchTabs(() => this.tabs.replaceReader(key, id))
+    const active = this.tabs.activeKey
+    if (!this.tabs.replaceReader(key, id)) return
+    if (active !== null && active !== key) this.tabs.activate(active)
+    this.#saveTabs()
+    this.changed()
   }
 
   async reopenTab(): Promise<void> {

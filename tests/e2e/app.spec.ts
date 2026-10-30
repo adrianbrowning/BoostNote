@@ -416,9 +416,8 @@ test('"Add to vault…" in a reader imports the file and its images into the cho
   )
   try {
     const { page, dir } = app
-    await writeFiles(path.join(dir, 'loose'), {
-      'img/dot.svg': '<svg xmlns="http://www.w3.org/2000/svg" width="4" height="4"><rect width="4" height="4"/></svg>',
-    })
+    const dot = '<svg xmlns="http://www.w3.org/2000/svg" width="4" height="4"><rect width="4" height="4"/></svg>'
+    await writeFiles(path.join(dir, 'loose'), { 'img/dot.svg': dot })
     const tabs = page.locator('[role="tab"]')
     await expect(page.locator('[role="tab"][data-reader-tab="second.md"]')).toBeVisible({ timeout: 20_000 })
     await expect(tabs).toHaveCount(2)
@@ -447,7 +446,9 @@ test('"Add to vault…" in a reader imports the file and its images into the cho
     await expect(page.locator('[data-note="work/readme.md"]')).toBeVisible()
     await expect(page.locator('[data-notice]')).toContainText('Imported 1 note into work (1 image copied)')
     const imported = await readFile(path.join(app.vault, 'work', 'readme.md'), 'utf8')
-    expect(imported).toMatch(/^# Loose readme\n\n!\[dot\]\(\.\/readme\.assets\/[0-9a-f]+\.svg\)\n$/)
+    const asset = /^# Loose readme\n\n!\[dot\]\(\.\/readme\.assets\/([0-9a-f]+\.svg)\)\n$/.exec(imported)?.[1]
+    expect(asset).toBeDefined()
+    expect(await readFile(path.join(app.vault, 'work', 'readme.assets', asset ?? ''), 'utf8')).toBe(dot)
     // The outside file stays where it was; its ticket is gone, so a second import is refused.
     expect(await readFile(path.join(dir, 'loose', 'readme.md'), 'utf8')).toBe('# Loose readme\n\n![dot](img/dot.svg)\n')
     const ticket = new URL(response.url()).pathname.split('/')[3]
@@ -472,6 +473,174 @@ test('"Add to vault…" in a reader imports the file and its images into the cho
     await expect(add).toHaveAccessibleDescription('Open a vault to add this file to it')
     await expect(page.locator('[data-reader-banner]')).toContainText('Open a vault to add this file to it')
   } finally {
+    await app.electronApp.close()
+    await rm(app.dir, { recursive: true, force: true })
+  }
+})
+
+declare global {
+  interface Window {
+    /** The page-side fetch wrapper of the next test: holds the import's answer, fails saves on demand. */
+    importHold?: { held: boolean; failSaves: boolean; release(): void }
+    /** The page-side fetch wrapper of the test after it: records requests, fails saves on demand. */
+    saveGuard?: { failSaves: boolean; sent: string[] }
+  }
+}
+
+test('"Add to vault…" answering while another, unsavable note is active turns the reader tab into the note’s and keeps that note', async () => {
+  const app = await launchApp({ 'inside.md': '# Inside\n' }, { openFiles: { 'readme.md': '# Loose readme\n' } })
+  try {
+    const { page } = app
+    const tabs = page.locator('[role="tab"]')
+    await expect(page.locator('[data-reader-body] h1')).toHaveText('Loose readme', { timeout: 20_000 })
+    await page.locator('[data-note="inside.md"]').click()
+    await expect(page.locator('[data-note-title]')).toHaveText('inside')
+    await page.locator('[role="tab"][data-reader-tab="readme.md"]').click()
+    await expect(page.locator('[data-reader-body] h1')).toHaveText('Loose readme')
+
+    // Hold the import's answer (main has imported and revoked the ticket; the page has not heard back
+    // yet) and, on demand, fail every save.
+    // (`page.route` does not see `boost://` requests, so the page's fetch is wrapped.)
+    await page.evaluate(() => {
+      const original = window.fetch
+      const hold = Promise.withResolvers<void>()
+      const state = { held: false, failSaves: false, release: () => hold.resolve() }
+      window.importHold = state
+      window.fetch = async (input, init) => {
+        const pathname = new URL(String(input), location.href).pathname
+        if (pathname === '/api/notes/save' && state.failSaves) {
+          return new Response(JSON.stringify({ error: 'IO', message: 'Disk full' }), { status: 500 })
+        }
+        const response = await original(input, init)
+        if (/^\/api\/reader\/[^/]+\/import$/.test(pathname)) {
+          state.held = true
+          await hold.promise
+        }
+        return response
+      }
+    })
+    const held = () => page.evaluate(() => window.importHold?.held)
+    const failSaves = (on: boolean) =>
+      page.evaluate((value) => {
+        if (window.importHold) window.importHold.failSaves = value
+      }, on)
+
+    await page.locator('[data-reader-add]').click()
+    await page.getByRole('dialog', { name: 'Add to vault' }).getByRole('button', { name: 'Add' }).click()
+    await expect.poll(held, { timeout: 20_000 }).toBe(true)
+
+    // While main's answer is on its way, the user edits another note whose save fails.
+    await page.locator('[role="tab"][data-tab="inside.md"]').click()
+    await expect(page.locator('[data-note-title]')).toHaveText('inside')
+    await failSaves(true)
+    await editor(page).click()
+    await page.keyboard.press('ControlOrMeta+End')
+    await page.keyboard.type('\nMine.', { delay: 20 })
+    await expect(page.locator('[data-save-state="error"]')).toBeVisible({ timeout: 20_000 })
+    await page.evaluate(() => window.importHold?.release())
+
+    // The reader tab is the new note's tab at its position; the edited note stays active and unsaved.
+    await expect(tabs.nth(0)).toHaveAttribute('data-tab', 'readme.md', { timeout: 20_000 })
+    await expect(tabs.nth(0)).toHaveAttribute('aria-selected', 'false')
+    await expect(tabs.nth(1)).toHaveAttribute('data-tab', 'inside.md')
+    await expect(tabs.nth(1)).toHaveAttribute('aria-selected', 'true')
+    await expect(tabs).toHaveCount(2)
+    await expect(page.locator('[data-note-title]')).toHaveText('inside')
+    await expect(editor(page)).toContainText('Mine.')
+    await expect(page.locator('[data-note="readme.md"]')).toBeVisible()
+    await expect(page.locator('[data-notice]')).toContainText('Imported 1 note')
+    expect(await readFile(path.join(app.vault, 'readme.md'), 'utf8')).toBe('# Loose readme\n')
+
+    // Saving works again: the edit reaches the disk, so the app quits without asking about it.
+    await failSaves(false)
+    await page.keyboard.type('More', { delay: 20 })
+    await expect
+      .poll(() => readFile(path.join(app.vault, 'inside.md'), 'utf8'), { timeout: 20_000 })
+      .toMatch(/\n# Inside\n\nMine\.More$/)
+  } finally {
+    // Saves work again before quitting, so main's flush leaves nothing unsaved and shows no native
+    // "Quit Anyway" dialog (which Playwright cannot answer), also when an assertion above failed.
+    await app.page
+      .evaluate(() => {
+        if (window.importHold) window.importHold.failSaves = false
+      })
+      .catch(() => undefined)
+    await app.electronApp.close()
+    await rm(app.dir, { recursive: true, force: true })
+  }
+})
+
+test('"Add to vault…" sends nothing when the open note cannot be saved; the reader and its ticket stay', async () => {
+  const app = await launchApp({ 'inside.md': '# Inside\n' }, { openFiles: { 'readme.md': '# Loose readme\n' } })
+  try {
+    const { page } = app
+    await expect(page.locator('[data-reader-body] h1')).toHaveText('Loose readme', { timeout: 20_000 })
+    await page.locator('[data-note="inside.md"]').click()
+    await expect(page.locator('[data-note-title]')).toHaveText('inside')
+
+    // Record every request and, on demand, fail every save.
+    // (`page.route` does not see `boost://` requests, so the page's fetch is wrapped.)
+    await page.evaluate(() => {
+      const original = window.fetch
+      const state: NonNullable<Window['saveGuard']> = { failSaves: false, sent: [] }
+      window.saveGuard = state
+      window.fetch = (input, init) => {
+        const pathname = new URL(String(input), location.href).pathname
+        state.sent.push(pathname)
+        if (pathname === '/api/notes/save' && state.failSaves) {
+          return Promise.resolve(new Response(JSON.stringify({ error: 'IO', message: 'Disk full' }), { status: 500 }))
+        }
+        return original(input, init)
+      }
+    })
+    const sent = () => page.evaluate(() => window.saveGuard?.sent ?? [])
+    const failSaves = (on: boolean) =>
+      page.evaluate((value) => {
+        if (window.saveGuard) window.saveGuard.failSaves = value
+      }, on)
+    await page.locator('[role="tab"][data-reader-tab="readme.md"]').click()
+    await expect(page.locator('[data-reader-body] h1')).toHaveText('Loose readme')
+    const ticket = (await sent()).find((pathname) => /^\/api\/reader\/[^/]+$/.test(pathname))?.split('/')[3]
+    expect(ticket).toBeDefined()
+
+    // While the folder is being chosen, the user moves to the note (Next Tab) and edits it; its save fails.
+    await page.locator('[data-reader-add]').click()
+    const dialog = page.getByRole('dialog', { name: 'Add to vault' })
+    await expect(dialog).toBeVisible()
+    await app.clickMenu('next-tab')
+    await expect(page.locator('[role="tab"][aria-selected="true"]')).toHaveAttribute('data-tab', 'inside.md')
+    await failSaves(true)
+    await editor(page).focus()
+    await page.keyboard.press('ControlOrMeta+End')
+    await page.keyboard.type('\nMine.', { delay: 20 })
+    await expect(page.locator('[data-save-state="error"]')).toBeVisible({ timeout: 20_000 })
+    await dialog.getByRole('button', { name: 'Add' }).click()
+
+    // The save was refused, so the import was never asked for: no note, the ticket is still live.
+    await expect(page.locator('[data-notice][data-kind="error"]')).toContainText('could not be saved')
+    expect((await sent()).filter((pathname) => pathname.endsWith('/import'))).toEqual([])
+    await expect(page.locator('[role="tab"][data-reader-tab="readme.md"]')).toHaveCount(1)
+    await expect(page.locator('[data-note="readme.md"]')).toHaveCount(0)
+    await expect(readFile(path.join(app.vault, 'readme.md'), 'utf8')).rejects.toThrow()
+    expect(await page.evaluate((t) => fetch(`/api/reader/${t}`).then((r) => r.status), ticket)).toBe(200)
+
+    // Once the note saves again, the reader still shows its file.
+    await failSaves(false)
+    await editor(page).click()
+    await page.keyboard.press('ControlOrMeta+End')
+    await page.keyboard.type('More', { delay: 20 })
+    await expect
+      .poll(() => readFile(path.join(app.vault, 'inside.md'), 'utf8'), { timeout: 20_000 })
+      .toMatch(/\n# Inside\n\nMine\.More$/)
+    await page.locator('[role="tab"][data-reader-tab="readme.md"]').click()
+    await expect(page.locator('[data-reader-body] h1')).toHaveText('Loose readme')
+  } finally {
+    // Saves work again before quitting, so main shows no native "Quit Anyway" dialog.
+    await app.page
+      .evaluate(() => {
+        if (window.saveGuard) window.saveGuard.failSaves = false
+      })
+      .catch(() => undefined)
     await app.electronApp.close()
     await rm(app.dir, { recursive: true, force: true })
   }
@@ -551,8 +720,11 @@ test('a reader’s Add to vault and vault switch wait for a running open-request
     await expect(page.locator('[data-vault-switcher]')).toContainText('other', { timeout: 20_000 })
     await expect(dialog.locator('option')).toHaveText(['other'])
     await dialog.getByRole('button', { name: 'Add' }).click()
-    await expect(page.locator('[data-note-title]')).toHaveText('readme', { timeout: 20_000 })
-    await expect(page.locator('[role="tab"][aria-selected="true"]')).toHaveAttribute('data-tab', 'readme.md')
+    // The drain left b.md active, so it stays active; the reader tab became readme.md's tab.
+    await expect(page.locator('[role="tab"][data-tab="readme.md"]')).toBeVisible({ timeout: 20_000 })
+    await expect(page.locator('[role="tab"][data-reader-tab="readme.md"]')).toHaveCount(0)
+    await expect(page.locator('[role="tab"][aria-selected="true"]')).toHaveAttribute('data-tab', 'b.md')
+    await expect(page.locator('[data-note-title]')).toHaveText('b')
     await expect(page.locator('[data-note="readme.md"]')).toBeVisible()
     await expect(page.locator('[data-note="b.md"]')).toBeVisible()
     expect(await readFile(path.join(other, 'readme.md'), 'utf8')).toBe('# Loose readme\n')

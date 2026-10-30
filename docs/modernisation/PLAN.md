@@ -407,9 +407,11 @@ when it throws (a bad or missing folder) the ticket stays. `read` (`ImportOption
 reader's identity-checked read: the note must be the granted file and each linked image a regular
 file inside its folder, read without following symlinks, and the bytes it read are the ones written,
 so a file or parent folder swapped for a symlink after the checks fails the import instead of
-copying another file. The workspace in the answer is read in the same queue turn. The page shows the
-drop import's notice (`#reportImport`, shared with drops) and turns the reader tab into the new
-note's tab at its position. The whole page action, the folder choice included, runs through
+copying another file. The workspace in the answer is read in the same queue turn. The page saves the
+open note before the request (a refused save sends nothing), shows the drop import's notice
+(`#reportImport`, shared with drops) and turns the reader tab into the new note's tab at its
+position: switching to it when the reader is still the active tab, else keeping the tab the user
+moved to meanwhile (its note is not saved for this), so the revoked reader tab never stays. The whole page action, the folder choice included, runs through
 `#inOpenOrder`: clicked while a drain switches vaults, it asks for a folder of the vault the drain
 left open, and a drain that starts meanwhile waits for it. In
 `Tabs` a tab is a note tab or a reader tab: reader tabs are never saved to `localStorage`, have no

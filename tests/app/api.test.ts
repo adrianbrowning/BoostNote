@@ -582,9 +582,10 @@ describe('reader', () => {
     })
     expect(result.workspace.vault?.root).toBe(vault.root)
     expect(result.workspace.notes.map((note) => note.id)).toEqual(['work/readme.md'])
-    expect(await readFile(path.join(vault.root, 'work', 'readme.md'), 'utf8')).toMatch(
-      /^# Readme\n\n!\[p\]\(\.\/readme\.assets\//,
-    )
+    const note = await readFile(path.join(vault.root, 'work', 'readme.md'), 'utf8')
+    const asset = /^# Readme\n\n!\[p\]\(\.\/readme\.assets\/([^)]+)\)\n$/.exec(note)?.[1]
+    expect(asset).toBeDefined()
+    expect(await readFile(path.join(vault.root, 'work', 'readme.assets', asset ?? ''), 'utf8')).toBe('PNG')
     // The outside file is untouched; its ticket is gone, and a second import is refused.
     expect(await readFile(file, 'utf8')).toBe('# Readme\n\n![p](pic.png)\n')
     expect((await app.get(api.readerRead.href({ ticket }))).status).toBe(404)
