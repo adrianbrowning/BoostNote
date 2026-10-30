@@ -253,6 +253,9 @@ describe('ReaderGrants', () => {
     const key = await file('doc/.ssh/id_rsa', 'not for the vault')
     const hidden = await file('doc/.x/key.png', 'not for the vault')
     const text = await file('doc/notes.txt', 'not for the vault')
+    // An image name for a file that is not one: the import hands over the real path behind it.
+    const photo = path.join(dir, 'doc', 'photo.png')
+    await symlink(text, photo)
     const ticket = await grant(granted)
     const result = await readers.importOnce(ticket, async (_target, { read, refuseAsset }) => ({
       refusals: {
@@ -260,6 +263,7 @@ describe('ReaderGrants', () => {
         key: refuseAsset('.ssh/id_rsa', key),
         hidden: refuseAsset('.x/key.png', hidden),
         text: refuseAsset('notes.txt', text),
+        photo: refuseAsset('photo.png', await realpath(photo)),
         writtenHidden: refuseAsset('img/.x/../pic.PNG', pic),
       },
       reads: [
@@ -267,6 +271,7 @@ describe('ReaderGrants', () => {
         await read(key, 'asset'),
         await read(hidden, 'asset'),
         await read(text, 'asset'),
+        await read(photo, 'asset'),
       ],
     }))
     expect(result).toEqual({
@@ -275,9 +280,10 @@ describe('ReaderGrants', () => {
         key: 'not an image',
         hidden: 'hidden file or folder',
         text: 'not an image',
+        photo: 'not an image',
         writtenHidden: 'hidden file or folder',
       },
-      reads: ['PNG', undefined, undefined, undefined],
+      reads: ['PNG', undefined, undefined, undefined, undefined],
     })
   })
 

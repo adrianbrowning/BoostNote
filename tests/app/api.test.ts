@@ -526,9 +526,18 @@ describe('reader', () => {
       await writeFile(path.join(outside, name), text)
     }
     await symlink(path.join(outside, '.secret', 'key.png'), path.join(outside, 'pic.png'))
+    // An image name for a file that is not one.
+    await symlink(path.join(outside, 'notes.txt'), path.join(outside, 'photo.png'))
     const url = (src: string) => `${routes.readerAssets.href({ ticket })}?src=${encodeURIComponent(src)}`
 
-    for (const src of ['.ssh/id_rsa', 'notes.txt', '.hidden/pic.png', 'pic.png', 'img/../.secret/key.png']) {
+    for (const src of [
+      '.ssh/id_rsa',
+      'notes.txt',
+      '.hidden/pic.png',
+      'pic.png',
+      'photo.png',
+      'img/../.secret/key.png',
+    ]) {
       const response = await app.get(url(src))
       expect(response.status, src).toBe(404)
       const text = await response.text()

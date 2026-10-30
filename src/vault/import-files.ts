@@ -285,9 +285,23 @@ export async function planImport(options: {
   const planned: PlannedNote[] = []
   let files = notes.length
   let bytes = 0
+  // Checked after every read: a reader import keeps the bytes it read, so going on past a limit
+  // would hold them all in memory before failing.
+  const overLimits = () => {
+    if (files > limits.maxFiles) {
+      throw new VaultError('TOO_LARGE', `Too many files to import (more than ${limits.maxFiles})`)
+    }
+    if (bytes > limits.maxBytes) {
+      throw new VaultError(
+        'TOO_LARGE',
+        `Too much to import (more than ${Math.round(limits.maxBytes / 1024 / 1024)} MB)`,
+      )
+    }
+  }
   for (const note of notes) {
     const { data, atime, mtime } = await readSource(note.real, 'note')
     bytes += data.byteLength
+    overLimits()
     const raw = data.toString('utf8')
     const body = parseNoteText(raw).body
     const header = raw.slice(0, raw.length - body.length)
@@ -335,17 +349,9 @@ export async function planImport(options: {
         assets.set(name, { source: target.asset, name, ...(options.read ? { data: content } : {}) })
         files++
       }
+      overLimits()
       usedOthers.add(target.asset)
       targets.set(relPath, { asset: name })
-    }
-    if (files > limits.maxFiles) {
-      throw new VaultError('TOO_LARGE', `Too many files to import (more than ${limits.maxFiles})`)
-    }
-    if (bytes > limits.maxBytes) {
-      throw new VaultError(
-        'TOO_LARGE',
-        `Too much to import (more than ${Math.round(limits.maxBytes / 1024 / 1024)} MB)`,
-      )
     }
     const stem = path.posix.basename(note.id, '.md')
     const dirId = noteFolder(note.id)
