@@ -13,6 +13,8 @@ export const routes = route({
   vaultAssets: get('/vault-assets/*path'),
   /** The hidden window that lays out mermaid diagrams for export (`src/main/export.ts`). */
   mermaidRenderer: get('/export/mermaid'),
+  /** PROTOTYPE (branch prototype/multi-vault): multi-vault UI variants, `?variant=A|B|C`. */
+  prototypeVaults: get('/prototype/vaults'),
   api: route('/api', {
     workspace: get('/workspace'),
     search: get('/search'),
