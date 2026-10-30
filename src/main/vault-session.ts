@@ -122,17 +122,24 @@ export class VaultSession {
 
   /**
    * Reopens the vaults that were open (app start), `lastVault` active. Settings from before
-   * multi-vault have only `lastVault`. Folders that no longer exist are dropped from the lists.
+   * multi-vault have only `lastVault`. Folders that no longer exist are dropped from the lists, and
+   * Recent entries written as another spelling of an open vault (a symlinked path) become its root,
+   * so the vault menu never lists one vault twice.
    */
   restore(): Promise<Vault | undefined> {
     return this.#exclusive(async () => {
       const { openVaults, lastVault } = this.#settings.read()
+      const renamed = new Map<string, string>()
       for (const root of openVaults ?? (lastVault ? [lastVault] : [])) {
         try {
-          if (!this.#vaults.has(root)) await this.#add(root)
+          const vault = this.#vaults.get(root) ?? (await this.#add(root))
+          if (vault.root !== root) renamed.set(root, vault.root)
         } catch (error) {
           if (!(error instanceof VaultError)) throw error
         }
+      }
+      if (renamed.size > 0) {
+        this.#settings.update({ vaults: [...new Set(this.recent.map((item) => renamed.get(item) ?? item))] })
       }
       const last = lastVault && (await realpath(lastVault).catch(() => lastVault))
       this.#active = (last && this.#vaults.get(last)) || this.all[0]

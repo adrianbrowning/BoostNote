@@ -110,7 +110,7 @@ describe('VaultSession', () => {
     const session = new VaultSession({ settings, events })
     const real = await realpath(root)
     expect((await session.restore())?.root).toBe(real)
-    expect(settings.read().openVaults).toEqual([real])
+    expect(settings.read()).toMatchObject({ openVaults: [real], vaults: [real] })
     await session.dispose()
   })
 
