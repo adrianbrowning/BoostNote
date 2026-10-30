@@ -1,0 +1,3 @@
+{
+  "checks": ["pnpm run typecheck", "pnpm run test", "pnpm test:e2e"]
+}

@@ -3,7 +3,7 @@ import * as path from 'node:path'
 import type { Page } from '@playwright/test'
 
 import { createLegacyStorage } from '../migrate/fixture.ts'
-import { expect, launchApp, test, writeFiles } from './fixtures.ts'
+import { expect, launchApp, quitWithoutDialog, test, writeFiles } from './fixtures.ts'
 
 const DIAGRAM = `---
 title: Diagram
@@ -263,7 +263,7 @@ test('opens .md files from the command line and through open-file in the vault t
     await expect(page.locator('[role="tab"][aria-selected="true"]')).toHaveAttribute('data-tab', 'd.md')
     await expect(page.locator('[role="tab"][data-tab="c.md"]')).toBeVisible()
   } finally {
-    await app.electronApp.close()
+    await quitWithoutDialog(app.electronApp)
     await rm(app.dir, { recursive: true, force: true })
   }
 })
@@ -360,7 +360,7 @@ test('opens a .md outside every vault read-only in a reader tab, without touchin
     const saved = await page.evaluate((root) => localStorage.getItem(`boostnote.tabs:${root}`), vaultRoot)
     expect(JSON.parse(saved ?? 'null')?.tabs).toEqual(['inside.md'])
   } finally {
-    await app.electronApp.close()
+    await quitWithoutDialog(app.electronApp)
     await rm(app.dir, { recursive: true, force: true })
   }
 })
@@ -404,7 +404,7 @@ test('"Open folder as vault" in a reader opens the file’s folder as the vault 
     const ticket = new URL(response.url()).pathname.split('/')[3]
     expect(await page.evaluate((t) => fetch(`/api/reader/${t}`).then((r) => r.status), ticket)).toBe(404)
   } finally {
-    await app.electronApp.close()
+    await quitWithoutDialog(app.electronApp)
     await rm(app.dir, { recursive: true, force: true })
   }
 })
@@ -473,7 +473,7 @@ test('"Add to vault…" in a reader imports the file and its images into the cho
     await expect(add).toHaveAccessibleDescription('Open a vault to add this file to it')
     await expect(page.locator('[data-reader-banner]')).toContainText('Open a vault to add this file to it')
   } finally {
-    await app.electronApp.close()
+    await quitWithoutDialog(app.electronApp)
     await rm(app.dir, { recursive: true, force: true })
   }
 })
@@ -519,7 +519,7 @@ test('"Add to vault…" that imports nothing keeps the reader tab, so another fo
     await expect(page.locator('[role="tab"][aria-selected="true"]')).toHaveAttribute('data-tab', 'work/README.md')
     await expect(page.locator('[data-note="work/README.md"]')).toBeVisible()
   } finally {
-    await app.electronApp.close()
+    await quitWithoutDialog(app.electronApp)
     await rm(app.dir, { recursive: true, force: true })
   }
 })
@@ -611,7 +611,7 @@ test('"Add to vault…" answering while another, unsavable note is active turns 
         if (window.importHold) window.importHold.failSaves = false
       })
       .catch(() => undefined)
-    await app.electronApp.close()
+    await quitWithoutDialog(app.electronApp)
     await rm(app.dir, { recursive: true, force: true })
   }
 })
@@ -687,7 +687,7 @@ test('"Add to vault…" sends nothing when the open note cannot be saved; the re
         if (window.saveGuard) window.saveGuard.failSaves = false
       })
       .catch(() => undefined)
-    await app.electronApp.close()
+    await quitWithoutDialog(app.electronApp)
     await rm(app.dir, { recursive: true, force: true })
   }
 })
@@ -802,7 +802,7 @@ test('a reader’s Add to vault and vault switch wait for a running open-request
     expect((await saved(other)).sort()).toEqual(['b.md', 'readme.md'])
     expect(await saved(app.vault)).toEqual(['inside.md'])
   } finally {
-    await app.electronApp.close()
+    await quitWithoutDialog(app.electronApp)
     await rm(app.dir, { recursive: true, force: true })
   }
 })
@@ -838,7 +838,7 @@ test('"Opening a .md outside a vault" defaults to Read only; "Open its folder as
     await expect(page.locator('[data-vault-switcher]')).toContainText('vault')
     await expect(page.locator('[data-note="readme.md"]')).toHaveCount(0)
   } finally {
-    await app.electronApp.close()
+    await quitWithoutDialog(app.electronApp)
     await rm(app.dir, { recursive: true, force: true })
   }
 })
@@ -883,7 +883,7 @@ test('a reader tab shows images next to its file; only http(s) links open, in th
     await expect(body.locator('h1')).toHaveText('Pics')
     await expect(page.locator('[data-reader-tab]')).toHaveCount(1)
   } finally {
-    await app.electronApp.close()
+    await quitWithoutDialog(app.electronApp)
     await rm(app.dir, { recursive: true, force: true })
   }
 })
@@ -905,7 +905,7 @@ test('opens every file queued before the window loads, in order', async () => {
       .evaluateAll((items) => items.map((item) => item.getAttribute('data-reader-tab')))
     expect(tabs).toEqual(['one.md', 'two.md'])
   } finally {
-    await app.electronApp.close()
+    await quitWithoutDialog(app.electronApp)
     await rm(app.dir, { recursive: true, force: true })
   }
 })
