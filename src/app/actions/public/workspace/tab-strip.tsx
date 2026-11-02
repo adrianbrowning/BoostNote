@@ -12,7 +12,8 @@ const MIDDLE_BUTTON = 1
 
 /**
  * Back/forward of the active tab and the tab strip: click activates, middle-click or × closes,
- * drag and drop reorders. Tabs show their note's title (file name when the list doesn't know it).
+ * drag and drop reorders. Note tabs show their note's title (file name when the list doesn't know
+ * it); reader tabs show the outside file's name.
  */
 export function TabStrip(handle: Handle<{ model: WorkspaceModel }>) {
   let dropKey: number | null = null
@@ -52,8 +53,10 @@ export function TabStrip(handle: Handle<{ model: WorkspaceModel }>) {
         <div role="tablist" aria-label="Open notes" mix={tabListStyle}>
           {model.tabs.tabs.map((tab, index) => {
             const title =
-              model.data.notes.find((note) => note.id === tab.path)?.title ??
-              tab.path.slice(tab.path.lastIndexOf('/') + 1)
+              tab.kind === 'reader'
+                ? tab.name
+                : (model.data.notes.find((note) => note.id === tab.path)?.title ??
+                  tab.path.slice(tab.path.lastIndexOf('/') + 1))
             const active = tab.key === model.tabs.activeKey
             return (
               <div
@@ -61,9 +64,10 @@ export function TabStrip(handle: Handle<{ model: WorkspaceModel }>) {
                 role="tab"
                 tabIndex={active ? 0 : -1}
                 aria-selected={active ? 'true' : 'false'}
-                title={tab.path}
+                title={tab.kind === 'reader' ? `${tab.name} (read only, not in a vault)` : tab.path}
                 draggable="true"
-                data-tab={tab.path}
+                data-tab={tab.kind === 'note' ? tab.path : undefined}
+                data-reader-tab={tab.kind === 'reader' ? tab.name : undefined}
                 data-drop-target={dropKey === tab.key ? 'true' : undefined}
                 mix={[
                   tabStyle,

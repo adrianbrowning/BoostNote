@@ -3,7 +3,13 @@
  * both the browser modules and the main-process controllers import them.
  */
 import type { MenuCommand, MenuEvent, VaultChangeEvent } from '../../../../main/events.ts'
-import type { PaneLayout, ThemePreference, UiPatch, UiPreferences } from '../../../../main/settings.ts'
+import type {
+  OutsideFilePreference,
+  PaneLayout,
+  ThemePreference,
+  UiPatch,
+  UiPreferences,
+} from '../../../../main/settings.ts'
 import type { UpdateInfo } from '../../../../main/updates.ts'
 import type { OpenRequest } from '../../../../main/vault-session.ts'
 import type {
@@ -24,6 +30,7 @@ export type {
   MenuCommand,
   MenuEvent,
   OpenRequest,
+  OutsideFilePreference,
   PaneLayout,
   ThemePreference,
   TitleRename,
@@ -64,6 +71,33 @@ export interface NoteDocument extends NoteSummary {
   body: string
   /** sha256 of the whole file as last read or written. */
   hash: string
+}
+
+/**
+ * `GET /api/reader/:ticket`: an outside `.md` shown read-only in a reader tab; `name` is its base
+ * name, never a path. `html` is the body rendered and sanitised by `src/markdown/render.ts` in main.
+ */
+export interface ReaderDocument {
+  name: string
+  frontmatter: { [key: string]: JsonValue }
+  body: string
+  html: string
+}
+
+/** `POST /api/reader/:ticket/open-folder`: the file's folder is the vault now; `id` is the file's note there. */
+export interface ReaderFolderResult {
+  id: string
+  workspace: WorkspaceData
+}
+
+/**
+ * `POST /api/reader/:ticket/import` (`{ folder }`): the reader's file was imported into `folder` of
+ * the open vault and its ticket ended. The report's `source` paths are base names; `workspace` is
+ * the vault it was imported into, read right after the import.
+ */
+export interface ReaderImportResult {
+  report: ImportFilesReport
+  workspace: WorkspaceData
 }
 
 export interface FolderSummary {

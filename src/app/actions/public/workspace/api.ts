@@ -10,6 +10,9 @@ import type {
   NoteDocument,
   OpenRequest,
   PreferencesState,
+  ReaderDocument,
+  ReaderFolderResult,
+  ReaderImportResult,
   SaveConflictBody,
   TitleRename,
   TitleRenamePlan,
@@ -146,4 +149,12 @@ export const client = {
     post<ExportResult>(api.exportNote.href(), { id, format }),
   exportFolder: (folder: string) => post<ExportResult>(api.exportFolder.href(), { folder }),
   takeOpenRequest: () => post<OpenRequest | null>(api.openRequest.href()),
+  readReader: (ticket: string) => request<ReaderDocument>(api.readerRead.href({ ticket })),
+  /** Revokes a reader tab's ticket (the tab closed). */
+  closeReader: (ticket: string) => post<unknown>(api.readerClose.href({ ticket })),
+  /** Main opens the folder of the reader tab's file as the vault and revokes the ticket. */
+  openReaderFolder: (ticket: string) => post<ReaderFolderResult>(api.readerOpenFolder.href({ ticket })),
+  /** Main imports the reader tab's file into `folder` of the open vault and revokes the ticket once a note came in. */
+  importReader: (ticket: string, folder: string) =>
+    post<ReaderImportResult>(api.readerImport.href({ ticket }), { folder }),
 }

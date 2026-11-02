@@ -3,12 +3,26 @@ import * as path from 'node:path'
 import { isDeepStrictEqual } from 'node:util'
 import { createController } from 'remix/router'
 
+import { renderMarkdown } from '../../../markdown/index.ts'
 import { migrateStorage } from '../../../migrate/index.ts'
-import { type LinkMove, type Note, type TitleRename, type Vault, VaultError } from '../../../vault/index.ts'
+import {
+  type LinkMove,
+  type Note,
+  parseNoteText,
+  type TitleRename,
+  type Vault,
+  VaultError,
+} from '../../../vault/index.ts'
 import { errorResponse, HttpError, json, readJsonObject, requireString } from '../../http.ts'
 import { routes } from '../../routes.ts'
 import type { AppServices } from '../../services.ts'
-import type { OpenRequest, SaveConflictBody } from '../public/workspace/types.ts'
+import type {
+  OpenRequest,
+  ReaderDocument,
+  ReaderFolderResult,
+  ReaderImportResult,
+  SaveConflictBody,
+} from '../public/workspace/types.ts'
 import { exportFolder, exportNote } from './export.ts'
 import { parseUiPatch, preferencesState, savePreferences } from './preferences.ts'
 import { importSummary, toJsonValue, toNoteDocument, workspaceData } from './workspace-data.ts'
@@ -31,6 +45,18 @@ function requireVault(services: AppServices, request: Request): Vault {
   const vault = services.vaults.get(root)
   if (!vault) throw new HttpError(409, 'NO_VAULT', `This vault is not open: ${root}`)
   return vault
+}
+
+/** A ticket that was never granted or whose reader tab closed (the message names no path). */
+function readerClosed(): HttpError {
+  return new HttpError(404, 'NOT_FOUND', 'This file is no longer open; open it again')
+}
+
+/** The real path behind a reader ticket of `/api/reader/:ticket`. */
+function readerFile(services: AppServices, ticket: string): string {
+  const file = services.vaults.readers.path(ticket)
+  if (file === undefined) throw readerClosed()
+  return file
 }
 
 /** The `moves` of a `/api/links/*` body: `[{ from, to, kind: 'note' | 'folder' }]`. */
@@ -397,6 +423,49 @@ export function createApiController(services: AppServices) {
       openRequest: guarded(async () => {
         const pending: OpenRequest | null = (await services.vaults.takeOpenRequest()) ?? null
         return json(pending)
+      }),
+
+      readerRead: guarded(async ({ params }: { params: { ticket: string } }) => {
+        const file = readerFile(services, params.ticket)
+        const raw = await services.vaults.readers.read(params.ticket)
+        // Gone, or no longer a regular file at its real path, e.g. a symlink (the message names no path).
+        if (raw === undefined) throw new HttpError(404, 'NOT_FOUND', `${path.basename(file)} is gone; open it again`)
+        const { frontmatter, body } = parseNoteText(raw)
+        const document: ReaderDocument = {
+          name: path.basename(file),
+          body,
+          frontmatter: toJsonValue(frontmatter) as ReaderDocument['frontmatter'],
+          // `render.ts` needs Node (crypto, sanitize-html), so main renders; the page only shows it.
+          // Relative images load through `/reader-assets`, which checks them against the ticket's folder.
+          html: (
+            await renderMarkdown(raw, {
+              resolveImage: async (src) =>
+                `${routes.readerAssets.href({ ticket: params.ticket })}?${new URLSearchParams({ src })}`,
+            })
+          ).html,
+        }
+        return json(document)
+      }),
+
+      readerClose: guarded(async ({ params }: { params: { ticket: string } }) => {
+        if (!(await services.vaults.closeReader(params.ticket))) throw readerClosed()
+        return json({ ok: true })
+      }),
+
+      readerOpenFolder: guarded(async ({ params }: { params: { ticket: string } }) => {
+        const id = await services.vaults.openReaderFolder(params.ticket)
+        const result: ReaderFolderResult = { id, workspace: await workspaceData(services) }
+        return json(result)
+      }),
+
+      readerImport: guarded(async ({ params, request }: { params: { ticket: string }; request: Request }) => {
+        const folder = requireString((await readJsonObject(request)).folder, 'folder', { allowEmpty: true })
+        const result = await services.vaults.importReader(
+          params.ticket,
+          folder,
+          async (report): Promise<ReaderImportResult> => ({ report, workspace: await workspaceData(services) }),
+        )
+        return json(result, { status: 201 })
       }),
     },
   })

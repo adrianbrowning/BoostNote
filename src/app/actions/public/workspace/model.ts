@@ -4,15 +4,17 @@ import { ApiError, client, setPageVault } from './api.ts'
 import type { DropTicket } from './drop-import.ts'
 import { NoteSession } from './note-session.ts'
 import { baseName, folderChain, parentOf } from './paths.ts'
-import { type Tab, Tabs } from './tabs.ts'
+import { type ReaderTab, type Tab, Tabs } from './tabs.ts'
 import type {
   FolderSummary,
+  ImportFilesReport,
   JsonValue,
   LinkMove,
   LinkUpdate,
   NoteSummary,
   PaneLayout,
   PreferencesState,
+  ReaderDocument,
   TitleRename,
   TitleRenameReport,
   UiPatch,
@@ -146,6 +148,10 @@ export class WorkspaceModel extends TypedEventTarget<{
   connection: Connection = 'connecting'
   readonly session = new NoteSession()
   tabs = new Tabs()
+  /** The file of the reader tab with `ticket` as last read (`null` unless a reader tab is active). */
+  reader: { ticket: string; document: ReaderDocument } | null = null
+  /** Keys of reader tabs whose close, "Open folder as vault" or "Add to vault…" is in flight (one action at a time). */
+  readonly #busyReaders = new Set<number>()
   preferences: UiPreferences
   hotkeyRegistered: boolean
   /** Newer release shown in the status bar. */
@@ -155,6 +161,12 @@ export class WorkspaceModel extends TypedEventTarget<{
   #searchAbort: AbortController | undefined
   #refreshTimer: ReturnType<typeof setTimeout> | undefined
   #noticeTimer: ReturnType<typeof setTimeout> | undefined
+  /**
+   * The work running in open order (`#inOpenOrder`): an open-request drain, a reader's "Open folder
+   * as vault", or a reader's "Add to vault…" from its folder dialog to main's answer. Later ones
+   * queue behind it, so vault switches, imports and the tabs they open never interleave.
+   */
+  #openRequests: Promise<void> = Promise.resolve()
 
   constructor(initial: WorkspaceData, preferences: PreferencesState) {
     super()
@@ -282,8 +294,11 @@ export class WorkspaceModel extends TypedEventTarget<{
   /** Whether the vault has a note with this id (as of the last list refresh). */
   hasNote = (id: string): boolean => this.data.notes.some((note) => note.id === id)
 
-  /** Restores the open vault's tabs from `localStorage` (after hydration, after switching vaults). */
-  async restoreTabs(): Promise<void> {
+  /**
+   * Restores the open vault's tabs from `localStorage` (after hydration, after switching vaults).
+   * `change` then edits the restored tabs before the active one loads (and they are saved).
+   */
+  async restoreTabs(change?: () => unknown): Promise<void> {
     const root = this.data.vault?.root
     let snapshot: unknown = null
     try {
@@ -291,7 +306,11 @@ export class WorkspaceModel extends TypedEventTarget<{
     } catch {
       // A corrupt entry restores no tabs.
     }
-    this.tabs = Tabs.restore(snapshot, this.hasNote)
+    this.tabs.restore(snapshot, this.hasNote)
+    if (change) {
+      change()
+      this.#saveTabs()
+    }
     await this.#loadActiveTab()
   }
 
@@ -308,9 +327,16 @@ export class WorkspaceModel extends TypedEventTarget<{
     await this.#loadActiveTab()
   }
 
-  /** Makes the session show the active tab's note (or nothing without tabs). */
+  /** Makes the session show the active tab's note, or reads the active reader tab's file (nothing without tabs). */
   async #loadActiveTab(): Promise<void> {
-    const id = this.tabs.active?.path
+    const tab = this.tabs.active
+    if (tab?.kind === 'reader') {
+      if (this.session.note) this.session.close()
+      await this.#loadReader(tab)
+      return
+    }
+    this.reader = null
+    const id = tab?.path
     if (id === undefined) {
       if (this.session.note) this.session.close()
       this.changed()
@@ -335,6 +361,31 @@ export class WorkspaceModel extends TypedEventTarget<{
   }
 
   /**
+   * Reads the reader tab's file again. A `404` (ticket revoked, or the file is gone) closes the tab;
+   * closing still revokes the ticket, so a file that went away does not keep a live grant.
+   */
+  async #loadReader(tab: ReaderTab): Promise<void> {
+    // Another reader's content never shows under this tab while it loads (or after it failed).
+    if (this.reader?.ticket !== tab.ticket) {
+      this.reader = null
+      this.changed()
+    }
+    try {
+      const document = await client.readReader(tab.ticket)
+      if (this.tabs.active !== tab) return
+      this.reader = { ticket: tab.ticket, document }
+      this.changed()
+    } catch (error) {
+      if (!(error instanceof ApiError && error.status === 404)) {
+        this.fail(error)
+        return
+      }
+      this.notify('error', error.message)
+      await this.closeTab(tab.key)
+    }
+  }
+
+  /**
    * Opens a note after saving the current one (refused while that has an unresolved conflict): in
    * the active tab, pushing onto its back trail, or with `newTab` in a new tab after it.
    */
@@ -349,10 +400,27 @@ export class WorkspaceModel extends TypedEventTarget<{
 
   /**
    * Closes a tab (the active one by default). Closing the active tab saves its note first; `discard`
-   * drops unsaved edits instead (the "Close" of a note removed on disk).
+   * drops unsaved edits instead (the "Close" of a note removed on disk). A reader tab closes once
+   * main revoked its ticket (a `404` means it already was); if revoking fails the tab stays open.
+   * A reader that is already closing or opening its folder as the vault is left to that action.
    */
   async closeTab(key = this.tabs.activeKey, options: { discard?: boolean } = {}): Promise<void> {
     if (key === null) return
+    const tab = this.tabs.tabs.find((item) => item.key === key)
+    if (tab?.kind === 'reader') {
+      if (this.#busyReaders.has(key)) return
+      this.#busyReaders.add(key)
+      try {
+        await client.closeReader(tab.ticket)
+      } catch (error) {
+        if (!(error instanceof ApiError && error.status === 404)) {
+          this.fail(error)
+          return
+        }
+      } finally {
+        this.#busyReaders.delete(key)
+      }
+    }
     if (key !== this.tabs.activeKey) {
       this.tabs.close(key)
       this.#saveTabs()
@@ -361,6 +429,90 @@ export class WorkspaceModel extends TypedEventTarget<{
     }
     if (options.discard) this.session.close()
     await this.#switchTabs(() => this.tabs.close(key))
+  }
+
+  /**
+   * A reader tab's "Open folder as vault": main opens the folder of the tab's file as the vault (the
+   * page sends only the ticket) and revokes the ticket; the reader tab becomes that note's tab at
+   * the same position, next to the vault's restored tabs. Main refuses a file that can be no note
+   * of its folder (a dot-name, upper-case `.MD`); the notice says so and the reader stays. Ignored
+   * while the reader is closing, opening its folder or being added to the vault, so the tab is
+   * still there to turn into the note's. The switch waits for a running open-request drain.
+   */
+  async openReaderFolder(key: number): Promise<void> {
+    const tab = this.tabs.tabs.find((item): item is ReaderTab => item.key === key && item.kind === 'reader')
+    if (!tab || this.#busyReaders.has(key)) return
+    // Claimed before the first await, so a second click while this runs does nothing.
+    this.#busyReaders.add(key)
+    try {
+      await this.#inOpenOrder(async () => {
+        if (!(await this.leaveNote())) return
+        await this.attempt(async () => {
+          const { id, workspace } = await client.openReaderFolder(tab.ticket)
+          await this.#switched(workspace, () => this.tabs.replaceReader(tab.key, id))
+        })
+      })
+    } finally {
+      this.#busyReaders.delete(key)
+    }
+  }
+
+  /**
+   * A reader tab's "Add to vault…": asks for a folder of the open vault (`dropFolder` first); main
+   * then imports the tab's file and its images there and revokes the ticket once a note came in (the
+   * page sends only the ticket and the folder id). The open note is saved before the request (a
+   * refused save leaves the vault and the ticket as they were). The reader tab becomes the new
+   * note's tab at the same position and the notice is the one of a drop; when main imported no
+   * note (the file is already in that folder, or skipped) the notice says "Nothing imported: …" and
+   * the reader tab stays, its ticket live, so another folder can be chosen. The button is disabled
+   * without an open vault; nothing happens while the reader is closing, opening its folder or
+   * already being added. The whole action (choosing included) runs in open order: after a running
+   * open-request drain, in the vault that drain left open (an error notice when it left none), and
+   * a drain that starts meanwhile waits for it.
+   */
+  async addReaderToVault(key: number): Promise<void> {
+    const tab = this.tabs.tabs.find((item): item is ReaderTab => item.key === key && item.kind === 'reader')
+    if (!tab || !this.data.vault || this.#busyReaders.has(key)) return
+    // Claimed before the first await, so a second click while this waits or runs does nothing.
+    this.#busyReaders.add(key)
+    try {
+      await this.#inOpenOrder(async () => {
+        if (!this.data.vault) {
+          this.notify('error', 'Open a vault first, then add the file to it.')
+          return
+        }
+        const folder = await this.choose({
+          title: 'Add to vault',
+          label: 'Folder',
+          options: this.folderOptions,
+          value: this.dropFolder,
+          confirm: 'Add',
+        })
+        if (folder === null || !(await this.leaveNote())) return
+        await this.attempt(async () => {
+          const { report, workspace } = await client.importReader(tab.ticket, folder)
+          this.#showData(workspace)
+          await this.#reportImport(report, folder, (id) => this.#readerImported(key, id))
+        })
+      })
+    } finally {
+      this.#busyReaders.delete(key)
+    }
+  }
+
+  /**
+   * Reader tab `key`'s file became note `id`: the tab turns into the note's tab at its position. Still
+   * active, the tab switches to the note after the save as usual. When the user moved to another tab
+   * meanwhile (or that save was refused), the tab is replaced anyway (its ticket is gone, so it never
+   * stays) and the active tab stays, its note not saved for this.
+   */
+  async #readerImported(key: number, id: string): Promise<void> {
+    if (key === this.tabs.activeKey) await this.#switchTabs(() => this.tabs.replaceReader(key, id))
+    const active = this.tabs.activeKey
+    if (!this.tabs.replaceReader(key, id)) return
+    if (active !== null && active !== key) this.tabs.activate(active)
+    this.#saveTabs()
+    this.changed()
   }
 
   async reopenTab(): Promise<void> {
@@ -626,21 +778,46 @@ export class WorkspaceModel extends TypedEventTarget<{
   }
 
   /**
-   * A `.md` file opened from Finder/Explorer: switches to its folder as the vault (unless that is
-   * already open) and opens the note in a new tab. Called after hydration and on SSE `open-request`.
+   * `.md` files opened from Finder/Explorer, taken from main until its queue is empty. A note of a
+   * known vault switches to that vault (unless it is already open) and opens in a new tab (or its
+   * existing tab); an outside file opens in a reader tab (its existing one when it already has one)
+   * and leaves the vault alone. Called after hydration and on SSE `open-request`; a call made while
+   * a drain runs starts its own drain after that one, so a request queued as the running drain ends
+   * is still taken.
    */
-  async takeOpenRequest(): Promise<void> {
+  takeOpenRequest(): Promise<void> {
+    return this.#inOpenOrder(() => this.#drainOpenRequests())
+  }
+
+  /**
+   * Runs `task` after the work in open order running now (and that queued before): an open-request
+   * drain, a reader's "Open folder as vault", or a reader's "Add to vault…" (its folder dialog
+   * included, so a drain waits while the user chooses).
+   */
+  #inOpenOrder(task: () => Promise<void>): Promise<void> {
+    const run = this.#openRequests.then(task)
+    this.#openRequests = run.catch(() => undefined)
+    return run
+  }
+
+  async #drainOpenRequests(): Promise<void> {
     await this.attempt(async () => {
-      const request = await client.takeOpenRequest()
-      if (!request) return
-      if (this.data.vault?.root !== request.vault) {
-        if (!(await this.leaveNote())) return
-        const result = await client.openVault(request.vault)
-        if (result.workspace) await this.#switched(result.workspace)
+      for (let request = await client.takeOpenRequest(); request; request = await client.takeOpenRequest()) {
+        if (request.kind === 'external') {
+          const { ticket, name } = request
+          await this.#switchTabs(() => this.tabs.openReader(ticket, name))
+          continue
+        }
+        if (this.data.vault?.root !== request.vault) {
+          if (!(await this.leaveNote())) return
+          const result = await client.openVault(request.vault)
+          if (result.workspace) await this.#switched(result.workspace)
+        }
+        const id = request.id
+        const tab = this.tabs.tabs.find((item) => item.kind === 'note' && item.path === id)
+        if (tab) await this.activateTab(tab.key)
+        else await this.openNote(id, { newTab: true })
       }
-      const tab = this.tabs.tabs.find((item) => item.path === request.id)
-      if (tab) await this.activateTab(tab.key)
-      else await this.openNote(request.id, { newTab: true })
     })
   }
 
@@ -665,30 +842,43 @@ export class WorkspaceModel extends TypedEventTarget<{
     await this.attempt(async () => {
       const report = await client.importFiles(drop.ticket, folder)
       await this.refresh()
-      const details = [
-        ...report.skipped.map((skip) => `Skipped ${baseName(skip.source)}: ${skip.reason}`),
-        ...report.unresolved.map((link) => `${baseName(link.id)}: link “${link.link}” left as is (${link.reason})`),
-      ]
-      const imported = report.notes.length
-      if (imported === 0) {
-        const only = report.skipped.length === 1 ? report.skipped[0] : undefined
-        this.notify(
-          'info',
-          only ? `Nothing imported: ${baseName(only.source)} is ${only.reason}` : 'Nothing imported',
-          details,
-        )
-        return
-      }
-      const first = report.notes[0]
-      if (drop.count === 1 && imported === 1 && first) await this.openNote(first.id, { newTab: true })
-      const extras = [`${report.assets} ${report.assets === 1 ? 'image' : 'images'} copied`]
-      if (report.skipped.length > 0) extras.push(`${report.skipped.length} skipped`)
-      this.notify(
-        'info',
-        `Imported ${imported} ${imported === 1 ? 'note' : 'notes'} into ${this.folderName(folder)} (${extras.join(', ')})`,
-        details,
+      await this.#reportImport(
+        report,
+        folder,
+        drop.count === 1 ? (id) => this.openNote(id, { newTab: true }) : undefined,
       )
     })
+  }
+
+  /**
+   * The notice of a file import into `folder` (a drop, a reader's "Add to vault…"): what was
+   * imported, images copied, and what was skipped or left as is. When exactly one note was
+   * imported, `open` (if given) opens it first.
+   */
+  async #reportImport(report: ImportFilesReport, folder: string, open?: (id: string) => Promise<void>): Promise<void> {
+    const details = [
+      ...report.skipped.map((skip) => `Skipped ${baseName(skip.source)}: ${skip.reason}`),
+      ...report.unresolved.map((link) => `${baseName(link.id)}: link “${link.link}” left as is (${link.reason})`),
+    ]
+    const imported = report.notes.length
+    if (imported === 0) {
+      const only = report.skipped.length === 1 ? report.skipped[0] : undefined
+      this.notify(
+        'info',
+        only ? `Nothing imported: ${baseName(only.source)} is ${only.reason}` : 'Nothing imported',
+        details,
+      )
+      return
+    }
+    const first = report.notes[0]
+    if (open && imported === 1 && first) await open(first.id)
+    const extras = [`${report.assets} ${report.assets === 1 ? 'image' : 'images'} copied`]
+    if (report.skipped.length > 0) extras.push(`${report.skipped.length} skipped`)
+    this.notify(
+      'info',
+      `Imported ${imported} ${imported === 1 ? 'note' : 'notes'} into ${this.folderName(folder)} (${extras.join(', ')})`,
+      details,
+    )
   }
 
   async toggleStar(): Promise<void> {
@@ -900,7 +1090,8 @@ export class WorkspaceModel extends TypedEventTarget<{
     })
   }
 
-  #switched(data: WorkspaceData): Promise<void> {
+  /** Shows another vault (or none); `change` edits its restored tabs before the active one loads. */
+  #switched(data: WorkspaceData, change?: () => unknown): Promise<void> {
     this.session.close()
     this.data = data
     setPageVault(data.vault?.root ?? null)
@@ -908,7 +1099,7 @@ export class WorkspaceModel extends TypedEventTarget<{
     this.expanded.clear()
     this.importOpen = false
     this.setQuery('')
-    return this.restoreTabs()
+    return this.restoreTabs(change)
   }
 
   // ── Live updates ────────────────────────────────────────────────────────────────────────
@@ -916,7 +1107,11 @@ export class WorkspaceModel extends TypedEventTarget<{
   /** Re-reads the lists (after a mutation, or when the vault changed on disk). */
   async refresh(): Promise<void> {
     clearTimeout(this.#refreshTimer)
-    const data = await client.workspace()
+    this.#showData(await client.workspace())
+  }
+
+  /** Shows the open vault's lists as `data` has them (same vault): selection and tabs follow. */
+  #showData(data: WorkspaceData): void {
     this.data = data
     const selection = this.selection
     const folderGone =
@@ -925,7 +1120,7 @@ export class WorkspaceModel extends TypedEventTarget<{
     if (folderGone || tagGone) this.selection = { kind: 'all' }
     // Background tabs (and trail entries) of notes that are gone; the active tab keeps its note
     // until the user resolves the removal (conflict bar).
-    const active = this.tabs.active?.path
+    const active = this.tabs.active?.kind === 'note' ? this.tabs.active.path : undefined
     this.tabs.forget((path) => path !== active && !this.hasNote(path))
     this.#saveTabs()
     if (this.query.trim() !== '') void this.#search()

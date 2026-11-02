@@ -1,4 +1,4 @@
-import { mkdir, readFile, symlink, writeFile } from 'node:fs/promises'
+import { mkdir, readdir, readFile, realpath, rm, symlink, writeFile } from 'node:fs/promises'
 import * as path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { MAX_IMPORT_PATHS } from '../../src/app/actions/api/controller.ts'
@@ -7,6 +7,10 @@ import type {
   ImportSummary,
   LinkUpdateReport,
   NoteDocument,
+  OpenRequest,
+  PreferencesState,
+  ReaderFolderResult,
+  ReaderImportResult,
   SaveConflictBody,
   TitleRenamePlan,
   TitleRenameReport,
@@ -415,6 +419,330 @@ describe('vaults', () => {
     expect((await app.post(api.openExternal.href(), { url: 'file:///etc/passwd' })).status).toBe(400)
     expect((await app.post(api.openExternal.href(), { url: 'javascript:alert(1)' })).status).toBe(400)
     expect(app.opened).toEqual(['https://example.com/a'])
+  })
+})
+
+describe('reader', () => {
+  /** Opens `<dir>/outside/<name>` from the OS and takes the request as the page does. */
+  async function openOutside(name: string, text: string): Promise<{ file: string; ticket: string }> {
+    const file = path.join(app.dir, 'outside', name)
+    await mkdir(path.dirname(file), { recursive: true })
+    await writeFile(file, text)
+    app.vaults.requestOpen(file)
+    const raw = await (await app.post(api.openRequest.href())).text()
+    const request: OpenRequest | null = JSON.parse(raw)
+    if (request?.kind !== 'external') throw new Error(`Expected an external request, got ${raw}`)
+    // Only the base name crosses the boundary: the ticket is opaque random hex, never the path.
+    expect(Object.keys(request).sort()).toEqual(['kind', 'name', 'ticket'])
+    expect(request.ticket).toMatch(/^[0-9a-f]{48}$/)
+    expect(request.name).toBe(name)
+    expect(raw).not.toContain(app.dir)
+    return { file, ticket: request.ticket }
+  }
+
+  it('reads an outside file through its ticket, fresh each time, naming only its base name', async () => {
+    const { file, ticket } = await openOutside('readme.md', '---\ntags: [a]\n---\n# Readme\n\n<script>x()</script>\n')
+    const first = await app.get(api.readerRead.href({ ticket }))
+    expect(first.status).toBe(200)
+    const text = await first.text()
+    expect(JSON.parse(text)).toEqual({
+      name: 'readme.md',
+      body: '# Readme\n\n<script>x()</script>\n',
+      frontmatter: { tags: ['a'] },
+      // Rendered and sanitised like an export: the script is gone.
+      html: '<h1 id="readme">Readme</h1>\n\n',
+    })
+    expect(text).not.toContain(app.dir)
+
+    await writeFile(file, 'Changed\n')
+    expect(await readJson(await app.get(api.readerRead.href({ ticket })))).toEqual({
+      name: 'readme.md',
+      body: 'Changed\n',
+      frontmatter: {},
+      html: '<p>Changed</p>\n',
+    })
+    // No vault was opened for it.
+    expect(app.vaults.current).toBeUndefined()
+    expect(app.settings.read()).toEqual({})
+  })
+
+  it('refuses a ticket after its reader closed, unknown tickets, and a file that is gone', async () => {
+    const { ticket } = await openOutside('a.md', '# A\n')
+    const gone = await openOutside('b.md', '# B\n')
+    const closed = await app.post(api.readerClose.href({ ticket }))
+    expect(closed.status).toBe(200)
+    expect(await closed.json()).toEqual({ ok: true })
+    const after = await app.get(api.readerRead.href({ ticket }))
+    expect(after.status).toBe(404)
+    expect(await after.text()).not.toContain(app.dir)
+    expect((await app.get(api.readerRead.href({ ticket: 'made-up' }))).status).toBe(404)
+    expect((await app.post(api.readerClose.href({ ticket }))).status).toBe(404)
+    expect((await app.post(api.readerClose.href({ ticket: 'made-up' }))).status).toBe(404)
+
+    await rm(gone.file)
+    const missing = await app.get(api.readerRead.href({ ticket: gone.ticket }))
+    expect(missing.status).toBe(404)
+    expect(await missing.text()).not.toContain(app.dir)
+  })
+
+  it('refuses a granted file swapped for a symlink, never reading what the link points at', async () => {
+    const { file, ticket } = await openOutside('swap.md', '# Granted\n')
+    const secret = path.join(app.dir, 'secret.txt')
+    await writeFile(secret, 'not for the page\n')
+    await rm(file)
+    await symlink(secret, file)
+    const response = await app.get(api.readerRead.href({ ticket }))
+    expect(response.status).toBe(404)
+    const text = await response.text()
+    expect(text).not.toContain('not for the page')
+    expect(text).not.toContain(app.dir)
+  })
+
+  it('serves files next to the outside file and points its images at them', async () => {
+    const { ticket } = await openOutside('pics.md', '![a](pic.png) ![b](img/b%20c.gif)\n')
+    await writeFile(path.join(app.dir, 'outside', 'pic.png'), 'PNG bytes')
+    await mkdir(path.join(app.dir, 'outside', 'img'))
+    await writeFile(path.join(app.dir, 'outside', 'img', 'b c.gif'), 'GIF bytes')
+    const url = (src: string) => `${routes.readerAssets.href({ ticket })}?src=${encodeURIComponent(src)}`
+
+    const document = await readJson<{ html: string }>(await app.get(api.readerRead.href({ ticket })))
+    expect(document.html).toBe(
+      `<p><img src="/reader-assets/${ticket}?src=pic.png" alt="a" /> <img src="/reader-assets/${ticket}?src=img%2Fb%2520c.gif" alt="b" /></p>\n`,
+    )
+    const image = await app.get(url('pic.png'))
+    expect(image.status).toBe(200)
+    expect(image.headers.get('content-type')).toBe('image/png')
+    expect(image.headers.get('content-security-policy')).toContain('sandbox')
+    expect(await image.text()).toBe('PNG bytes')
+    expect(await (await app.get(url('img/b%20c.gif?v=1#x'))).text()).toBe('GIF bytes')
+    // The type comes from the file that was read, not from how the link spells it.
+    expect((await app.get(url('pic%2Epng'))).headers.get('content-type')).toBe('image/png')
+  })
+
+  it('refuses asset sources outside the file’s folder, symlink escapes, folders, and dead tickets', async () => {
+    const { ticket } = await openOutside('doc.md', '# Doc\n')
+    const outside = path.join(app.dir, 'outside')
+    await writeFile(path.join(app.dir, 'secret.txt'), 'not for the page\n')
+    await symlink(path.join(app.dir, 'secret.txt'), path.join(outside, 'link.txt'))
+    await symlink(app.dir, path.join(outside, 'up'))
+    await mkdir(path.join(outside, 'folder'))
+    await writeFile(path.join(outside, 'pic.png'), 'PNG')
+    const url = (src: string, t = ticket) => `${routes.readerAssets.href({ ticket: t })}?src=${encodeURIComponent(src)}`
+
+    for (const src of [
+      '../secret.txt',
+      '..%2Fsecret.txt',
+      'link.txt',
+      'up/secret.txt',
+      path.join(app.dir, 'secret.txt'),
+      'file:///etc/passwd',
+      'folder',
+      'missing.png',
+      '',
+    ]) {
+      const response = await app.get(url(src))
+      expect(response.status, src).toBeGreaterThanOrEqual(400)
+      const text = await response.text()
+      expect(text, src).not.toContain('not for the page')
+      expect(text, src).not.toContain(app.dir)
+    }
+    expect((await app.get(url('pic.png', 'made-up'))).status).toBe(404)
+    await app.post(api.readerClose.href({ ticket }))
+    expect((await app.get(url('pic.png'))).status).toBe(404)
+  })
+
+  it('serves only images, and no dot-file or dot-folder even behind a symlink', async () => {
+    const { ticket } = await openOutside('doc.md', '# Doc\n')
+    const outside = path.join(app.dir, 'outside')
+    for (const [name, text] of Object.entries({
+      '.ssh/id_rsa': 'not for the page',
+      'notes.txt': 'not for the page',
+      '.hidden/pic.png': 'not for the page',
+      '.secret/key.png': 'not for the page',
+      'img/dot.svg': '<svg/>',
+      // In `img/`: next to the `pic.png` symlink it would be the same name on a case-insensitive disk.
+      'img/pic.PNG': 'PNG',
+    })) {
+      await mkdir(path.dirname(path.join(outside, name)), { recursive: true })
+      await writeFile(path.join(outside, name), text)
+    }
+    await symlink(path.join(outside, '.secret', 'key.png'), path.join(outside, 'pic.png'))
+    // An image name for a file that is not one.
+    await symlink(path.join(outside, 'notes.txt'), path.join(outside, 'photo.png'))
+    const url = (src: string) => `${routes.readerAssets.href({ ticket })}?src=${encodeURIComponent(src)}`
+
+    for (const src of [
+      '.ssh/id_rsa',
+      'notes.txt',
+      '.hidden/pic.png',
+      'pic.png',
+      'photo.png',
+      'img/../.secret/key.png',
+    ]) {
+      const response = await app.get(url(src))
+      expect(response.status, src).toBe(404)
+      const text = await response.text()
+      expect(text, src).not.toContain('not for the page')
+      expect(text, src).not.toContain(app.dir)
+    }
+    const svg = await app.get(url('img/dot.svg'))
+    expect(svg.status).toBe(200)
+    expect(await svg.text()).toBe('<svg/>')
+    const upper = await app.get(url('img/pic.PNG'))
+    expect(upper.status).toBe(200)
+    expect(await upper.text()).toBe('PNG')
+  })
+
+  it('opens the folder of a reader’s file as the vault from the ticket only, and revokes the ticket', async () => {
+    const other = await app.openVault()
+    const { file, ticket } = await openOutside('readme.md', '# Readme\n')
+    const response = await app.post(api.readerOpenFolder.href({ ticket }))
+    expect(response.status).toBe(200)
+    const result = await readJson<ReaderFolderResult>(response)
+    const folder = await realpath(path.dirname(file))
+    expect(result.id).toBe('readme.md')
+    expect(result.workspace.vault?.root).toBe(folder)
+    expect(result.workspace.notes.map((note) => note.id)).toEqual(['readme.md'])
+    // Recent and lastVault: the folder is the vault now, in front of the one it replaced.
+    expect(app.settings.read()).toMatchObject({ lastVault: folder, vaults: [folder, other.root] })
+    expect((await app.get(api.readerRead.href({ ticket }))).status).toBe(404)
+    expect((await app.post(api.readerOpenFolder.href({ ticket }))).status).toBe(404)
+    expect((await app.post(api.readerOpenFolder.href({ ticket: 'made-up' }))).status).toBe(404)
+  })
+
+  it('refuses to open the folder of a file that is gone or can be no note there, keeping the vault', async () => {
+    const vault = await app.openVault()
+    // Neither name can be a note of the folder as a vault (dot-name, upper-case .MD).
+    for (const name of ['.hidden.md', 'README.MD']) {
+      const reader = await openOutside(name, '# Not a note name\n')
+      const refused = await app.post(api.readerOpenFolder.href({ ticket: reader.ticket }))
+      expect(refused.status, name).toBe(400)
+      const text = await refused.text()
+      expect(text).not.toContain(app.dir)
+      expect(JSON.parse(text)).toMatchObject({ error: 'INVALID_PATH', message: expect.stringContaining(name) })
+      expect(app.settings.read().lastVault).toBe(vault.root)
+      // The reader keeps working.
+      expect((await app.get(api.readerRead.href({ ticket: reader.ticket }))).status).toBe(200)
+    }
+
+    const gone = await openOutside('gone.md', '# Gone\n')
+    await rm(gone.file)
+    const missing = await app.post(api.readerOpenFolder.href({ ticket: gone.ticket }))
+    expect(missing.status).toBe(404)
+    expect(await missing.text()).not.toContain(app.dir)
+    expect(app.vaults.current?.root).toBe(vault.root)
+  })
+
+  it('stores "Opening a .md outside a vault" (default Read only); "Open its folder as vault" opens outside files as before', async () => {
+    expect((await readJson<PreferencesState>(await app.get(api.preferences.href()))).ui.outsideFile).toBe('reader')
+    expect((await app.post(api.preferencesSave.href(), { outsideFile: 'folder' })).status).toBe(400)
+    const saved = await readJson<PreferencesState>(await app.post(api.preferencesSave.href(), { outsideFile: 'vault' }))
+    expect(saved.ui.outsideFile).toBe('vault')
+
+    const file = path.join(app.dir, 'outside', 'readme.md')
+    await mkdir(path.dirname(file), { recursive: true })
+    await writeFile(file, '# Readme\n')
+    app.vaults.requestOpen(file)
+    const request = await readJson<OpenRequest | null>(await app.post(api.openRequest.href()))
+    expect(request).toEqual({ kind: 'note', vault: await realpath(path.dirname(file)), id: 'readme.md' })
+  })
+
+  it('adds a reader’s file and its images to the chosen folder once, naming no path, and ends the ticket', async () => {
+    const vault = await app.openVault()
+    await vault.createFolder('', 'work')
+    const { file, ticket } = await openOutside('readme.md', '# Readme\n\n![p](pic.png)\n')
+    await writeFile(path.join(path.dirname(file), 'pic.png'), 'PNG')
+    const response = await app.post(api.readerImport.href({ ticket }), { folder: 'work' })
+    expect(response.status).toBe(201)
+    const result = await readJson<ReaderImportResult>(response)
+    // The open vault's root is the page's to know; the outside file's path is not.
+    expect(JSON.stringify(result.report)).not.toContain(app.dir)
+    expect(result.report).toMatchObject({
+      folder: 'work',
+      notes: [{ source: 'readme.md', id: 'work/readme.md' }],
+      assets: 1,
+      links: 1,
+    })
+    expect(result.workspace.vault?.root).toBe(vault.root)
+    expect(result.workspace.notes.map((note) => note.id)).toEqual(['work/readme.md'])
+    const note = await readFile(path.join(vault.root, 'work', 'readme.md'), 'utf8')
+    const asset = /^# Readme\n\n!\[p\]\(\.\/readme\.assets\/([^)]+)\)\n$/.exec(note)?.[1]
+    expect(asset).toBeDefined()
+    expect(await readFile(path.join(vault.root, 'work', 'readme.assets', asset ?? ''), 'utf8')).toBe('PNG')
+    // The outside file is untouched; its ticket is gone, and a second import is refused.
+    expect(await readFile(file, 'utf8')).toBe('# Readme\n\n![p](pic.png)\n')
+    expect((await app.get(api.readerRead.href({ ticket }))).status).toBe(404)
+    const again = await app.post(api.readerImport.href({ ticket }), { folder: 'work' })
+    expect(again.status).toBe(404)
+    expect(vault.index.all().map((note) => note.id)).toEqual(['work/readme.md'])
+  })
+
+  it('keeps the ticket when adding a reader’s file imports no note, so another folder can be chosen', async () => {
+    const vault = await app.openVault()
+    await vault.createFolder('', 'work')
+    // An upper-case .MD in the vault root opens in a reader; adding it to the root skips it.
+    const file = path.join(vault.root, 'README.MD')
+    await writeFile(file, '# Readme\n')
+    app.vaults.requestOpen(file)
+    const request = await readJson<OpenRequest | null>(await app.post(api.openRequest.href()))
+    if (request?.kind !== 'external') throw new Error(`Expected an external request, got ${JSON.stringify(request)}`)
+    const { ticket } = request
+
+    const skipped = await app.post(api.readerImport.href({ ticket }), { folder: '' })
+    expect(skipped.status).toBe(201)
+    const { report } = await readJson<ReaderImportResult>(skipped)
+    expect(report.notes).toEqual([])
+    expect(report.skipped).toEqual([{ source: 'README.MD', reason: expect.stringContaining('already in') }])
+    expect((await app.get(api.readerRead.href({ ticket }))).status).toBe(200)
+
+    const imported = await app.post(api.readerImport.href({ ticket }), { folder: 'work' })
+    expect(imported.status).toBe(201)
+    const result = await readJson<ReaderImportResult>(imported)
+    expect(result.report.notes).toEqual([{ source: 'README.MD', id: expect.stringMatching(/^work\/README\.md$/i) }])
+    expect((await app.get(api.readerRead.href({ ticket }))).status).toBe(404)
+  })
+
+  it('adds a reader’s file with its images only, leaving links to other or hidden files as they are', async () => {
+    const vault = await app.openVault()
+    const text = '# Keys\n\n![k](.ssh/id_rsa) ![d](img/dot.svg)\n'
+    const { file, ticket } = await openOutside('keys.md', text)
+    const outside = path.dirname(file)
+    await mkdir(path.join(outside, '.ssh'))
+    await writeFile(path.join(outside, '.ssh', 'id_rsa'), 'not for the vault')
+    await mkdir(path.join(outside, 'img'))
+    await writeFile(path.join(outside, 'img', 'dot.svg'), '<svg/>')
+    const response = await app.post(api.readerImport.href({ ticket }), { folder: '' })
+    expect(response.status).toBe(201)
+    const { report } = await readJson<ReaderImportResult>(response)
+    expect(JSON.stringify(report)).not.toContain(app.dir)
+    expect(report).toMatchObject({ notes: [{ source: 'keys.md', id: 'keys.md' }], assets: 1, links: 1 })
+    expect(report.unresolved).toEqual([{ id: 'keys.md', link: '.ssh/id_rsa', reason: expect.any(String) }])
+    const note = await readFile(path.join(vault.root, 'keys.md'), 'utf8')
+    const asset = /^# Keys\n\n!\[k\]\(\.ssh\/id_rsa\) !\[d\]\(\.\/keys\.assets\/([^)]+\.svg)\)\n$/.exec(note)?.[1]
+    expect(asset).toBeDefined()
+    expect(await readdir(path.join(vault.root, 'keys.assets'))).toEqual([asset])
+    expect(await readFile(path.join(vault.root, 'keys.assets', asset ?? ''), 'utf8')).toBe('<svg/>')
+  })
+
+  it('refuses to add a reader’s file without a vault, into a bad folder, or when it is gone; the reader stays', async () => {
+    const { file, ticket } = await openOutside('readme.md', '# Readme\n')
+    const noVault = await app.post(api.readerImport.href({ ticket }), { folder: '' })
+    expect(noVault.status).toBe(409)
+    expect(await noVault.json()).toMatchObject({ error: 'NO_VAULT' })
+    expect((await app.get(api.readerRead.href({ ticket }))).status).toBe(200)
+
+    const vault = await app.openVault()
+    expect((await app.post(api.readerImport.href({ ticket }), {})).status).toBe(400)
+    expect((await app.post(api.readerImport.href({ ticket }), { folder: '../out' })).status).toBe(400)
+    expect((await app.post(api.readerImport.href({ ticket }), { folder: 'missing' })).status).toBe(404)
+    expect((await app.post(api.readerImport.href({ ticket: 'made-up' }), { folder: '' })).status).toBe(404)
+    expect((await app.get(api.readerRead.href({ ticket }))).status).toBe(200)
+
+    await rm(file)
+    const gone = await app.post(api.readerImport.href({ ticket }), { folder: '' })
+    expect(gone.status).toBe(404)
+    expect(await gone.text()).not.toContain(app.dir)
+    expect(vault.index.all()).toEqual([])
   })
 })
 

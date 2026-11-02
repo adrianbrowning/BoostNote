@@ -217,7 +217,10 @@ not open → 409 `NO_VAULT`.
 | `POST /api/open-external {url}` | http(s) links only |
 | `GET /api/preferences` · `POST /api/preferences {…UiPatch}` | `{ ui, hotkeyRegistered }`; save validates every field, `409 HOTKEY_UNAVAILABLE` when the OS refuses the global hotkey (phase 5) |
 | `POST /api/export/note {id, format: html\|pdf\|markdown\|print}` · `POST /api/export/folder {folder}` | Export (phase 6) → `{ path }` (`null`: cancelled / printed) |
-| `POST /api/open-request` | Takes the pending "open this `.md`" request → `{ vault, id }` or `null` (phase 6) |
+| `POST /api/open-request` | Takes the oldest queued "open this `.md`" request → `{ kind: 'note', vault, id }`, `{ kind: 'external', ticket, name }` (outside file, reader tab) or `null` when the queue is empty (phase 6) |
+| `GET /api/reader/:ticket` · `POST /api/reader/:ticket/close` | A reader tab's outside file → `{ name, body, frontmatter, html }`, read fresh; close revokes the ticket. Unknown/revoked tickets: `404` |
+| `POST /api/reader/:ticket/open-folder` | Opens the ticket's file's folder as the vault and revokes the ticket → `{ id, workspace }`; `404` revoked/gone, `400` for a name that can be no note (dot-name, upper-case `.MD`) |
+| `POST /api/reader/:ticket/import {folder}` | "Add to vault…": imports the ticket's file and its images into `folder` of the open vault and revokes the ticket once a note came in → `201 { report, workspace }` (report sources are base names; with no note imported, `notes: []`, the ticket stays); `404` revoked/gone, `409 NO_VAULT`, `400`/`404` for a bad/missing folder (the ticket stays) |
 | `GET /export/mermaid` | Hidden page that lays out mermaid diagrams for export (phase 6) |
 
 ### Editor integration and conflict rules
@@ -289,6 +292,7 @@ SSR props carry `{ ui, hotkeyRegistered }`.
 | `editorFont`, `fontSize`, `lineWidth` (`0` = full width) | `--editor-font`, `--editor-font-size`, `--editor-max-width` on the workspace root |
 | `spellcheck` | `session.defaultSession.setSpellCheckerEnabled` |
 | `confirmDelete` | ask before moving notes/folders to the Trash |
+| `outsideFile` (`reader` default, `vault`) | "Opening a .md outside a vault": Read only (reader tab) or Open its folder as vault (see "Opening `.md` files") |
 | `globalHotkey` (default `CommandOrControl+Shift+Space`; `''` = off) | recorded by key capture; main registers it with `globalShortcut.register` before storing it. If the OS refuses (another app has it) the route answers `409 HOTKEY_UNAVAILABLE`, the previous hotkey stays registered and nothing is stored. The hotkey hides the app when it is focused, else shows and focuses the window |
 | `panes` | sidebar/list widths, sidebar/list collapsed, properties open |
 
@@ -362,10 +366,84 @@ and reveal it. Sidebar folder menus have "Export as HTML…".
 
 `electron-builder.yml` declares a `.md` file association (role Editor, rank Alternate). macOS
 delivers files through `open-file` (also before `ready`), Windows/Linux through argv (first launch)
-or `second-instance` argv. Main records the file (`VaultSession.requestOpen`) and pushes SSE
-`open-request`; the workspace takes it (`POST /api/open-request`) after hydrating and on that event,
-saves the open note, opens the file's folder as the vault unless it is already open, and opens the
-note in a new tab (or its existing tab). A request made before the window exists is therefore not lost.
+or `second-instance` argv. Main queues the file (`VaultSession.requestOpen`) and pushes SSE
+`open-request`; the workspace takes requests (`POST /api/open-request`) until the queue is empty,
+after hydrating and on that event. `takeOpenRequest` resolves the file's real path and drops files
+that are gone or not `.md` (any case). A file inside the open vault, else inside a recent vault
+(roots compared as real paths), is that vault's note (`work/plan.md` for a subfolder): the workspace
+saves the open note, switches vaults when needed, and opens the note in a new tab (or its existing
+tab). Any other file (outside every known vault, in a hidden or `*.assets` folder of one, or named
+so it can be no note: upper-case `.MD`, even inside a known vault) opens read-only in a **reader
+tab** and no vault is opened, so Recent and `lastVault` stay as they were. The preference "Opening a
+.md outside a vault" (`ui.outsideFile`: `reader`, the default, or `vault` = "Open its folder as
+vault") changes only that case: with `vault` the file is a note of its own folder opened as the
+vault, as before reader tabs existed, unless its name can be no note (a dot-name or upper-case
+`.MD`), which still opens read-only. A request made before the window exists is therefore not lost,
+and a second quick request does not replace the first.
+
+Reader tabs: main keeps a `ReaderGrants` ticket per outside file (`src/app/reader-grants.ts`; the same
+real path gets the same live ticket, so opening it again activates its tab). The page only gets
+`{ kind: 'external', ticket, name }` with the base name, never a path; a ticket is 48 random hex
+characters and says nothing about the file. `GET /api/reader/:ticket` reads the file again each time
+and answers `{ name, body, frontmatter, html }`; main renders `html` with `src/markdown/render.ts` (it
+needs Node, so the page cannot). A ticket is bound to the granted real path: each read opens it
+without following a symlink (`O_NOFOLLOW | O_NONBLOCK`), requires a regular file, reads from that
+handle, and then requires that `realpath` is still the granted path and that `lstat` of the path is a
+regular file with the handle's device and inode; otherwise it answers `404` (base name only). So a
+symlink at the file or a parent folder (even one swapped back before the check), a FIFO or a device
+is refused, while another regular file renamed over it (an editor's atomic save) reads under the
+same ticket. Not detected: a process running as the same user that flips a parent folder to a
+symlink again between the after-read `realpath` and `lstat` checks; this race is accepted (no native
+`openat` helper).
+Relative images in `html` point at `GET /reader-assets/:ticket?src=`, which follows the import's
+`resolveLink` rules against the file's folder (real path a regular file inside that folder, so `../`
+and symlink escapes are refused) and reads with the same checks. Reader assets are images only, with
+no dot-files: the link as written and its real path (symlinks resolved) must both end in an image
+extension (png, jpg, jpeg, gif, webp, svg, avif, bmp, ico; any case) and have no dot-file or
+dot-folder below the file's folder (`assetRefusal` in `src/app/reader-grants.ts`, the one rule for
+this route and for "Add to vault…"). Refused sources answer `404` with no path. In the
+reader, http(s) links open in the browser; relative `.md` and wiki links are inert.
+`POST /api/reader/:ticket/close` revokes the ticket when the tab closes; afterwards, and for unknown
+tickets, all these routes answer `404`. The banner's "Open folder as vault" posts
+`POST /api/reader/:ticket/open-folder` (the ticket only): main opens the granted file's folder as the
+vault (into Recent and `lastVault`), revokes the ticket and answers `{ id, workspace }`; the reader
+tab becomes that note's tab at its position. It runs in the vault queue
+(`VaultSession.openReaderFolder`), as is closing a reader (`VaultSession.closeReader`): a close that
+came first opens nothing (`404`), one that comes after finds the ticket revoked (`404`), and the page
+ignores Close on a reader whose open-folder is in flight. A name that can be no note (a dot-name or
+upper-case `.MD`) answers `400` naming only the base name, and the reader stays. The file is checked
+as a read checks it, and the loaded vault's real root must be the granted file's folder, so a parent
+swapped for a symlink (also while the folder loads) answers `404` and opens nothing. The page runs
+the reader's switch through the same queue as the open-request drain (`WorkspaceModel.#inOpenOrder`),
+so a click while a drain switches vaults waits for it and the page never asks one vault for another
+vault's note.
+
+"Add to vault…" (disabled without an open vault, with the reason next to it) asks in the page for a
+folder of the open vault (`dropFolder` first) and posts `POST /api/reader/:ticket/import { folder }`.
+`VaultSession.importReader` runs in the vault queue: it checks the ticket and the open vault, then
+`ReaderGrants.importOnce` claims the ticket (a second import while one runs, or after one imported,
+is refused), runs `vault.importFiles([file], folder, { read, refuseAsset })` and revokes the ticket
+when the import brought in the note. When it imported none (the file is already in that folder, or
+skipped) or throws (a bad or missing folder) the ticket stays, so the user can choose another folder;
+the page shows "Nothing imported: …" and keeps the reader tab. `refuseAsset`
+(`ImportOptions.refuseAsset`) is the reader assets rule above: a link to anything else (`.ssh/id_rsa`,
+`notes.txt`, a symlink to a dot-folder) stays as it is and is listed in the report's `unresolved`
+(vault id, link and reason); the rest of the import goes on. Drop import keeps its own rules.
+`read` (`ImportOptions.read`) is the
+reader's identity-checked read: the note must be the granted file and each linked image a file the
+rule allows by its real path, read without following symlinks, and the bytes it read are the ones written,
+so a file or parent folder swapped for a symlink after the checks fails the import instead of
+copying another file. The workspace in the answer is read in the same queue turn. The page saves the
+open note before the request (a refused save sends nothing), shows the drop import's notice
+(`#reportImport`, shared with drops) and, when a note came in, turns the reader tab into the new
+note's tab at its position: switching to it when the reader is still the active tab, else keeping
+the tab the user moved to meanwhile (its note is not saved for this), so the revoked reader tab
+never stays. The whole page action, the folder choice included, runs through
+`#inOpenOrder`: clicked while a drain switches vaults, it asks for a folder of the vault the drain
+left open, and a drain that starts meanwhile waits for it. In
+`Tabs` a tab is a note tab or a reader tab: reader tabs are never saved to `localStorage`, have no
+back/forward trail, are skipped by rebase/forget, stay open when the vault switches or closes, and
+are the only tabs while no vault is open. Grants live in memory, so reader tabs are gone after a restart.
 
 ### End-to-end tests (`tests/e2e`, `pnpm test:e2e`)
 

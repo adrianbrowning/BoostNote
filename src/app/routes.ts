@@ -11,6 +11,8 @@ export const routes = route({
   vendor: get('/vendor/*path'),
   /** `GET /vault-assets/<note id>?src=<link as written in the note>`: a file the note links to. */
   vaultAssets: get('/vault-assets/*path'),
+  /** `GET /reader-assets/<reader ticket>?src=<link as written>`: an image next to a reader tab's outside `.md`. */
+  readerAssets: get('/reader-assets/:ticket'),
   /** The hidden window that lays out mermaid diagrams for export (`src/main/export.ts`). */
   mermaidRenderer: get('/export/mermaid'),
   api: route('/api', {
@@ -53,5 +55,13 @@ export const routes = route({
     exportFolder: post('/export/folder'),
     /** Takes the pending "open this file" request (a `.md` opened from Finder/Explorer or argv). */
     openRequest: post('/open-request'),
+    /** A reader tab's outside `.md` (`{ name, body, frontmatter, html }`, read again each time), by its `ReaderGrants` ticket. */
+    readerRead: get('/reader/:ticket'),
+    /** The reader tab closed: revokes its ticket. */
+    readerClose: post('/reader/:ticket/close'),
+    /** A reader tab's "Open folder as vault": main opens the ticket's file's folder as the vault (`ReaderFolderResult`). */
+    readerOpenFolder: post('/reader/:ticket/open-folder'),
+    /** A reader tab's "Add to vault…" (`{ folder }`): imports its file into the open vault once (`ReaderImportResult`). */
+    readerImport: post('/reader/:ticket/import'),
   }),
 })

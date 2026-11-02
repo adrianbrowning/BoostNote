@@ -1,9 +1,9 @@
-import { readFile, rm, writeFile } from 'node:fs/promises'
+import { readFile, realpath, rm, writeFile } from 'node:fs/promises'
 import * as path from 'node:path'
 import type { Page } from '@playwright/test'
 
 import { createLegacyStorage } from '../migrate/fixture.ts'
-import { expect, launchApp, test, writeFiles } from './fixtures.ts'
+import { expect, launchApp, quitWithoutDialog, test, writeFiles } from './fixtures.ts'
 
 const DIAGRAM = `---
 title: Diagram
@@ -239,27 +239,674 @@ test('exports a note to HTML with mermaid SVG and KaTeX markup', async ({ app })
   await writeFile('/tmp/boost-phase6/e2e-export-html.png', Buffer.from(shot, 'base64'))
 })
 
-test('opens a loose .md file from the command line and through open-file', async () => {
-  const app = await launchApp({ 'inside.md': '# Inside\n' }, { openFiles: { 'readme.md': '# Loose readme\n' } })
+test('opens .md files from the command line and through open-file in the vault that holds them', async () => {
+  const app = await launchApp(
+    { 'inside.md': '# Inside\n', 'other/b.md': '# Bee\n', 'c.md': '# Cee\n', 'd.md': '# Dee\n' },
+    { openFiles: { 'readme.md': '# Loose readme\n' } },
+  )
+  try {
+    const { page } = app
+    const openFiles = (...files: string[]) =>
+      app.electronApp.evaluate(({ app: electronApp }, targets) => {
+        for (const target of targets) electronApp.emit('open-file', { preventDefault() {} }, target)
+      }, files)
+    await expect(page.locator('[data-reader-tab="readme.md"]')).toBeVisible({ timeout: 20_000 })
+
+    // macOS Finder / `open -a` (`open-file`), in a subfolder of the open vault: a note of that vault.
+    await openFiles(path.join(app.vault, 'other', 'b.md'))
+    await expect(page.locator('[data-note-title]')).toHaveText('b', { timeout: 20_000 })
+    await expect(page.locator('[role="tab"][aria-selected="true"]')).toHaveAttribute('data-tab', 'other/b.md')
+
+    // Two open-file events back to back: both open, in order (each one also sends its own SSE event).
+    await openFiles(path.join(app.vault, 'c.md'), path.join(app.vault, 'd.md'))
+    await expect(page.locator('[data-note-title]')).toHaveText('d', { timeout: 20_000 })
+    await expect(page.locator('[role="tab"][aria-selected="true"]')).toHaveAttribute('data-tab', 'd.md')
+    await expect(page.locator('[role="tab"][data-tab="c.md"]')).toBeVisible()
+  } finally {
+    await quitWithoutDialog(app.electronApp)
+    await rm(app.dir, { recursive: true, force: true })
+  }
+})
+
+test('opens a .md outside every vault read-only in a reader tab, without touching the vault', async () => {
+  const app = await launchApp(
+    { 'inside.md': '# Inside\n' },
+    { openFiles: { 'readme.md': '# Loose readme\n\nSome *text*.\n' } },
+  )
   try {
     const { page, dir } = app
-    // argv: the file's folder becomes the vault and the note opens in a tab.
-    await expect(page.locator('[data-note-title]')).toHaveText('readme', { timeout: 20_000 })
-    await expect(page.locator('[role="tab"][aria-selected="true"]')).toHaveAttribute('data-tab', 'readme.md')
-    await expect(page.locator('[data-note="readme.md"]')).toBeVisible()
+    const openFiles = (...files: string[]) =>
+      app.electronApp.evaluate(({ app: electronApp }, targets) => {
+        for (const target of targets) electronApp.emit('open-file', { preventDefault() {} }, target)
+      }, files)
+    const readme = path.join(dir, 'loose', 'readme.md')
+    const reader = page.locator('[role="tab"][data-reader-tab="readme.md"]')
 
-    // macOS Finder / `open -a`: the `open-file` event, while the app runs.
-    await writeFiles(path.join(dir, 'loose'), { 'other/b.md': '# Bee\n' })
-    await app.electronApp.evaluate(
-      ({ app: electronApp }, file) => {
-        electronApp.emit('open-file', { preventDefault() {} }, file)
-      },
-      path.join(dir, 'loose', 'other', 'b.md'),
+    // argv: the rendered file in a reader tab; the vault, Recent and lastVault stay as they were.
+    await expect(reader).toHaveAttribute('aria-selected', 'true', { timeout: 20_000 })
+    await expect(page.locator('[data-reader-banner]')).toContainText('readme.md is not in a vault')
+    await expect(page.locator('[data-reader-body] h1')).toHaveText('Loose readme')
+    await expect(page.locator('[data-reader-body] em')).toHaveText('text')
+    await expect(page.locator('[data-editor]')).toBeHidden()
+    await expect(page.locator('[data-note="inside.md"]')).toBeVisible()
+    await expect(page.locator('[data-note="readme.md"]')).toHaveCount(0)
+    const settings = async () => JSON.parse(await readFile(path.join(app.userDataDir, 'settings.json'), 'utf8'))
+    // Main stores the vault's real path (macOS temp folders sit behind the `/var` symlink).
+    const vaultRoot = await realpath(app.vault)
+    expect(await settings()).toMatchObject({ vaults: [vaultRoot], lastVault: vaultRoot })
+    // The page never names the file's path.
+    expect(await page.content()).not.toContain(path.join(dir, 'loose'))
+
+    // The same file again activates its tab instead of opening a second one.
+    await page.locator('[data-note="inside.md"]').click()
+    await expect(page.locator('[data-note-title]')).toHaveText('inside')
+    await openFiles(readme)
+    await expect(reader).toHaveAttribute('aria-selected', 'true', { timeout: 20_000 })
+    await expect(page.locator('[data-reader-tab]')).toHaveCount(1)
+    // It is read again each time the tab shows.
+    await writeFile(readme, '# Edited elsewhere\n')
+    await page.locator('[role="tab"][data-tab="inside.md"]').click()
+    await reader.click()
+    await expect(page.locator('[data-reader-body] h1')).toHaveText('Edited elsewhere')
+
+    // Closing the vault keeps the reader tab; it is then the only tab.
+    await page.locator('[data-vault-switcher]').click()
+    // The text entry, not the open vault's ×, which has the same accessible name.
+    await page.getByRole('menu').getByRole('menuitem').filter({ hasText: 'Close vault' }).click()
+    await expect(page.locator('[data-vault="none"]')).toBeVisible()
+    await expect(page.locator('[role="tab"]')).toHaveCount(1)
+    await expect(reader).toHaveAttribute('aria-selected', 'true')
+    await expect(page.locator('[data-reader-body] h1')).toHaveText('Edited elsewhere')
+
+    // With no vault open, another outside file opens in its own reader tab, and a note of a recent
+    // vault reopens that vault next to the reader tabs.
+    await writeFiles(path.join(dir, 'loose'), { 'second.md': '# Second\n' })
+    await openFiles(path.join(dir, 'loose', 'second.md'))
+    await expect(page.locator('[role="tab"][data-reader-tab="second.md"]')).toHaveAttribute('aria-selected', 'true', {
+      timeout: 20_000,
+    })
+    await expect(page.locator('[data-vault="none"]')).toBeVisible()
+    // Each reader tab shows its own file.
+    await expect(page.locator('[data-reader-body] h1')).toHaveText('Second')
+    await expect(page.locator('[data-reader-banner]')).toContainText('second.md is not in a vault')
+    await reader.click()
+    await expect(page.locator('[data-reader-body] h1')).toHaveText('Edited elsewhere')
+    await expect(page.locator('[data-reader-banner]')).toContainText('readme.md is not in a vault')
+    await openFiles(path.join(app.vault, 'inside.md'))
+    await expect(page.locator('[data-note-title]')).toHaveText('inside', { timeout: 20_000 })
+    await expect(page.locator('[data-reader-tab]')).toHaveCount(2)
+
+    // Close in the banner closes the tab and revokes its ticket; the file opened again gets a fresh
+    // tab that still reads.
+    await reader.click()
+    const [closeResponse] = await Promise.all([
+      page.waitForResponse(
+        (response) =>
+          response.request().method() === 'POST' &&
+          /^\/api\/reader\/[^/]+\/close$/.test(new URL(response.url()).pathname),
+      ),
+      page.locator('[data-reader-close]').click(),
+    ])
+    expect(closeResponse.status()).toBe(200)
+    const closedTicket = new URL(closeResponse.url()).pathname.split('/')[3]
+    await expect(reader).toHaveCount(0)
+    expect(await page.evaluate((ticket) => fetch(`/api/reader/${ticket}`).then((r) => r.status), closedTicket)).toBe(
+      404,
     )
-    await expect(page.locator('[data-note-title]')).toHaveText('b', { timeout: 20_000 })
-    await expect(page.locator('[data-note="b.md"]')).toBeVisible()
+    await expect(page.locator('[data-reader-tab]')).toHaveCount(1)
+    await openFiles(readme)
+    await expect(page.locator('[data-reader-body] h1')).toHaveText('Edited elsewhere', { timeout: 20_000 })
+
+    // Reader tabs are not restored with the vault's tabs.
+    const saved = await page.evaluate((root) => localStorage.getItem(`boostnote.tabs:${root}`), vaultRoot)
+    expect(JSON.parse(saved ?? 'null')?.tabs).toEqual(['inside.md'])
   } finally {
-    await app.electronApp.close()
+    await quitWithoutDialog(app.electronApp)
+    await rm(app.dir, { recursive: true, force: true })
+  }
+})
+
+test('"Open folder as vault" in a reader opens the file’s folder as the vault and turns the tab into the note’s tab', async () => {
+  const app = await launchApp(
+    { 'inside.md': '# Inside\n' },
+    { openFiles: { 'readme.md': '# Loose readme\n', 'second.md': '# Second\n' } },
+  )
+  try {
+    const { page, dir } = app
+    const tabs = page.locator('[role="tab"]')
+    const readme = page.locator('[role="tab"][data-reader-tab="readme.md"]')
+    await expect(page.locator('[role="tab"][data-reader-tab="second.md"]')).toBeVisible({ timeout: 20_000 })
+    await expect(tabs).toHaveCount(2)
+    await readme.click()
+    await expect(page.locator('[data-reader-body] h1')).toHaveText('Loose readme')
+
+    const [response] = await Promise.all([
+      page.waitForResponse((r) => /^\/api\/reader\/[^/]+\/open-folder$/.test(new URL(r.url()).pathname)),
+      page.locator('[data-reader-open-folder]').click(),
+    ])
+    expect(response.status()).toBe(200)
+    // The page sent the ticket only, no path.
+    expect(response.request().postData() ?? '').not.toContain(dir)
+
+    // The reader tab is the note's tab now, at the same position, next to the other reader tab.
+    await expect(page.locator('[data-note-title]')).toHaveText('readme', { timeout: 20_000 })
+    await expect(tabs.nth(0)).toHaveAttribute('data-tab', 'readme.md')
+    await expect(tabs.nth(0)).toHaveAttribute('aria-selected', 'true')
+    await expect(tabs.nth(1)).toHaveAttribute('data-reader-tab', 'second.md')
+    await expect(tabs).toHaveCount(2)
+    await expect(page.locator('[data-note="readme.md"]')).toBeVisible()
+    await expect(page.locator('[data-note="second.md"]')).toBeVisible()
+    await expect(page.locator('[data-vault-switcher]')).toContainText('loose')
+
+    // Recent and lastVault: the folder is the vault now; the ticket is revoked.
+    const loose = await realpath(path.join(dir, 'loose'))
+    const settings = JSON.parse(await readFile(path.join(app.userDataDir, 'settings.json'), 'utf8'))
+    expect(settings).toMatchObject({ lastVault: loose, vaults: [loose, await realpath(app.vault)] })
+    const ticket = new URL(response.url()).pathname.split('/')[3]
+    expect(await page.evaluate((t) => fetch(`/api/reader/${t}`).then((r) => r.status), ticket)).toBe(404)
+  } finally {
+    await quitWithoutDialog(app.electronApp)
+    await rm(app.dir, { recursive: true, force: true })
+  }
+})
+
+test('"Add to vault…" in a reader imports the file and its images into the chosen folder; the tab becomes the note’s', async () => {
+  const app = await launchApp(
+    { 'inside.md': '# Inside\n', 'work/keep.md': '# Keep\n' },
+    { openFiles: { 'readme.md': '# Loose readme\n\n![dot](img/dot.svg)\n', 'second.md': '# Second\n' } },
+  )
+  try {
+    const { page, dir } = app
+    const dot = '<svg xmlns="http://www.w3.org/2000/svg" width="4" height="4"><rect width="4" height="4"/></svg>'
+    await writeFiles(path.join(dir, 'loose'), { 'img/dot.svg': dot })
+    const tabs = page.locator('[role="tab"]')
+    await expect(page.locator('[role="tab"][data-reader-tab="second.md"]')).toBeVisible({ timeout: 20_000 })
+    await expect(tabs).toHaveCount(2)
+    await page.locator('[role="tab"][data-reader-tab="readme.md"]').click()
+    await expect(page.locator('[data-reader-body] h1')).toHaveText('Loose readme')
+
+    // The folder is picked in the page from the open vault's folders (the selected one by default).
+    await page.locator('[data-reader-add]').click()
+    const dialog = page.getByRole('dialog', { name: 'Add to vault' })
+    await expect(dialog.locator('select')).toHaveValue('')
+    await dialog.locator('select').selectOption('work')
+    const [response] = await Promise.all([
+      page.waitForResponse((r) => /^\/api\/reader\/[^/]+\/import$/.test(new URL(r.url()).pathname)),
+      dialog.getByRole('button', { name: 'Add' }).click(),
+    ])
+    expect(response.status()).toBe(201)
+    // The page sent the ticket and a folder id, no path.
+    expect(response.request().postData() ?? '').not.toContain(dir)
+
+    // The reader tab is the new note's tab now, at the same position; the note is in the tree.
+    await expect(page.locator('[data-note-title]')).toHaveText('readme', { timeout: 20_000 })
+    await expect(tabs.nth(0)).toHaveAttribute('data-tab', 'work/readme.md')
+    await expect(tabs.nth(0)).toHaveAttribute('aria-selected', 'true')
+    await expect(tabs.nth(1)).toHaveAttribute('data-reader-tab', 'second.md')
+    await expect(tabs).toHaveCount(2)
+    await expect(page.locator('[data-note="work/readme.md"]')).toBeVisible()
+    await expect(page.locator('[data-notice]')).toContainText('Imported 1 note into work (1 image copied)')
+    const imported = await readFile(path.join(app.vault, 'work', 'readme.md'), 'utf8')
+    const asset = /^# Loose readme\n\n!\[dot\]\(\.\/readme\.assets\/([0-9a-f]+\.svg)\)\n$/.exec(imported)?.[1]
+    expect(asset).toBeDefined()
+    expect(await readFile(path.join(app.vault, 'work', 'readme.assets', asset ?? ''), 'utf8')).toBe(dot)
+    // The outside file stays where it was; its ticket is gone, so a second import is refused.
+    expect(await readFile(path.join(dir, 'loose', 'readme.md'), 'utf8')).toBe('# Loose readme\n\n![dot](img/dot.svg)\n')
+    const ticket = new URL(response.url()).pathname.split('/')[3]
+    const again = await page.evaluate(
+      (t) =>
+        fetch(`/api/reader/${t}/import`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ folder: '' }),
+        }).then((r) => r.status),
+      ticket,
+    )
+    expect(again).toBe(404)
+
+    // With no vault open the button is disabled and says why.
+    await page.locator('[data-vault-switcher]').click()
+    await page.getByRole('menu').getByRole('menuitem').filter({ hasText: 'Close vault' }).click()
+    await expect(page.locator('[data-vault="none"]')).toBeVisible()
+    await expect(page.locator('[data-reader-body] h1')).toHaveText('Second')
+    const add = page.locator('[data-reader-add]')
+    await expect(add).toBeDisabled()
+    await expect(add).toHaveAccessibleDescription('Open a vault to add this file to it')
+    await expect(page.locator('[data-reader-banner]')).toContainText('Open a vault to add this file to it')
+  } finally {
+    await quitWithoutDialog(app.electronApp)
+    await rm(app.dir, { recursive: true, force: true })
+  }
+})
+
+test('"Add to vault…" that imports nothing keeps the reader tab, so another folder can be chosen', async () => {
+  const app = await launchApp({
+    'inside.md': '# Inside\n',
+    'work/keep.md': '# Keep\n',
+    'README.MD': '# Upper readme\n',
+  })
+  try {
+    const { page } = app
+    await expect(page.locator('[data-note="inside.md"]')).toBeVisible({ timeout: 20_000 })
+    // An upper-case .MD of the vault is no note there: it opens in a reader tab.
+    await app.electronApp.evaluate(
+      ({ app: electronApp }, target) => {
+        electronApp.emit('open-file', { preventDefault() {} }, target)
+      },
+      path.join(app.vault, 'README.MD'),
+    )
+    const reader = page.locator('[role="tab"][data-reader-tab="README.MD"]')
+    await expect(reader).toHaveAttribute('aria-selected', 'true', { timeout: 20_000 })
+    await expect(page.locator('[data-reader-body] h1')).toHaveText('Upper readme')
+
+    // Into its own folder (the vault root, the default): nothing imported, the reader stays.
+    await page.locator('[data-reader-add]').click()
+    const dialog = page.getByRole('dialog', { name: 'Add to vault' })
+    await expect(dialog.locator('select')).toHaveValue('')
+    await dialog.getByRole('button', { name: 'Add' }).click()
+    await expect(dialog).toHaveCount(0)
+    await expect(page.locator('[data-notice]')).toContainText(
+      'Nothing imported: README.MD is already in the vault root',
+    )
+    await expect(reader).toHaveAttribute('aria-selected', 'true')
+    await expect(page.locator('[data-reader-body] h1')).toHaveText('Upper readme')
+
+    // Into another folder: imported, and the reader tab becomes the note's tab.
+    await page.locator('[data-reader-add]').click()
+    await dialog.locator('select').selectOption('work')
+    await dialog.getByRole('button', { name: 'Add' }).click()
+    await expect(page.locator('[data-notice]')).toContainText('Imported 1 note into work')
+    await expect(page.locator('[data-reader-tab]')).toHaveCount(0)
+    await expect(page.locator('[role="tab"][aria-selected="true"]')).toHaveAttribute('data-tab', 'work/README.md')
+    await expect(page.locator('[data-note="work/README.md"]')).toBeVisible()
+  } finally {
+    await quitWithoutDialog(app.electronApp)
+    await rm(app.dir, { recursive: true, force: true })
+  }
+})
+
+declare global {
+  interface Window {
+    /** The page-side fetch wrapper of the next test: holds the import's answer, fails saves on demand. */
+    importHold?: { held: boolean; failSaves: boolean; release(): void }
+    /** The page-side fetch wrapper of the test after it: records requests, fails saves on demand. */
+    saveGuard?: { failSaves: boolean; sent: string[] }
+  }
+}
+
+test('"Add to vault…" answering while another, unsavable note is active turns the reader tab into the note’s and keeps that note', async () => {
+  const app = await launchApp({ 'inside.md': '# Inside\n' }, { openFiles: { 'readme.md': '# Loose readme\n' } })
+  try {
+    const { page } = app
+    const tabs = page.locator('[role="tab"]')
+    await expect(page.locator('[data-reader-body] h1')).toHaveText('Loose readme', { timeout: 20_000 })
+    await page.locator('[data-note="inside.md"]').click()
+    await expect(page.locator('[data-note-title]')).toHaveText('inside')
+    await page.locator('[role="tab"][data-reader-tab="readme.md"]').click()
+    await expect(page.locator('[data-reader-body] h1')).toHaveText('Loose readme')
+
+    // Hold the import's answer (main has imported and revoked the ticket; the page has not heard back
+    // yet) and, on demand, fail every save.
+    // (`page.route` does not see `boost://` requests, so the page's fetch is wrapped.)
+    await page.evaluate(() => {
+      const original = window.fetch
+      const hold = Promise.withResolvers<void>()
+      const state = { held: false, failSaves: false, release: () => hold.resolve() }
+      window.importHold = state
+      window.fetch = async (input, init) => {
+        const pathname = new URL(String(input), location.href).pathname
+        if (pathname === '/api/notes/save' && state.failSaves) {
+          return new Response(JSON.stringify({ error: 'IO', message: 'Disk full' }), { status: 500 })
+        }
+        const response = await original(input, init)
+        if (/^\/api\/reader\/[^/]+\/import$/.test(pathname)) {
+          state.held = true
+          await hold.promise
+        }
+        return response
+      }
+    })
+    const held = () => page.evaluate(() => window.importHold?.held)
+    const failSaves = (on: boolean) =>
+      page.evaluate((value) => {
+        if (window.importHold) window.importHold.failSaves = value
+      }, on)
+
+    await page.locator('[data-reader-add]').click()
+    await page.getByRole('dialog', { name: 'Add to vault' }).getByRole('button', { name: 'Add' }).click()
+    await expect.poll(held, { timeout: 20_000 }).toBe(true)
+
+    // While main's answer is on its way, the user edits another note whose save fails.
+    await page.locator('[role="tab"][data-tab="inside.md"]').click()
+    await expect(page.locator('[data-note-title]')).toHaveText('inside')
+    await failSaves(true)
+    await editor(page).click()
+    await page.keyboard.press('ControlOrMeta+End')
+    await page.keyboard.type('\nMine.', { delay: 20 })
+    await expect(page.locator('[data-save-state="error"]')).toBeVisible({ timeout: 20_000 })
+    await page.evaluate(() => window.importHold?.release())
+
+    // The reader tab is the new note's tab at its position; the edited note stays active and unsaved.
+    await expect(tabs.nth(0)).toHaveAttribute('data-tab', 'readme.md', { timeout: 20_000 })
+    await expect(tabs.nth(0)).toHaveAttribute('aria-selected', 'false')
+    await expect(tabs.nth(1)).toHaveAttribute('data-tab', 'inside.md')
+    await expect(tabs.nth(1)).toHaveAttribute('aria-selected', 'true')
+    await expect(tabs).toHaveCount(2)
+    await expect(page.locator('[data-note-title]')).toHaveText('inside')
+    await expect(editor(page)).toContainText('Mine.')
+    await expect(page.locator('[data-note="readme.md"]')).toBeVisible()
+    await expect(page.locator('[data-notice]')).toContainText('Imported 1 note')
+    expect(await readFile(path.join(app.vault, 'readme.md'), 'utf8')).toBe('# Loose readme\n')
+
+    // Saving works again: the edit reaches the disk, so the app quits without asking about it.
+    await failSaves(false)
+    await page.keyboard.type('More', { delay: 20 })
+    await expect
+      .poll(() => readFile(path.join(app.vault, 'inside.md'), 'utf8'), { timeout: 20_000 })
+      .toMatch(/\n# Inside\n\nMine\.More$/)
+  } finally {
+    // Saves work again before quitting, so main's flush leaves nothing unsaved and shows no native
+    // "Quit Anyway" dialog (which Playwright cannot answer), also when an assertion above failed.
+    await app.page
+      .evaluate(() => {
+        if (window.importHold) window.importHold.failSaves = false
+      })
+      .catch(() => undefined)
+    await quitWithoutDialog(app.electronApp)
+    await rm(app.dir, { recursive: true, force: true })
+  }
+})
+
+test('"Add to vault…" sends nothing when the open note cannot be saved; the reader and its ticket stay', async () => {
+  const app = await launchApp({ 'inside.md': '# Inside\n' }, { openFiles: { 'readme.md': '# Loose readme\n' } })
+  try {
+    const { page } = app
+    await expect(page.locator('[data-reader-body] h1')).toHaveText('Loose readme', { timeout: 20_000 })
+    await page.locator('[data-note="inside.md"]').click()
+    await expect(page.locator('[data-note-title]')).toHaveText('inside')
+
+    // Record every request and, on demand, fail every save.
+    // (`page.route` does not see `boost://` requests, so the page's fetch is wrapped.)
+    await page.evaluate(() => {
+      const original = window.fetch
+      const state: NonNullable<Window['saveGuard']> = { failSaves: false, sent: [] }
+      window.saveGuard = state
+      window.fetch = (input, init) => {
+        const pathname = new URL(String(input), location.href).pathname
+        state.sent.push(pathname)
+        if (pathname === '/api/notes/save' && state.failSaves) {
+          return Promise.resolve(new Response(JSON.stringify({ error: 'IO', message: 'Disk full' }), { status: 500 }))
+        }
+        return original(input, init)
+      }
+    })
+    const sent = () => page.evaluate(() => window.saveGuard?.sent ?? [])
+    const failSaves = (on: boolean) =>
+      page.evaluate((value) => {
+        if (window.saveGuard) window.saveGuard.failSaves = value
+      }, on)
+    await page.locator('[role="tab"][data-reader-tab="readme.md"]').click()
+    await expect(page.locator('[data-reader-body] h1')).toHaveText('Loose readme')
+    const ticket = (await sent()).find((pathname) => /^\/api\/reader\/[^/]+$/.test(pathname))?.split('/')[3]
+    expect(ticket).toBeDefined()
+
+    // While the folder is being chosen, the user moves to the note (Next Tab) and edits it; its save fails.
+    await page.locator('[data-reader-add]').click()
+    const dialog = page.getByRole('dialog', { name: 'Add to vault' })
+    await expect(dialog).toBeVisible()
+    await app.clickMenu('next-tab')
+    await expect(page.locator('[role="tab"][aria-selected="true"]')).toHaveAttribute('data-tab', 'inside.md')
+    await failSaves(true)
+    await editor(page).focus()
+    await page.keyboard.press('ControlOrMeta+End')
+    await page.keyboard.type('\nMine.', { delay: 20 })
+    await expect(page.locator('[data-save-state="error"]')).toBeVisible({ timeout: 20_000 })
+    await dialog.getByRole('button', { name: 'Add' }).click()
+
+    // The save was refused, so the import was never asked for: no note, the ticket is still live.
+    await expect(page.locator('[data-notice][data-kind="error"]')).toContainText('could not be saved')
+    expect((await sent()).filter((pathname) => pathname.endsWith('/import'))).toEqual([])
+    await expect(page.locator('[role="tab"][data-reader-tab="readme.md"]')).toHaveCount(1)
+    await expect(page.locator('[data-note="readme.md"]')).toHaveCount(0)
+    await expect(readFile(path.join(app.vault, 'readme.md'), 'utf8')).rejects.toThrow()
+    expect(await page.evaluate((t) => fetch(`/api/reader/${t}`).then((r) => r.status), ticket)).toBe(200)
+
+    // Once the note saves again, the reader still shows its file.
+    await failSaves(false)
+    await editor(page).click()
+    await page.keyboard.press('ControlOrMeta+End')
+    await page.keyboard.type('More', { delay: 20 })
+    await expect
+      .poll(() => readFile(path.join(app.vault, 'inside.md'), 'utf8'), { timeout: 20_000 })
+      .toMatch(/\n# Inside\n\nMine\.More$/)
+    await page.locator('[role="tab"][data-reader-tab="readme.md"]').click()
+    await expect(page.locator('[data-reader-body] h1')).toHaveText('Loose readme')
+  } finally {
+    // Saves work again before quitting, so main shows no native "Quit Anyway" dialog.
+    await app.page
+      .evaluate(() => {
+        if (window.saveGuard) window.saveGuard.failSaves = false
+      })
+      .catch(() => undefined)
+    await quitWithoutDialog(app.electronApp)
+    await rm(app.dir, { recursive: true, force: true })
+  }
+})
+
+test('a reader’s Add to vault and vault switch wait for a running open-request drain, so they never interleave', async () => {
+  const app = await launchApp({ 'inside.md': '# Inside\n' })
+  try {
+    const { page, dir } = app
+    // A second known vault, so an `open-file` of its note makes the drain switch vaults.
+    const other = path.join(dir, 'other')
+    await writeFiles(other, { 'b.md': '# Bee\n' })
+    await writeFiles(path.join(dir, 'loose'), { 'readme.md': '# Loose readme\n', 'second.md': '# Second\n' })
+    const openVault = (root: string) =>
+      page.evaluate(
+        (body) =>
+          fetch('/api/vaults/open', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body,
+          }).then((r) => r.status),
+        JSON.stringify({ path: root }),
+      )
+    expect(await openVault(other)).toBe(200)
+    expect(await openVault(app.vault)).toBe(200)
+    await page.reload()
+    await expect(page.locator('[data-note="inside.md"]')).toBeVisible({ timeout: 20_000 })
+    const openFiles = (...files: string[]) =>
+      app.electronApp.evaluate(({ app: electronApp }, targets) => {
+        for (const target of targets) electronApp.emit('open-file', { preventDefault() {} }, target)
+      }, files)
+    await openFiles(path.join(dir, 'loose', 'readme.md'), path.join(dir, 'loose', 'second.md'))
+    await expect(page.locator('[data-reader-body] h1')).toHaveText('Second', { timeout: 20_000 })
+    await page.locator('[role="tab"][data-reader-tab="readme.md"]').click()
+    await expect(page.locator('[data-reader-body] h1')).toHaveText('Loose readme')
+
+    // Hold each answer to a drain's vault switch: main has switched, the page has not heard back yet.
+    // (`page.route` does not see `boost://` requests, so the page's fetch is wrapped.)
+    await page.evaluate(() => {
+      const original = window.fetch
+      let hold = Promise.withResolvers<void>()
+      const state = {
+        held: [] as string[],
+        sent: [] as string[],
+        release() {
+          hold.resolve()
+          hold = Promise.withResolvers<void>()
+        },
+      }
+      Object.assign(window, { switchHold: state })
+      window.fetch = async (input, init) => {
+        const pathname = new URL(String(input), location.href).pathname
+        state.sent.push(pathname)
+        const response = await original(input, init)
+        if (pathname === '/api/vaults/open') {
+          state.held.push(String(init?.body))
+          await hold.promise
+        }
+        return response
+      }
+    })
+    const hold = () => page.evaluate(() => Reflect.get(window, 'switchHold') as { held: string[]; sent: string[] })
+    const release = () => page.evaluate(() => (Reflect.get(window, 'switchHold') as { release(): void }).release())
+    const sentTo = async (suffix: string) => (await hold()).sent.filter((pathname) => pathname.endsWith(suffix))
+
+    // Add to vault while the drain switches to the other vault: it waits for the drain, then asks
+    // for a folder of the vault the drain left open and imports there.
+    await openFiles(path.join(other, 'b.md'))
+    await expect
+      .poll(async () => (await hold()).held, { timeout: 20_000 })
+      .toEqual([JSON.stringify({ path: await realpath(other) })])
+    await page.locator('[data-reader-add]').click()
+    const dialog = page.getByRole('dialog', { name: 'Add to vault' })
+    await page.waitForTimeout(500)
+    await expect(dialog).toHaveCount(0)
+    await release()
+    await expect(page.locator('[data-vault-switcher]')).toContainText('other', { timeout: 20_000 })
+    await expect(dialog.locator('option')).toHaveText(['other'])
+    await dialog.getByRole('button', { name: 'Add' }).click()
+    // The drain left b.md active, so it stays active; the reader tab became readme.md's tab.
+    await expect(page.locator('[role="tab"][data-tab="readme.md"]')).toBeVisible({ timeout: 20_000 })
+    await expect(page.locator('[role="tab"][data-reader-tab="readme.md"]')).toHaveCount(0)
+    await expect(page.locator('[role="tab"][aria-selected="true"]')).toHaveAttribute('data-tab', 'b.md')
+    await expect(page.locator('[data-note-title]')).toHaveText('b')
+    await expect(page.locator('[data-note="readme.md"]')).toBeVisible()
+    await expect(page.locator('[data-note="b.md"]')).toBeVisible()
+    expect(await readFile(path.join(other, 'readme.md'), 'utf8')).toBe('# Loose readme\n')
+    expect(await sentTo('/import')).toHaveLength(1)
+    await page.locator('[role="tab"][data-reader-tab="second.md"]').click()
+    await expect(page.locator('[data-reader-body] h1')).toHaveText('Second')
+
+    // Open folder as vault while the drain switches back to the first vault: it waits as well.
+    await openFiles(path.join(app.vault, 'inside.md'))
+    await expect.poll(async () => (await hold()).held.length, { timeout: 20_000 }).toBe(2)
+    await page.locator('[data-reader-open-folder]').click()
+    await page.waitForTimeout(500)
+    expect(await sentTo('/open-folder')).toEqual([])
+    await release()
+
+    // The drain finished in the first vault, then the reader's folder became the vault.
+    await expect(page.locator('[data-vault-switcher]')).toContainText('loose', { timeout: 20_000 })
+    await expect(page.locator('[data-note-title]')).toHaveText('second')
+    await expect(page.locator('[role="tab"][aria-selected="true"]')).toHaveAttribute('data-tab', 'second.md')
+    await expect(page.locator('[data-note="second.md"]')).toBeVisible()
+    await expect(page.locator('[data-notice][data-kind="error"]')).toHaveCount(0)
+    const settings = JSON.parse(await readFile(path.join(app.userDataDir, 'settings.json'), 'utf8'))
+    expect(settings.lastVault).toBe(await realpath(path.join(dir, 'loose')))
+    // The vaults the drains opened kept their notes.
+    const saved = async (root: string) =>
+      JSON.parse(
+        (await page.evaluate((r) => localStorage.getItem(`boostnote.tabs:${r}`), await realpath(root))) ?? 'null',
+      )?.tabs
+    expect((await saved(other)).sort()).toEqual(['b.md', 'readme.md'])
+    expect(await saved(app.vault)).toEqual(['inside.md'])
+  } finally {
+    await quitWithoutDialog(app.electronApp)
+    await rm(app.dir, { recursive: true, force: true })
+  }
+})
+
+test('"Opening a .md outside a vault" defaults to Read only; "Open its folder as vault" opens outside files as vaults', async () => {
+  const app = await launchApp({ 'inside.md': '# Inside\n' })
+  try {
+    const { page, dir } = app
+    const openFiles = (...files: string[]) =>
+      app.electronApp.evaluate(({ app: electronApp }, targets) => {
+        for (const target of targets) electronApp.emit('open-file', { preventDefault() {} }, target)
+      }, files)
+    await app.clickMenu('preferences')
+    const select = page.locator('[data-preferences] select[name="outsideFile"]')
+    await expect(select).toHaveValue('reader')
+    await expect(select.locator('option')).toHaveText(['Read only', 'Open its folder as vault'])
+    await select.selectOption('vault')
+    await expect
+      .poll(async () => JSON.parse(await readFile(path.join(app.userDataDir, 'settings.json'), 'utf8')).ui?.outsideFile)
+      .toBe('vault')
+    await page.keyboard.press('Escape')
+
+    // An outside file opens its folder as the vault, as before reader tabs.
+    await writeFiles(path.join(dir, 'loose'), { 'readme.md': '# Loose readme\n' })
+    await openFiles(path.join(dir, 'loose', 'readme.md'))
+    await expect(page.locator('[data-note-title]')).toHaveText('readme', { timeout: 20_000 })
+    await expect(page.locator('[data-vault-switcher]')).toContainText('loose')
+    await expect(page.locator('[data-reader-tab]')).toHaveCount(0)
+
+    // A note of a recent vault still opens in that vault.
+    await openFiles(path.join(app.vault, 'inside.md'))
+    await expect(page.locator('[data-note-title]')).toHaveText('inside', { timeout: 20_000 })
+    await expect(page.locator('[data-vault-switcher]')).toContainText('vault')
+    await expect(page.locator('[data-note="readme.md"]')).toHaveCount(0)
+  } finally {
+    await quitWithoutDialog(app.electronApp)
+    await rm(app.dir, { recursive: true, force: true })
+  }
+})
+
+test('a reader tab shows images next to its file; only http(s) links open, in the browser', async () => {
+  const app = await launchApp({ 'inside.md': '# Inside\n' })
+  try {
+    const { page, dir } = app
+    // Record instead of opening a real browser.
+    await app.electronApp.evaluate(({ shell }) => {
+      const opened: string[] = []
+      Object.assign(globalThis, { openedUrls: opened })
+      shell.openExternal = async (url: string) => {
+        opened.push(url)
+      }
+    })
+    const opened = () => app.electronApp.evaluate((): unknown => Reflect.get(globalThis, 'openedUrls'))
+    // Only pics.md is opened from the OS; its image and the .md it links to just sit next to it.
+    await writeFiles(path.join(dir, 'loose'), {
+      'pics.md': '# Pics\n\n![dot](img/dot.svg)\n\n[site](https://example.com/) [other](other.md) [[other]]\n',
+      'img/dot.svg':
+        '<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10"><rect width="10" height="10"/></svg>',
+      'other.md': '# Other\n',
+    })
+    await app.electronApp.evaluate(
+      ({ app: electronApp }, target) => {
+        electronApp.emit('open-file', { preventDefault() {} }, target)
+      },
+      path.join(dir, 'loose', 'pics.md'),
+    )
+    const body = page.locator('[data-reader-body]')
+    await expect(body.locator('h1')).toHaveText('Pics', { timeout: 20_000 })
+    const image = body.locator('img[alt="dot"]')
+    await expect(image).toHaveAttribute('src', /^\/reader-assets\/[0-9a-f]{48}\?src=img%2Fdot\.svg$/)
+    await expect.poll(() => image.evaluate((img: HTMLImageElement) => img.naturalWidth)).toBe(10)
+
+    await body.getByRole('link', { name: 'other' }).click()
+    await expect(body).toContainText('[[other]]')
+    await body.getByRole('link', { name: 'site' }).click()
+    await expect.poll(opened).toEqual(['https://example.com/'])
+    // The relative .md link did nothing: still the same reader, no navigation.
+    await expect(body.locator('h1')).toHaveText('Pics')
+    await expect(page.locator('[data-reader-tab]')).toHaveCount(1)
+  } finally {
+    await quitWithoutDialog(app.electronApp)
+    await rm(app.dir, { recursive: true, force: true })
+  }
+})
+
+test('opens every file queued before the window loads, in order', async () => {
+  // Both argv files are queued in main before the page's EventSource connects, so only the
+  // workspace's hydration take runs: it has to drain the whole queue.
+  const app = await launchApp(
+    { 'inside.md': '# Inside\n' },
+    { openFiles: { 'one.md': '# One\n', 'two.md': '# Two\n' } },
+  )
+  try {
+    const { page } = app
+    await expect(page.locator('[role="tab"][aria-selected="true"]')).toHaveAttribute('data-reader-tab', 'two.md', {
+      timeout: 20_000,
+    })
+    const tabs = await page
+      .locator('[data-reader-tab]')
+      .evaluateAll((items) => items.map((item) => item.getAttribute('data-reader-tab')))
+    expect(tabs).toEqual(['one.md', 'two.md'])
+  } finally {
+    await quitWithoutDialog(app.electronApp)
     await rm(app.dir, { recursive: true, force: true })
   }
 })
