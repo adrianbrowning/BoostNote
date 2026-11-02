@@ -205,7 +205,7 @@ describe('VaultSession', () => {
       await mkdir(path.join(other, 'sub'))
       await writeFile(path.join(other, 'sub', 'b.md'), '# B\n')
       await symlink(other, path.join(links, 'other-link'))
-      await session.close()
+      await session.close(vault.root)
       settings.update({ vaults: [path.join(links, 'other-link')] })
       session.requestOpen(path.join(other, 'sub', 'b.md'))
       expect(await session.takeOpenRequest()).toEqual({ kind: 'note', vault: await realpath(other), id: 'sub/b.md' })

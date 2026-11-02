@@ -311,7 +311,8 @@ test('opens a .md outside every vault read-only in a reader tab, without touchin
 
     // Closing the vault keeps the reader tab; it is then the only tab.
     await page.locator('[data-vault-switcher]').click()
-    await page.getByRole('menuitem', { name: 'Close Vault' }).click()
+    // The menu's last entry closes the active vault (each open vault's × has the same name).
+    await page.getByRole('menuitem', { name: 'Close vault', exact: true }).last().click()
     await expect(page.locator('[data-vault="none"]')).toBeVisible()
     await expect(page.locator('[role="tab"]')).toHaveCount(1)
     await expect(reader).toHaveAttribute('aria-selected', 'true')
@@ -465,7 +466,7 @@ test('"Add to vault…" in a reader imports the file and its images into the cho
 
     // With no vault open the button is disabled and says why.
     await page.locator('[data-vault-switcher]').click()
-    await page.getByRole('menuitem', { name: 'Close Vault' }).click()
+    await page.getByRole('menuitem', { name: 'Close vault', exact: true }).last().click()
     await expect(page.locator('[data-vault="none"]')).toBeVisible()
     await expect(page.locator('[data-reader-body] h1')).toHaveText('Second')
     const add = page.locator('[data-reader-add]')
