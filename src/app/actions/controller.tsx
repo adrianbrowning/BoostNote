@@ -1,5 +1,6 @@
 import { stat } from 'node:fs/promises'
 import { openLazyFile } from 'remix/fs'
+import { detectContentType } from 'remix/mime'
 import { createFileResponse } from 'remix/response/file'
 import { createController } from 'remix/router'
 
@@ -54,6 +55,26 @@ export function createRootController(services: AppServices) {
           const response = await createFileResponse(openLazyFile(file), context.request, { cacheControl: 'no-cache' })
           response.headers.set('Content-Security-Policy', VAULT_ASSET_CSP)
           return response
+        } catch (error) {
+          return errorResponse(error)
+        }
+      },
+      async readerAssets(context) {
+        try {
+          const src = requireString(context.url.searchParams.get('src'), 'src')
+          if (services.vaults.readers.path(context.params.ticket) === undefined) {
+            throw new HttpError(404, 'NOT_FOUND', 'This file is no longer open; open it again')
+          }
+          // `asset` keeps the link inside the outside file's folder (also via symlinks), regular files only.
+          const asset = await services.vaults.readers.asset(context.params.ticket, src)
+          if (asset === undefined) throw new HttpError(404, 'NOT_FOUND', 'Asset not found')
+          return new Response(new Uint8Array(asset.bytes), {
+            headers: {
+              'Content-Type': detectContentType(asset.name) ?? 'application/octet-stream',
+              'Cache-Control': 'no-cache',
+              'Content-Security-Policy': VAULT_ASSET_CSP,
+            },
+          })
         } catch (error) {
           return errorResponse(error)
         }
