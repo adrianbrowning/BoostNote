@@ -204,6 +204,7 @@ JSON `{ error, message }`: `VaultError` `INVALID_PATH`/`NOT_A_VAULT` → 400, `N
 | `POST /api/open-request` | Takes the oldest queued "open this `.md`" request → `{ kind: 'note', vault, id }`, `{ kind: 'external', ticket, name }` (outside file, reader tab) or `null` when the queue is empty (phase 6) |
 | `GET /api/reader/:ticket` · `POST /api/reader/:ticket/close` | A reader tab's outside file → `{ name, body, frontmatter, html }`, read fresh; close revokes the ticket. Unknown/revoked tickets: `404` |
 | `POST /api/reader/:ticket/open-folder` | Opens the ticket's file's folder as the vault and revokes the ticket → `{ id, workspace }`; `404` revoked/gone, `400` for a name that can be no note (dot-name, upper-case `.MD`) |
+| `POST /api/reader/:ticket/import {folder}` | "Add to vault…": imports the ticket's file and its images into `folder` of the open vault and revokes the ticket once a note came in → `201 { report, workspace }` (report sources are base names; with no note imported, `notes: []`, the ticket stays); `404` revoked/gone, `409 NO_VAULT`, `400`/`404` for a bad/missing folder (the ticket stays) |
 | `GET /export/mermaid` | Hidden page that lays out mermaid diagrams for export (phase 6) |
 
 ### Editor integration and conflict rules
@@ -380,7 +381,11 @@ symlink again between the after-read `realpath` and `lstat` checks; this race is
 `openat` helper).
 Relative images in `html` point at `GET /reader-assets/:ticket?src=`, which follows the import's
 `resolveLink` rules against the file's folder (real path a regular file inside that folder, so `../`
-and symlink escapes are refused) and reads with the same checks; refused sources answer `404`. In the
+and symlink escapes are refused) and reads with the same checks. Reader assets are images only, with
+no dot-files: the link as written and its real path (symlinks resolved) must both end in an image
+extension (png, jpg, jpeg, gif, webp, svg, avif, bmp, ico; any case) and have no dot-file or
+dot-folder below the file's folder (`assetRefusal` in `src/app/reader-grants.ts`, the one rule for
+this route and for "Add to vault…"). Refused sources answer `404` with no path. In the
 reader, http(s) links open in the browser; relative `.md` and wiki links are inert.
 `POST /api/reader/:ticket/close` revokes the ticket when the tab closes; afterwards, and for unknown
 tickets, all these routes answer `404`. The banner's "Open folder as vault" posts
@@ -392,7 +397,34 @@ came first opens nothing (`404`), one that comes after finds the ticket revoked 
 ignores Close on a reader whose open-folder is in flight. A name that can be no note (a dot-name or
 upper-case `.MD`) answers `400` naming only the base name, and the reader stays. The file is checked
 as a read checks it, and the loaded vault's real root must be the granted file's folder, so a parent
-swapped for a symlink (also while the folder loads) answers `404` and opens nothing. In
+swapped for a symlink (also while the folder loads) answers `404` and opens nothing. The page runs
+the reader's switch through the same queue as the open-request drain (`WorkspaceModel.#inOpenOrder`),
+so a click while a drain switches vaults waits for it and the page never asks one vault for another
+vault's note.
+
+"Add to vault…" (disabled without an open vault, with the reason next to it) asks in the page for a
+folder of the open vault (`dropFolder` first) and posts `POST /api/reader/:ticket/import { folder }`.
+`VaultSession.importReader` runs in the vault queue: it checks the ticket and the open vault, then
+`ReaderGrants.importOnce` claims the ticket (a second import while one runs, or after one imported,
+is refused), runs `vault.importFiles([file], folder, { read, refuseAsset })` and revokes the ticket
+when the import brought in the note. When it imported none (the file is already in that folder, or
+skipped) or throws (a bad or missing folder) the ticket stays, so the user can choose another folder;
+the page shows "Nothing imported: …" and keeps the reader tab. `refuseAsset`
+(`ImportOptions.refuseAsset`) is the reader assets rule above: a link to anything else (`.ssh/id_rsa`,
+`notes.txt`, a symlink to a dot-folder) stays as it is and is listed in the report's `unresolved`
+(vault id, link and reason); the rest of the import goes on. Drop import keeps its own rules.
+`read` (`ImportOptions.read`) is the
+reader's identity-checked read: the note must be the granted file and each linked image a file the
+rule allows by its real path, read without following symlinks, and the bytes it read are the ones written,
+so a file or parent folder swapped for a symlink after the checks fails the import instead of
+copying another file. The workspace in the answer is read in the same queue turn. The page saves the
+open note before the request (a refused save sends nothing), shows the drop import's notice
+(`#reportImport`, shared with drops) and, when a note came in, turns the reader tab into the new
+note's tab at its position: switching to it when the reader is still the active tab, else keeping
+the tab the user moved to meanwhile (its note is not saved for this), so the revoked reader tab
+never stays. The whole page action, the folder choice included, runs through
+`#inOpenOrder`: clicked while a drain switches vaults, it asks for a folder of the vault the drain
+left open, and a drain that starts meanwhile waits for it. In
 `Tabs` a tab is a note tab or a reader tab: reader tabs are never saved to `localStorage`, have no
 back/forward trail, are skipped by rebase/forget, stay open when the vault switches or closes, and
 are the only tabs while no vault is open. Grants live in memory, so reader tabs are gone after a restart.

@@ -222,12 +222,36 @@ describe('importFiles', () => {
 
     await put(src, 'many/a.md', 'a')
     await put(src, 'many/b.md', 'b')
-    await expect(vault.importFiles([path.join(src, 'many')], '', { maxFiles: 1 })).rejects.toMatchObject({
+    await expect(vault.importFiles([path.join(src, 'many')], '', { limits: { maxFiles: 1 } })).rejects.toMatchObject({
       code: 'TOO_LARGE',
     })
-    await expect(vault.importFiles([path.join(src, 'many')], '', { maxBytes: 1 })).rejects.toMatchObject({
+    await expect(vault.importFiles([path.join(src, 'many')], '', { limits: { maxBytes: 1 } })).rejects.toMatchObject({
       code: 'TOO_LARGE',
     })
     expect(await listFiles(root)).toEqual(['n.md'])
+  })
+
+  it('stops reading linked images as soon as a reader import goes over a limit', async () => {
+    const note = '![a](a.png) ![b](b.png) ![c](c.png) ![d](d.png)\n'
+    const file = await put(src, 'n.md', note)
+    for (const name of ['a', 'b', 'c', 'd']) await put(src, `${name}.png`, `${name.repeat(10)}`)
+    let assetReads = 0
+    const read = async (real: string, kind: 'note' | 'asset') => {
+      if (kind === 'asset') assetReads++
+      return { data: await readFile(real), atime: new Date(), mtime: new Date() }
+    }
+
+    const maxBytes = Buffer.byteLength(note) + 15
+    await expect(vault.importFiles([file], '', { read, limits: { maxBytes } })).rejects.toMatchObject({
+      code: 'TOO_LARGE',
+    })
+    expect(assetReads).toBe(2)
+
+    assetReads = 0
+    await expect(vault.importFiles([file], '', { read, limits: { maxFiles: 2 } })).rejects.toMatchObject({
+      code: 'TOO_LARGE',
+    })
+    expect(assetReads).toBe(2)
+    expect(await listFiles(root)).toEqual([])
   })
 })

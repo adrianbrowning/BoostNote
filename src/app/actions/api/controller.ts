@@ -16,7 +16,13 @@ import {
 import { errorResponse, HttpError, json, readJsonObject, requireString } from '../../http.ts'
 import { routes } from '../../routes.ts'
 import type { AppServices } from '../../services.ts'
-import type { OpenRequest, ReaderDocument, ReaderFolderResult, SaveConflictBody } from '../public/workspace/types.ts'
+import type {
+  OpenRequest,
+  ReaderDocument,
+  ReaderFolderResult,
+  ReaderImportResult,
+  SaveConflictBody,
+} from '../public/workspace/types.ts'
 import { exportFolder, exportNote } from './export.ts'
 import { parseUiPatch, preferencesState, savePreferences } from './preferences.ts'
 import { importSummary, toJsonValue, toNoteDocument, workspaceData } from './workspace-data.ts'
@@ -436,6 +442,16 @@ export function createApiController(services: AppServices) {
         const id = await services.vaults.openReaderFolder(params.ticket)
         const result: ReaderFolderResult = { id, workspace: await workspaceData(services) }
         return json(result)
+      }),
+
+      readerImport: guarded(async ({ params, request }: { params: { ticket: string }; request: Request }) => {
+        const folder = requireString((await readJsonObject(request)).folder, 'folder', { allowEmpty: true })
+        const result = await services.vaults.importReader(
+          params.ticket,
+          folder,
+          async (report): Promise<ReaderImportResult> => ({ report, workspace: await workspaceData(services) }),
+        )
+        return json(result, { status: 201 })
       }),
     },
   })
