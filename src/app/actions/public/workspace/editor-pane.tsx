@@ -7,6 +7,7 @@ import { client, vaultAssetUrl } from './api.ts'
 import type { WorkspaceModel } from './model.ts'
 import { parentOf, resolveNoteLink } from './paths.ts'
 import { PropertiesPanel } from './properties.tsx'
+import { ReaderPane } from './reader-pane.tsx'
 import { button, emptyState, emptyTitle, iconButton, input, muted, primaryButton } from './styles.ts'
 import { TabStrip } from './tab-strip.tsx'
 import { type TaskProgress, taskProgress } from './tasks.ts'
@@ -253,9 +254,12 @@ export function EditorPane(handle: Handle<{ model: WorkspaceModel }>) {
     const { model } = handle.props
     const note = session().note
     const folder = note ? parentOf(note.id) : ''
+    const active = model.tabs.active
+    const reader = active?.kind === 'reader' ? active : undefined
     return (
       <main mix={paneStyle} aria-label="Editor">
         {model.tabs.tabs.length > 0 ? <TabStrip model={model} /> : null}
+        {reader ? <ReaderPane model={model} tab={reader} /> : null}
         {note ? (
           <header mix={headerStyle}>
             <div mix={titleBlockStyle}>
@@ -316,7 +320,7 @@ export function EditorPane(handle: Handle<{ model: WorkspaceModel }>) {
             </span>
           </div>
         ) : null}
-        {note ? null : (
+        {note || reader ? null : (
           <div mix={emptyState}>
             {model.data.notes.length === 0 ? (
               <>

@@ -169,18 +169,50 @@ describe('VaultSession', () => {
       await session.dispose()
     })
 
-    it('returns every request made before taking, in order; outside files open their folder', async () => {
-      const session = new VaultSession({ settings: new SettingsStore(file), events })
+    it('returns every request made before taking, in order; an outside file gets a reader ticket', async () => {
+      const settings = new SettingsStore(file)
+      const session = new VaultSession({ settings, events })
       const vault = await session.open(await folder('queued'))
       await writeFile(path.join(vault.root, 'first.md'), '# First\n')
       const loose = await folder('loose')
       await writeFile(path.join(loose, 'second.md'), '# Second\n')
+      const before = settings.read()
       session.requestOpen(path.join(vault.root, 'first.md'))
       session.requestOpen(path.join(loose, 'second.md'))
       expect(await session.takeOpenRequest()).toEqual({ kind: 'note', vault: vault.root, id: 'first.md' })
-      expect(await session.takeOpenRequest()).toEqual({ kind: 'note', vault: await realpath(loose), id: 'second.md' })
+      const outside = await session.takeOpenRequest()
+      expect(outside).toEqual({ kind: 'external', ticket: expect.any(String), name: 'second.md' })
       expect(await session.takeOpenRequest()).toBeUndefined()
+      // The ticket reads the real file; no vault was opened, so Recent and lastVault stay as they were.
+      const ticket = outside?.kind === 'external' ? outside.ticket : ''
+      expect(session.readers.path(ticket)).toBe(path.join(await realpath(loose), 'second.md'))
+      expect(session.current?.root).toBe(vault.root)
+      expect(settings.read()).toEqual(before)
+
+      // The same file again (here through a symlink) gets the same live ticket.
+      await symlink(path.join(loose, 'second.md'), path.join(loose, 'alias.md'))
+      session.requestOpen(path.join(loose, 'alias.md'))
+      expect(await session.takeOpenRequest()).toEqual({ kind: 'external', ticket, name: 'second.md' })
+      session.readers.revoke(ticket)
+      session.requestOpen(path.join(loose, 'second.md'))
+      const reopened = await session.takeOpenRequest()
+      expect(reopened?.kind === 'external' && reopened.ticket).not.toBe(ticket)
       await session.dispose()
+    })
+
+    it('opens outside files with no vault open', async () => {
+      const settings = new SettingsStore(file)
+      const session = new VaultSession({ settings, events })
+      const loose = await folder('loose-alone')
+      await writeFile(path.join(loose, 'readme.md'), '# Readme\n')
+      session.requestOpen(path.join(loose, 'readme.md'))
+      expect(await session.takeOpenRequest()).toEqual({
+        kind: 'external',
+        ticket: expect.any(String),
+        name: 'readme.md',
+      })
+      expect(session.current).toBeUndefined()
+      expect(settings.read()).toEqual({})
     })
 
     it('opens a file in a hidden or .assets folder of a known vault as an outside file, not a note id', async () => {
@@ -192,15 +224,11 @@ describe('VaultSession', () => {
       await writeFile(path.join(vault.root, 'img.assets', 'readme.md'), '# Readme\n')
       session.requestOpen(path.join(vault.root, '.github', 'x.md'))
       session.requestOpen(path.join(vault.root, 'img.assets', 'readme.md'))
+      expect(await session.takeOpenRequest()).toEqual({ kind: 'external', ticket: expect.any(String), name: 'x.md' })
       expect(await session.takeOpenRequest()).toEqual({
-        kind: 'note',
-        vault: path.join(vault.root, '.github'),
-        id: 'x.md',
-      })
-      expect(await session.takeOpenRequest()).toEqual({
-        kind: 'note',
-        vault: path.join(vault.root, 'img.assets'),
-        id: 'readme.md',
+        kind: 'external',
+        ticket: expect.any(String),
+        name: 'readme.md',
       })
       await session.dispose()
     })
@@ -213,11 +241,7 @@ describe('VaultSession', () => {
       await writeFile(path.join(vault.root, '.github', 'sub', 'x.md'), '# X\n')
       settings.update({ vaults: [vault.root, path.join(vault.root, '.github')] })
       session.requestOpen(path.join(vault.root, '.github', 'sub', 'x.md'))
-      expect(await session.takeOpenRequest()).toEqual({
-        kind: 'note',
-        vault: path.join(vault.root, '.github', 'sub'),
-        id: 'x.md',
-      })
+      expect(await session.takeOpenRequest()).toEqual({ kind: 'external', ticket: expect.any(String), name: 'x.md' })
       await session.dispose()
     })
   })

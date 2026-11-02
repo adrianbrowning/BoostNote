@@ -56,9 +56,10 @@ function markdownFilesIn(argv: string[], cwd: string): string[] {
     .filter((file) => statSync(file, { throwIfNoEntry: false })?.isFile() ?? false)
 }
 
-// A `.md` file opened from the OS: its folder becomes the vault and the note opens in a tab (the
-// workspace takes the request). macOS delivers files (Finder, `open -a`, dock drops) through
-// `open-file`, possibly before `ready`.
+// A `.md` file opened from the OS is queued in VaultSession (takeOpenRequest decides whether it is a
+// note of a known vault or an outside file for a reader tab); the workspace takes queued requests on
+// SSE `open-request`. macOS delivers files (Finder, `open -a`, dock drops) through `open-file`,
+// possibly before `ready`.
 app.on('open-file', (event, file) => {
   event.preventDefault()
   vaults.requestOpen(file)
