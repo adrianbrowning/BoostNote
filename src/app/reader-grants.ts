@@ -91,6 +91,15 @@ export class ReaderGrants {
   }
 
   /**
+   * The real path behind `ticket` when it still is a regular file at that real path (checked as
+   * `read` checks, without reading it); `undefined` when unknown, revoked, gone or anything else.
+   */
+  async regularPath(ticket: string): Promise<string | undefined> {
+    const file = this.#paths.get(ticket)
+    return file !== undefined && (await useRegular(file, async () => true)) ? file : undefined
+  }
+
+  /**
    * The text of the file behind `ticket`, read now; `undefined` when the ticket is unknown or
    * revoked, or its path no longer is a regular file at that real path (gone, a symlink, a FIFO).
    */

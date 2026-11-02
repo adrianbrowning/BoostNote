@@ -11,6 +11,7 @@ import type {
   OpenRequest,
   PreferencesState,
   ReaderDocument,
+  ReaderFolderResult,
   SaveConflictBody,
   TitleRename,
   TitleRenamePlan,
@@ -133,4 +134,6 @@ export const client = {
   readReader: (ticket: string) => request<ReaderDocument>(api.readerRead.href({ ticket })),
   /** Revokes a reader tab's ticket (the tab closed). */
   closeReader: (ticket: string) => post<unknown>(api.readerClose.href({ ticket })),
+  /** Main opens the folder of the reader tab's file as the vault and revokes the ticket. */
+  openReaderFolder: (ticket: string) => post<ReaderFolderResult>(api.readerOpenFolder.href({ ticket })),
 }
