@@ -65,16 +65,16 @@ export const Workspace = clientEntry(
       else if (command === 'toggle-sidebar') model.togglePane('sidebarCollapsed')
       else if (command === 'toggle-note-list') model.togglePane('listCollapsed')
       else if (command === 'toggle-properties') model.togglePane('propertiesOpen')
+      else if (command === 'close-tab') void model.closeTab()
+      else if (command === 'next-tab') void model.cycleTab(1)
+      else if (command === 'previous-tab') void model.cycleTab(-1)
+      else if (command === 'select-tab') void model.selectTab(index ?? 0)
       else if (!model.data.vault) return
       else if (command === 'new-note') void model.newNote()
       else if (command === 'new-folder') void model.newFolder()
       else if (command === 'rename-from-titles') model.setTitleRenamesOpen(true)
       else if (command === 'reveal-note') void model.revealNote()
-      else if (command === 'close-tab') void model.closeTab()
       else if (command === 'reopen-tab') void model.reopenTab()
-      else if (command === 'next-tab') void model.cycleTab(1)
-      else if (command === 'previous-tab') void model.cycleTab(-1)
-      else if (command === 'select-tab') void model.selectTab(index ?? 0)
       else if (command === 'go-back') void model.goBack()
       else if (command === 'go-forward') void model.goForward()
       else if (command === 'find') model.find()
@@ -264,6 +264,9 @@ export const Workspace = clientEntry(
               {list ? resizer('listWidth') : null}
               <EditorPane model={model} />
             </>
+          ) : model.tabs.tabs.length > 0 ? (
+            // No vault, but reader tabs of outside files are open.
+            <EditorPane model={model} />
           ) : (
             welcome()
           )}
