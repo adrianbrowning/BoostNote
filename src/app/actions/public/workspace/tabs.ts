@@ -146,6 +146,22 @@ export class Tabs {
     return tab
   }
 
+  /**
+   * Turns the reader tab `key` into a tab of note `path` at the same position and activates it (the
+   * reader's file became that note). A note tab already showing `path` moves into that slot (with
+   * its trail), so the note has one tab. `undefined` when `key` is no reader tab.
+   */
+  replaceReader(key: number, path: string): NoteTab | undefined {
+    const index = this.tabs.findIndex((tab) => tab.key === key && tab.kind === 'reader')
+    if (index === -1) return undefined
+    const open = this.tabs.find((tab): tab is NoteTab => tab.kind === 'note' && tab.path === path)
+    const tab = open ?? this.#createNote(path)
+    this.tabs[index] = tab
+    if (open) this.tabs = this.tabs.filter((item, at) => item !== open || at === index)
+    this.activeKey = tab.key
+    return tab
+  }
+
   activate(key: number): Tab | undefined {
     const tab = this.tabs.find((item) => item.key === key)
     if (tab) this.activeKey = tab.key

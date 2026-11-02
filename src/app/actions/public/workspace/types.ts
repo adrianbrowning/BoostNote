@@ -3,7 +3,13 @@
  * both the browser modules and the main-process controllers import them.
  */
 import type { MenuCommand, MenuEvent, VaultChangeEvent } from '../../../../main/events.ts'
-import type { PaneLayout, ThemePreference, UiPatch, UiPreferences } from '../../../../main/settings.ts'
+import type {
+  OutsideFilePreference,
+  PaneLayout,
+  ThemePreference,
+  UiPatch,
+  UiPreferences,
+} from '../../../../main/settings.ts'
 import type { UpdateInfo } from '../../../../main/updates.ts'
 import type { OpenRequest } from '../../../../main/vault-session.ts'
 import type {
@@ -24,6 +30,7 @@ export type {
   MenuCommand,
   MenuEvent,
   OpenRequest,
+  OutsideFilePreference,
   PaneLayout,
   ThemePreference,
   TitleRename,
@@ -75,6 +82,12 @@ export interface ReaderDocument {
   frontmatter: { [key: string]: JsonValue }
   body: string
   html: string
+}
+
+/** `POST /api/reader/:ticket/open-folder`: the file's folder is the vault now; `id` is the file's note there. */
+export interface ReaderFolderResult {
+  id: string
+  workspace: WorkspaceData
 }
 
 export interface FolderSummary {
