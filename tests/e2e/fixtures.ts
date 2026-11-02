@@ -98,13 +98,24 @@ export async function launchApp(files: VaultFiles, options: LaunchOptions = {}):
   }
 }
 
+/**
+ * Closes the app, answering main's unsaved-changes quit dialog with 'Quit Anyway' (index 1), so a
+ * test that leaves a note unsaved never leaves a native dialog open and never hangs teardown.
+ */
+export async function quitWithoutDialog(electronApp: ElectronApplication): Promise<void> {
+  await electronApp.evaluate(({ dialog }) => {
+    dialog.showMessageBox = (async () => ({ response: 1, checkboxChecked: false })) as typeof dialog.showMessageBox
+  })
+  await electronApp.close()
+}
+
 /** `app`: a launched app per test, closed and its temp folder removed afterwards. */
 export const test = base.extend<{ files: VaultFiles; app: AppHandle }>({
   files: [{}, { option: true }],
   app: async ({ files }, use) => {
     const handle = await launchApp(files)
     await use(handle)
-    await handle.electronApp.close()
+    await quitWithoutDialog(handle.electronApp)
     await rm(handle.dir, { recursive: true, force: true })
   },
 })
