@@ -1,6 +1,9 @@
 import { randomBytes } from 'node:crypto'
 import { constants } from 'node:fs'
 import { type FileHandle, lstat, open, realpath } from 'node:fs/promises'
+import * as path from 'node:path'
+
+import { isInside, safeDecode } from '../vault/paths.ts'
 
 /** Never follows a symlink at the file itself and never blocks on a FIFO (Windows has neither flag). */
 const OPEN_FLAGS = constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0) | (constants.O_NONBLOCK ?? 0)
@@ -27,6 +30,9 @@ function refused(error: unknown): undefined {
  * handle's device and inode. `O_NOFOLLOW` guards only the last component; comparing the handle with
  * what the path names after the read anchors the read beneath the real parent folders, so a handle
  * opened through a parent swapped for a symlink (even one restored before the check) is refused.
+ * Not detected: a process running as the same user that flips a parent folder to a symlink again
+ * between the after-read `realpath` and `lstat` checks. This race is accepted (there is no native
+ * `openat` helper).
  * `undefined` when `file` is gone or anything else (a symlink, folder, FIFO or device).
  */
 async function useRegular<T>(file: string, use: (handle: FileHandle) => Promise<T>): Promise<T | undefined> {
@@ -54,10 +60,12 @@ async function useRegular<T>(file: string, use: (handle: FileHandle) => Promise<
  * not expire: it lives until the reader tab closes (`revoke`) or the app quits. One file has at
  * most one live ticket, so opening it again finds its existing tab.
  *
- * A ticket reads only the path the OS gave the app, and only while it is a regular file at that
- * same real path: once a symlink sits there or in a parent folder, or a FIFO or device, reads are
- * refused. Another regular file renamed over it (an editor's atomic save) is that path's file now
- * and reads under the same ticket.
+ * A ticket reads only the path the OS gave the app. Each read opens it without following a symlink,
+ * refuses anything but a regular file (a symlink, folder, FIFO or device), and after reading requires
+ * the path to still be its own real path and to name the file it read; see `useRegular` for the one
+ * accepted race (a parent folder flipped to a symlink between those checks). Another regular file
+ * renamed over it (an editor's atomic save) is that path's file now and reads under the same ticket.
+ * Files the document links to (`asset`) are read with the same checks, inside the file's folder.
  */
 export class ReaderGrants {
   readonly #paths = new Map<string, string>()
@@ -89,6 +97,25 @@ export class ReaderGrants {
   async read(ticket: string): Promise<string | undefined> {
     const file = this.#paths.get(ticket)
     return file === undefined ? undefined : useRegular(file, (handle) => handle.readFile('utf8'))
+  }
+
+  /**
+   * The bytes and base name of the file `src` (a relative link as written in the document,
+   * `img/a%20b.png`) names next to the file behind `ticket`. Follows the import's `resolveLink`
+   * rules: the real path must be a regular file inside the document's folder, so `../` and symlinks
+   * that leave it are refused; the read itself has `useRegular`'s guarantees. `undefined` when
+   * refused or gone.
+   */
+  async asset(ticket: string, src: string): Promise<{ bytes: Buffer; name: string } | undefined> {
+    const file = this.#paths.get(ticket)
+    if (file === undefined) return undefined
+    const link = safeDecode(src.replace(/[?#].*$/, ''))
+    if (link === '' || link.includes('\0') || /^(?:[a-z][a-z\d+.-]*:|[/\\])/i.test(link)) return undefined
+    const folder = path.dirname(file)
+    const real = await realpath(path.resolve(folder, link)).catch(refused)
+    if (real === undefined || !isInside(folder, real)) return undefined
+    const bytes = await useRegular(real, (handle) => handle.readFile())
+    return bytes === undefined ? undefined : { bytes, name: path.basename(real) }
   }
 
   /** Ends `ticket` (its reader tab closed); `false` when it was unknown or already revoked. */

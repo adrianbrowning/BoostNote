@@ -365,6 +365,51 @@ test('opens a .md outside every vault read-only in a reader tab, without touchin
   }
 })
 
+test('a reader tab shows images next to its file; only http(s) links open, in the browser', async () => {
+  const app = await launchApp({ 'inside.md': '# Inside\n' })
+  try {
+    const { page, dir } = app
+    // Record instead of opening a real browser.
+    await app.electronApp.evaluate(({ shell }) => {
+      const opened: string[] = []
+      Object.assign(globalThis, { openedUrls: opened })
+      shell.openExternal = async (url: string) => {
+        opened.push(url)
+      }
+    })
+    const opened = () => app.electronApp.evaluate((): unknown => Reflect.get(globalThis, 'openedUrls'))
+    // Only pics.md is opened from the OS; its image and the .md it links to just sit next to it.
+    await writeFiles(path.join(dir, 'loose'), {
+      'pics.md': '# Pics\n\n![dot](img/dot.svg)\n\n[site](https://example.com/) [other](other.md) [[other]]\n',
+      'img/dot.svg':
+        '<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10"><rect width="10" height="10"/></svg>',
+      'other.md': '# Other\n',
+    })
+    await app.electronApp.evaluate(
+      ({ app: electronApp }, target) => {
+        electronApp.emit('open-file', { preventDefault() {} }, target)
+      },
+      path.join(dir, 'loose', 'pics.md'),
+    )
+    const body = page.locator('[data-reader-body]')
+    await expect(body.locator('h1')).toHaveText('Pics', { timeout: 20_000 })
+    const image = body.locator('img[alt="dot"]')
+    await expect(image).toHaveAttribute('src', /^\/reader-assets\/[0-9a-f]{48}\?src=img%2Fdot\.svg$/)
+    await expect.poll(() => image.evaluate((img: HTMLImageElement) => img.naturalWidth)).toBe(10)
+
+    await body.getByRole('link', { name: 'other' }).click()
+    await expect(body).toContainText('[[other]]')
+    await body.getByRole('link', { name: 'site' }).click()
+    await expect.poll(opened).toEqual(['https://example.com/'])
+    // The relative .md link did nothing: still the same reader, no navigation.
+    await expect(body.locator('h1')).toHaveText('Pics')
+    await expect(page.locator('[data-reader-tab]')).toHaveCount(1)
+  } finally {
+    await app.electronApp.close()
+    await rm(app.dir, { recursive: true, force: true })
+  }
+})
+
 test('opens every file queued before the window loads, in order', async () => {
   // Both argv files are queued in main before the page's EventSource connects, so only the
   // workspace's hydration take runs: it has to drain the whole queue.
