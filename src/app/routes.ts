@@ -11,7 +11,7 @@ export const routes = route({
   vendor: get('/vendor/*path'),
   /** `GET /vault-assets/<note id>?src=<link as written in the note>`: a file the note links to. */
   vaultAssets: get('/vault-assets/*path'),
-  /** `GET /reader-assets/<reader ticket>?src=<link as written>`: a file next to a reader tab's outside `.md`. */
+  /** `GET /reader-assets/<reader ticket>?src=<link as written>`: an image next to a reader tab's outside `.md`. */
   readerAssets: get('/reader-assets/:ticket'),
   /** The hidden window that lays out mermaid diagrams for export (`src/main/export.ts`). */
   mermaidRenderer: get('/export/mermaid'),
@@ -61,5 +61,7 @@ export const routes = route({
     readerClose: post('/reader/:ticket/close'),
     /** A reader tab's "Open folder as vault": main opens the ticket's file's folder as the vault (`ReaderFolderResult`). */
     readerOpenFolder: post('/reader/:ticket/open-folder'),
+    /** A reader tab's "Add to vault…" (`{ folder }`): imports its file into the open vault once (`ReaderImportResult`). */
+    readerImport: post('/reader/:ticket/import'),
   }),
 })

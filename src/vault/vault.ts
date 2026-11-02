@@ -15,7 +15,7 @@ import {
 import { isNodeError, VaultError } from './errors.ts'
 import { copyFileAtomic, exists, writeFileAtomic } from './files.ts'
 import { type Frontmatter, parseNoteText, serializeNoteText } from './frontmatter.ts'
-import { type ImportFilesReport, type ImportLimits, planImport } from './import-files.ts'
+import { type ImportFilesReport, type ImportOptions, planImport } from './import-files.ts'
 import { type LinkMove, rebaseNoteLinks, rewriteMovedLinks } from './links.ts'
 import { findH1, hashText, type Note, type NoteMeta, toNote } from './note.ts'
 import {
@@ -667,18 +667,21 @@ export class Vault {
   /**
    * Copies Markdown files and folders from outside (or inside) the vault into `folder` — the
    * sources are only read. See `planImport` for names, links and what is skipped. Each note keeps
-   * its bytes (bar rewritten links) and its modification time; no frontmatter is added.
+   * its bytes (bar rewritten links) and its modification time; no frontmatter is added. With
+   * `options.read` every copied file is read through it and written from the bytes it returned.
    */
-  importFiles(sources: readonly string[], folder: string, limits?: Partial<ImportLimits>): Promise<ImportFilesReport> {
+  importFiles(sources: readonly string[], folder: string, options: ImportOptions = {}): Promise<ImportFilesReport> {
     return this.#exclusive(async () => {
       const dir = await this.#existingFolder(folder)
-      const plan = await planImport({ sources, folder, dir, ...(limits ? { limits } : {}) })
+      const plan = await planImport({ sources, folder, dir, ...options })
       for (const note of plan.notes) {
         const file = await resolveInside(this.root, noteSegments(note.id))
         for (const asset of note.assets) {
           const target = path.join(assetsDirOf(file), asset.name)
           await resolveInside(this.root, path.relative(this.root, target).split(path.sep))
-          if (!(await exists(target))) await copyFileAtomic(asset.source, target)
+          if (await exists(target)) continue
+          if (asset.data) await writeFileAtomic(target, asset.data)
+          else await copyFileAtomic(asset.source, target)
         }
         await writeFileAtomic(file, note.data)
         await utimes(file, note.atime, note.mtime)

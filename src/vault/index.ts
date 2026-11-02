@@ -5,7 +5,13 @@
 export type { FolderConfig, TrashEntry, TrashKind, VaultConfig } from './config.ts'
 export { VaultError, type VaultErrorCode } from './errors.ts'
 export { type Frontmatter, type NoteText, parseNoteText, serializeNoteText } from './frontmatter.ts'
-export { DEFAULT_IMPORT_LIMITS, type ImportFilesReport, type ImportLimits } from './import-files.ts'
+export {
+  DEFAULT_IMPORT_LIMITS,
+  type ImportFilesReport,
+  type ImportLimits,
+  type ImportOptions,
+  type ImportRead,
+} from './import-files.ts'
 export type { LinkMove } from './links.ts'
 export { type Note, type NoteMeta, noteTitle } from './note.ts'
 export { noteFileName } from './paths.ts'
