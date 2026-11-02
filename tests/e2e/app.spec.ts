@@ -239,25 +239,60 @@ test('exports a note to HTML with mermaid SVG and KaTeX markup', async ({ app })
   await writeFile('/tmp/boost-phase6/e2e-export-html.png', Buffer.from(shot, 'base64'))
 })
 
-test('opens a loose .md file from the command line and through open-file', async () => {
+test('opens .md files from the command line and through open-file in the vault that holds them', async () => {
   const app = await launchApp({ 'inside.md': '# Inside\n' }, { openFiles: { 'readme.md': '# Loose readme\n' } })
   try {
     const { page, dir } = app
-    // argv: the file's folder becomes the vault and the note opens in a tab.
+    const openFiles = (...files: string[]) =>
+      app.electronApp.evaluate(({ app: electronApp }, targets) => {
+        for (const target of targets) electronApp.emit('open-file', { preventDefault() {} }, target)
+      }, files)
+    // argv, outside every known vault: the file's folder becomes the vault and the note opens in a tab.
     await expect(page.locator('[data-note-title]')).toHaveText('readme', { timeout: 20_000 })
     await expect(page.locator('[role="tab"][aria-selected="true"]')).toHaveAttribute('data-tab', 'readme.md')
     await expect(page.locator('[data-note="readme.md"]')).toBeVisible()
 
-    // macOS Finder / `open -a`: the `open-file` event, while the app runs.
+    // macOS Finder / `open -a` (`open-file`), in a subfolder of the open vault: a note of that vault.
     await writeFiles(path.join(dir, 'loose'), { 'other/b.md': '# Bee\n' })
-    await app.electronApp.evaluate(
-      ({ app: electronApp }, file) => {
-        electronApp.emit('open-file', { preventDefault() {} }, file)
-      },
-      path.join(dir, 'loose', 'other', 'b.md'),
-    )
+    await openFiles(path.join(dir, 'loose', 'other', 'b.md'))
     await expect(page.locator('[data-note-title]')).toHaveText('b', { timeout: 20_000 })
-    await expect(page.locator('[data-note="b.md"]')).toBeVisible()
+    await expect(page.locator('[role="tab"][aria-selected="true"]')).toHaveAttribute('data-tab', 'other/b.md')
+    await expect(page.locator('[role="tab"][data-tab="readme.md"]')).toBeVisible()
+
+    // Inside a recent vault (the one the app started with): switches back to it.
+    await openFiles(path.join(app.vault, 'inside.md'))
+    await expect(page.locator('[data-note-title]')).toHaveText('inside', { timeout: 20_000 })
+    await expect(page.locator('[data-note="inside.md"]')).toBeVisible()
+    await expect(page.locator('[data-note="readme.md"]')).toHaveCount(0)
+
+    // Two open-file events back to back: both open, in order (each one also sends its own SSE event).
+    await writeFiles(path.join(dir, 'loose'), { 'c.md': '# Cee\n', 'd.md': '# Dee\n' })
+    await openFiles(path.join(dir, 'loose', 'c.md'), path.join(dir, 'loose', 'd.md'))
+    await expect(page.locator('[data-note-title]')).toHaveText('d', { timeout: 20_000 })
+    await expect(page.locator('[role="tab"][aria-selected="true"]')).toHaveAttribute('data-tab', 'd.md')
+    await expect(page.locator('[role="tab"][data-tab="c.md"]')).toBeVisible()
+  } finally {
+    await app.electronApp.close()
+    await rm(app.dir, { recursive: true, force: true })
+  }
+})
+
+test('opens every file queued before the window loads, in order', async () => {
+  // Both argv files are queued in main before the page's EventSource connects, so only the
+  // workspace's hydration take runs: it has to drain the whole queue.
+  const app = await launchApp(
+    { 'inside.md': '# Inside\n' },
+    { openFiles: { 'one.md': '# One\n', 'two.md': '# Two\n' } },
+  )
+  try {
+    const { page } = app
+    await expect(page.locator('[data-note-title]')).toHaveText('two', { timeout: 20_000 })
+    await expect(page.locator('[role="tab"][aria-selected="true"]')).toHaveAttribute('data-tab', 'two.md')
+    await expect(page.locator('[role="tab"][data-tab="one.md"]')).toBeVisible()
+    const tabs = await page
+      .locator('[role="tab"]')
+      .evaluateAll((items) => items.map((item) => item.getAttribute('data-tab')))
+    expect(tabs.filter((tab) => tab === 'one.md' || tab === 'two.md')).toEqual(['one.md', 'two.md'])
   } finally {
     await app.electronApp.close()
     await rm(app.dir, { recursive: true, force: true })
