@@ -182,8 +182,9 @@ describe('angle-bracket links to a note whose name has #, %, <, > or ?', () => {
     expect(note.body).toBe(`[x](<../Guides/${enc}ideas.md>)\n`)
   })
 
-  // Hand-built move: renameNote would sanitize <, > and ? out of the new name.
-  it.each(BRACKETED_CHARS)('stay encoded when the note is renamed (%s)', async (char, enc) => {
+  // renameNote would sanitize <, > and ? out of the new name, so this row checks
+  // link rewriting for a hand-built move plan only, not the real rename flow.
+  it.each(BRACKETED_CHARS)('stay encoded when links are rewritten for a renamed note id (%s)', async (char, enc) => {
     await put(`Guides/${char}ideas.md`, 'I\n')
     await put(`Guides/${char}plans.md`, 'I\n')
     await put('index.md', `[x](<Guides/${enc}ideas.md>)\n`)
