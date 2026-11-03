@@ -182,9 +182,25 @@ describe('angle-bracket links to a note whose name has #, %, <, > or ?', () => {
     expect(note.body).toBe(`[x](<../Guides/${enc}ideas.md>)\n`)
   })
 
-  // renameNote would sanitize <, > and ? out of the new name, so this row checks
+  it.each([
+    ['#', '%23'],
+    ['%', '%25'],
+  ])('stay encoded when the note is renamed (%s)', async (char, enc) => {
+    await put(`Guides/${char}ideas.md`, 'I\n')
+    await put('index.md', `[x](<Guides/${enc}ideas.md>)\n`)
+    vault = await openVault(root)
+    const renamed = await vault.renameNote(`Guides/${char}ideas.md`, `${char}plans`)
+    await planThenApply([{ from: `Guides/${char}ideas.md`, to: renamed.id, kind: 'note' }])
+    expect(await read('index.md')).toBe(`[x](<Guides/${enc}plans.md>)\n`)
+  })
+
+  // renameNote would sanitize <, > and ? out of the new name, so these rows check
   // link rewriting for a hand-built move plan only, not the real rename flow.
-  it.each(BRACKETED_CHARS)('stay encoded when links are rewritten for a renamed note id (%s)', async (char, enc) => {
+  it.each([
+    ['<', '%3C'],
+    ['>', '%3E'],
+    ['?', '%3F'],
+  ])('stay encoded when links are rewritten for a renamed note id (%s)', async (char, enc) => {
     await put(`Guides/${char}ideas.md`, 'I\n')
     await put(`Guides/${char}plans.md`, 'I\n')
     await put('index.md', `[x](<Guides/${enc}ideas.md>)\n`)
