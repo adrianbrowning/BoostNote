@@ -5,14 +5,8 @@
  * `broadcast(event)`. Each event is written as `event: <type>` with the JSON-encoded event as data.
  * This module is plain Node (no Electron imports) so it can be unit tested.
  */
-import type { MenuCommand } from '../shared/commands.ts'
+import type { MenuEvent } from '../shared/commands.ts'
 import type { VaultEventType } from '../vault/index.ts'
-
-export interface MenuEvent {
-  type: 'menu'
-  command: MenuCommand
-  index?: number
-}
 
 /** An external change in an open vault (the vault's own writes never produce one). */
 export interface VaultChangeEvent {

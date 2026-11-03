@@ -6,6 +6,7 @@ import { installDropImport } from './drop-import.ts'
 import { EditorPane } from './editor-pane.tsx'
 import { ImportDialog } from './import-dialog.tsx'
 import { PANE_LIMITS } from './layout.ts'
+import { runMenuCommand } from './menu-commands.ts'
 import { type Connection, WorkspaceModel } from './model.ts'
 import { NoteList } from './note-list.tsx'
 import type { SaveState } from './note-session.ts'
@@ -58,35 +59,6 @@ export const Workspace = clientEntry(
 
     model.addEventListener('change', () => void handle.update(), { signal: handle.signal })
 
-    const runMenuCommand = ({ command, index }: MenuEvent) => {
-      if (command === 'open-folder') void model.pickVault()
-      else if (command === 'import-storage') model.setImportOpen(true)
-      else if (command === 'preferences') model.setPreferencesOpen(true)
-      else if (command === 'toggle-sidebar') model.togglePane('sidebarCollapsed')
-      else if (command === 'toggle-note-list') model.togglePane('listCollapsed')
-      else if (command === 'toggle-properties') model.togglePane('propertiesOpen')
-      else if (command === 'close-tab') void model.closeTab()
-      else if (command === 'next-tab') void model.cycleTab(1)
-      else if (command === 'previous-tab') void model.cycleTab(-1)
-      else if (command === 'select-tab') void model.selectTab(index ?? 0)
-      else if (!model.data.vault) return
-      else if (command === 'new-note') void model.newNote()
-      else if (command === 'new-folder') void model.newFolder()
-      else if (command === 'rename-from-titles') model.setTitleRenamesOpen(true)
-      else if (command === 'reveal-note') void model.revealNote()
-      else if (command === 'reopen-tab') void model.reopenTab()
-      else if (command === 'go-back') void model.goBack()
-      else if (command === 'go-forward') void model.goForward()
-      else if (command === 'find') model.find()
-      else if (command === 'export-html') void model.exportNote('html')
-      else if (command === 'export-pdf') void model.exportNote('pdf')
-      else if (command === 'export-markdown') void model.exportNote('markdown')
-      else if (command === 'print') void model.exportNote('print')
-      else if (command === 'export-folder')
-        void model.exportFolder(model.selection.kind === 'folder' ? model.selection.id : '')
-      else if (command === 'export-vault') void model.exportFolder('')
-    }
-
     // Browser-only wiring; runs after hydration (setup also runs during the server render).
     handle.queueTask(() => {
       const { signal } = handle
@@ -102,7 +74,7 @@ export const Workspace = clientEntry(
       // Event payloads come from the main process's typed hub (`AppEvent` in src/main/events.ts).
       source.addEventListener('menu', (event) => {
         const menu: MenuEvent = JSON.parse(event.data)
-        runMenuCommand(menu)
+        runMenuCommand(menu, model)
       })
       source.addEventListener('vault', (event) => {
         const change: VaultChangeEvent = JSON.parse(event.data)

@@ -2,13 +2,14 @@ import type { MenuItemConstructorOptions } from 'electron'
 import { describe, expect, it, vi } from 'vitest'
 
 import { buildMenuTemplate } from '../../src/main/menu.ts'
+import type { MenuEvent } from '../../src/shared/commands.ts'
 
 // Only the template builder is under test; Electron's runtime is not available in node.
 vi.mock('electron', () => ({ app: {}, Menu: {}, shell: {} }))
 
 const noop = () => {}
 
-function build(platform: NodeJS.Platform, send: (command: string, index?: number) => void = noop) {
+function build(platform: NodeJS.Platform, send: (event: MenuEvent) => void = noop) {
   return buildMenuTemplate({
     platform,
     appName: 'Boostnote',
@@ -93,14 +94,19 @@ describe('native menu template', () => {
     })
   })
 
-  it('sends the command, and the tab index for Select Tab items', () => {
+  it('sends the command event, with the tab index for Select Tab items', () => {
     const send = vi.fn()
     const items = flatten(build('darwin', send))
     for (const id of ['new-note', 'select-tab-1', 'select-tab-8', 'select-tab-9']) {
       const click = items.find((item) => item.id === id)?.click as () => void
       click()
     }
-    expect(send.mock.calls).toEqual([['new-note'], ['select-tab', 0], ['select-tab', 7], ['select-tab', -1]])
+    expect(send.mock.calls).toEqual([
+      [{ type: 'menu', command: 'new-note' }],
+      [{ type: 'menu', command: 'select-tab', index: 0 }],
+      [{ type: 'menu', command: 'select-tab', index: 7 }],
+      [{ type: 'menu', command: 'select-tab', index: -1 }],
+    ])
   })
 
   it('orders the command items per menu, with Export and Select Tab nested', () => {

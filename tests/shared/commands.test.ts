@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { COMMANDS, commandLabel } from '../../src/shared/commands.ts'
+import { COMMANDS, commandLabel, type MenuEvent } from '../../src/shared/commands.ts'
 
 describe('command table', () => {
   it('has one row per application command', () => {
@@ -100,5 +100,27 @@ describe('command table', () => {
     expect(label('reveal-note', 'win32')).toBe('Show in Explorer')
     expect(label('reveal-note', 'linux')).toBe('Show in Folder')
     expect(label('new-note', 'win32')).toBe('New Note')
+  })
+})
+
+describe('MenuEvent', () => {
+  it('carries a tab index for select-tab only', () => {
+    const events: MenuEvent[] = [
+      { type: 'menu', command: 'select-tab', index: -1 },
+      { type: 'menu', command: 'new-note' },
+      // @ts-expect-error select-tab needs the tab index
+      { type: 'menu', command: 'select-tab' },
+      // @ts-expect-error only select-tab carries an index
+      { type: 'menu', command: 'close-tab', index: 0 },
+      // @ts-expect-error not a command
+      { type: 'menu', command: 'check-updates' },
+    ]
+    expect(events.map((event) => event.command)).toEqual([
+      'select-tab',
+      'new-note',
+      'select-tab',
+      'close-tab',
+      'check-updates',
+    ])
   })
 })

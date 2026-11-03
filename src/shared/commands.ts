@@ -80,6 +80,16 @@ export const COMMANDS = [
 /** Menu commands the workspace performs (it knows the selected folder, the open note and the tabs). */
 export type MenuCommand = (typeof COMMANDS)[number]['id']
 
+/**
+ * The SSE `menu` event main sends when a command's menu item is clicked. Only `select-tab` carries
+ * `index` (0–7 for tabs 1–8, `-1` for the last tab), and it always does.
+ */
+export type MenuEvent = {
+  [C in MenuCommand]: C extends 'select-tab'
+    ? { type: 'menu'; command: C; index: number }
+    : { type: 'menu'; command: C; index?: never }
+}[MenuCommand]
+
 /** Every accelerator `row` binds: its own, or its submenu's. */
 export function commandAccelerators(row: CommandRow): readonly string[] {
   return row.tabAccelerators ?? (row.accelerator ? [row.accelerator] : [])
