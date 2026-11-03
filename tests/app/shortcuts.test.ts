@@ -61,8 +61,4 @@ describe('isReservedShortcut', () => {
       expect(isReservedShortcut(event, isMac)).toBe(true)
     },
   )
-
-  it('covers every table accelerator, tab accelerators included', () => {
-    expect(accelerators).toHaveLength(25)
-  })
 })

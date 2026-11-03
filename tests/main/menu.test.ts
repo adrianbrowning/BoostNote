@@ -112,22 +112,19 @@ describe('native menu template', () => {
             ? [item.id]
             : [],
       )
-    expect(ids(build('linux'))).toEqual([
-      {
-        File: [
-          'new-note',
-          'new-folder',
-          'open-folder',
-          'import-storage',
-          'rename-from-titles',
-          { Export: ['export-html', 'export-pdf', 'export-markdown', 'export-folder', 'export-vault'] },
-          'print',
-          'reveal-note',
-          'close-tab',
-          'reopen-tab',
-          'preferences',
-        ],
-      },
+    const file = [
+      'new-note',
+      'new-folder',
+      'open-folder',
+      'import-storage',
+      'rename-from-titles',
+      { Export: ['export-html', 'export-pdf', 'export-markdown', 'export-folder', 'export-vault'] },
+      'print',
+      'reveal-note',
+      'close-tab',
+      'reopen-tab',
+    ]
+    const middle = [
       { Edit: ['find'] },
       { View: ['toggle-sidebar', 'toggle-note-list', 'toggle-properties', 'go-back', 'go-forward'] },
       {
@@ -149,7 +146,17 @@ describe('native menu template', () => {
           },
         ],
       },
+    ]
+    expect(ids(build('linux'))).toEqual([
+      { File: [...file, 'preferences'] },
+      ...middle,
       { help: ['check-updates', 'install-cli'] },
+    ])
+    expect(ids(build('darwin'))).toEqual([
+      { Boostnote: ['check-updates', 'install-cli', 'preferences'] },
+      { File: file },
+      ...middle,
+      { help: [] },
     ])
   })
 
