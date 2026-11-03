@@ -8,16 +8,31 @@
 /** A label that differs per platform: `process.platform` keys, `default` for the rest. */
 export type PlatformLabel = { readonly default: string } & Readonly<Partial<Record<NodeJS.Platform, string>>>
 
-export interface CommandRow {
+interface CommandRowBase {
   readonly id: string
   readonly label: string | PlatformLabel
-  /** Electron accelerator; `CmdOrCtrl` is ⌘ on macOS, Ctrl elsewhere. */
-  readonly accelerator?: string
   /** Whether the workspace ignores the command until a vault is open. */
   readonly needsVault: boolean
-  /** Accelerators of a submenu with one item per accelerator (Window › Select Tab). */
-  readonly tabAccelerators?: readonly string[]
 }
+
+/** A submenu item of a row with `tabAccelerators`: one per accelerator. */
+export interface TabItem {
+  readonly label: string
+  /** Electron accelerator; `CmdOrCtrl` is ⌘ on macOS, Ctrl elsewhere. */
+  readonly accelerator: string
+}
+
+/**
+ * A command row: one menu item with an optional accelerator, or a submenu with one item per
+ * accelerator (Window › Select Tab), never both.
+ */
+export type CommandRow =
+  | (CommandRowBase & {
+      /** Electron accelerator; `CmdOrCtrl` is ⌘ on macOS, Ctrl elsewhere. */
+      readonly accelerator?: string
+      readonly tabAccelerators?: never
+    })
+  | (CommandRowBase & { readonly tabAccelerators: readonly TabItem[]; readonly accelerator?: never })
 
 export const COMMANDS = [
   { id: 'new-note', label: 'New Note', accelerator: 'CmdOrCtrl+N', needsVault: true },
@@ -63,15 +78,15 @@ export const COMMANDS = [
     id: 'select-tab',
     label: 'Select Tab',
     tabAccelerators: [
-      'CmdOrCtrl+1',
-      'CmdOrCtrl+2',
-      'CmdOrCtrl+3',
-      'CmdOrCtrl+4',
-      'CmdOrCtrl+5',
-      'CmdOrCtrl+6',
-      'CmdOrCtrl+7',
-      'CmdOrCtrl+8',
-      'CmdOrCtrl+9',
+      { label: 'Tab 1', accelerator: 'CmdOrCtrl+1' },
+      { label: 'Tab 2', accelerator: 'CmdOrCtrl+2' },
+      { label: 'Tab 3', accelerator: 'CmdOrCtrl+3' },
+      { label: 'Tab 4', accelerator: 'CmdOrCtrl+4' },
+      { label: 'Tab 5', accelerator: 'CmdOrCtrl+5' },
+      { label: 'Tab 6', accelerator: 'CmdOrCtrl+6' },
+      { label: 'Tab 7', accelerator: 'CmdOrCtrl+7' },
+      { label: 'Tab 8', accelerator: 'CmdOrCtrl+8' },
+      { label: 'Last Tab', accelerator: 'CmdOrCtrl+9' },
     ],
     needsVault: false,
   },
@@ -90,9 +105,20 @@ export type MenuEvent = {
     : { type: 'menu'; command: C; index?: never }
 }[MenuCommand]
 
+/** The row of command `id`, typed as that command's row. Throws on an id the table lacks. */
+export function commandRow<C extends MenuCommand>(id: C): Extract<(typeof COMMANDS)[number], { id: C }> {
+  const row = COMMANDS.find((command) => command.id === id)
+  if (!row) throw new Error(`Unknown command: ${id}`)
+  return row as Extract<(typeof COMMANDS)[number], { id: C }>
+}
+
 /** Every accelerator `row` binds: its own, or its submenu's. */
 export function commandAccelerators(row: CommandRow): readonly string[] {
-  return row.tabAccelerators ?? (row.accelerator ? [row.accelerator] : [])
+  return row.tabAccelerators
+    ? row.tabAccelerators.map((tab) => tab.accelerator)
+    : row.accelerator
+      ? [row.accelerator]
+      : []
 }
 
 /** The label to show on `platform`. */

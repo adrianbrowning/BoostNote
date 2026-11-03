@@ -98,8 +98,11 @@ describe('native menu template', () => {
     const send = vi.fn()
     const items = flatten(build('darwin', send))
     for (const id of ['new-note', 'select-tab-1', 'select-tab-8', 'select-tab-9']) {
-      const click = items.find((item) => item.id === id)?.click as () => void
-      click()
+      const item = items.find((candidate) => candidate.id === id)
+      expect(item, `menu item ${id}`).toBeDefined()
+      const click = item?.click
+      expect(click, `click handler of ${id}`).toBeTypeOf('function')
+      ;(click as () => void)()
     }
     expect(send.mock.calls).toEqual([
       [{ type: 'menu', command: 'new-note' }],
