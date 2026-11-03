@@ -107,6 +107,8 @@ describe('vault queries', () => {
       listed.tags.push('extra')
       // @ts-expect-error tags are read-only
       hit.tags.push('extra')
+      // @ts-expect-error search hit fields are read-only
+      hit.title = 'changed'
       // @ts-expect-error tags are read-only
       treeNote.tags.push('extra')
     }
