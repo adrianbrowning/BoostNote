@@ -32,7 +32,7 @@ describe('writeNote baseHash', () => {
     await rm(root, { recursive: true, force: true })
   })
 
-  it('keeps an outside write that lands after the check and before the rename', async () => {
+  it('keeps an outside write that lands after the first read and before the final pre-rename check', async () => {
     const { hash } = await vault.readNote('note.md')
     vi.mocked(files.writeFileAtomic).mockImplementationOnce(async (file, data, beforeReplace) => {
       await writeFile(file, '# Note\n\nWritten by an agent.\n')
@@ -138,7 +138,7 @@ describe('editNote', () => {
     expect(await read()).toBe(original)
   })
 
-  it('keeps an outside write that lands after the check and before the rename', async () => {
+  it('keeps an outside write that lands after the first read and before the final pre-rename check', async () => {
     const { hash } = await vault.readNote('note.md')
     vi.mocked(files.writeFileAtomic).mockImplementationOnce(async (file, data, beforeReplace) => {
       await writeFile(file, '# Note\n\nWritten by an agent.\n')
