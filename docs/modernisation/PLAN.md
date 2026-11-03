@@ -484,7 +484,7 @@ Linux installers on their own runners (`release` job) and attaches them to a dra
 
 The file name **is** the note's name (as in Obsidian/Hubble); the first `# H1` is just content.
 
-- **Displayed name** (`noteTitle`, `src/vault/note.ts`): frontmatter `title` when it is a non-empty
+- **Displayed name** (`noteDisplayName`, `src/shared/vault-ids.ts`; the vault re-exports it as `noteTitle`): frontmatter `title` when it is a non-empty
   string, else the file name stem. Used by the index (and its search title field), the note list,
   editor header, tabs, trash list and exports (document `<title>`, folder index pages).
 - **One sanitiser** (`noteFileName` / `sanitizeFileName`, `src/vault/paths.ts`) for new notes,
