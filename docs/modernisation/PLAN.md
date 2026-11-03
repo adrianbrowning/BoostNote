@@ -579,8 +579,10 @@ deleted for good: `trash` moves a note to `.trash/` (restorable), there is no em
   `planLinkUpdates`' count instead), `trash`, `restore`, `tags`, `folders`, `tasks` (the app's
   `taskProgress`). All writes go through the vault (atomic, traversal-safe, serialised).
 - **Conflicts:** `write --base-hash` passes `baseHash` to `writeNote` (checked on entry and just
-  before the rename); `append`/`set-props` always write against the hash they just read and also
-  take `--base-hash`. A mismatch is `CONFLICT` (exit 3) with the current hash in the details.
+  before the rename); `append`/`set-props` (and MCP `append_to_note`/`update_properties`) go through
+  `Vault.editNote(id, baseHash, edit)`, which reads once, checks `--base-hash` against that read,
+  edits it and saves against its hash; adapters never compare hashes themselves. A mismatch is
+  `CONFLICT` (exit 3) with the current hash in the details.
 - **Ids:** vault-relative POSIX paths, `.md` optional; else a bare name matching one note's file stem
   or title (exact, then case-insensitive). Several matches → `AMBIGUOUS` listing them (exit 1).
 - **Vault selection** (`src/cli/vault-dir.ts`): `--vault`, else `$BOOSTNOTE_VAULT`, else `lastVault`
@@ -734,7 +736,7 @@ styles and CSP, the asset server, controlled inputs, testing) are in
 `src/vault` (public entry `src/vault/index.ts`) is plain Node, no Electron. Things consumers need to know:
 
 - **Entry point:** `openVault(root, { watch: true })` returns a `Vault`: `tree()`, `index` (titles, tags,
-  starred, `search()`), `readNote`/`writeNote`/`createNote`/`renameNote`/`moveNote`/`deleteNote`,
+  starred, `search()`), `readNote`/`writeNote`/`editNote` (read-edit-save for adapters)/`createNote`/`renameNote`/`moveNote`/`deleteNote`,
   `listTrash`/`restore`/`emptyTrash`, folder CRUD + colours/order, `saveAsset`/`assetPath`,
   `planTitleRenames`/`applyTitleRenames` (phase 7). Errors are
   `VaultError` with a `code` (`INVALID_PATH`, `NOT_FOUND`, `EXISTS`, `NOT_A_VAULT`) to map onto HTTP

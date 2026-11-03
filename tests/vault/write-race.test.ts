@@ -118,7 +118,7 @@ describe('editNote', () => {
     expect(await read()).toBe(original)
   })
 
-  it('returns a conflict with the newer note when the caller hash is older than the file (ABA)', async () => {
+  it('returns a conflict with the newer note when the caller hash is older than the file', async () => {
     const { hash: a } = await vault.readNote('note.md')
     await writeFile(path.join(root, 'note.md'), '# Note\n\nB.\n')
     const edit = vi.fn(append)
@@ -128,7 +128,7 @@ describe('editNote', () => {
     expect(await read()).toBe('# Note\n\nB.\n')
   })
 
-  it('saves against the hash it read, so a write restoring an older file during the edit conflicts', async () => {
+  it('saves against the hash it read, so a write restoring an older file during the edit conflicts (ABA)', async () => {
     await writeFile(path.join(root, 'note.md'), '# Note\n\nB.\n')
     const result = await vault.editNote('note.md', undefined, (note) => {
       writeFileSync(path.join(root, 'note.md'), original)
@@ -152,6 +152,12 @@ describe('editNote', () => {
   it('returns a conflict with no current note when a base hash names a missing note', async () => {
     const edit = vi.fn(append)
     expect(await vault.editNote('gone.md', 'abc', edit)).toEqual({ status: 'conflict', current: null })
+    expect(edit).not.toHaveBeenCalled()
+  })
+
+  it('rejects NOT_FOUND without running the edit when the note is missing and no base hash is given', async () => {
+    const edit = vi.fn(append)
+    await expect(vault.editNote('gone.md', undefined, edit)).rejects.toMatchObject({ code: 'NOT_FOUND' })
     expect(edit).not.toHaveBeenCalled()
   })
 })

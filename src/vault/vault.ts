@@ -14,10 +14,10 @@ import {
   writeTrashIndex,
 } from './config.ts'
 import { isNodeError, VaultError } from './errors.ts'
-import { copyFileAtomic, exists, readOptional, writeFileAtomic } from './files.ts'
+import { copyFileAtomic, exists, isFile, writeFileAtomic } from './files.ts'
 import { type Frontmatter, keepUnchangedValues, parseNoteText, serializeNoteText } from './frontmatter.ts'
 import { type ImportFilesReport, type ImportOptions, planImport } from './import-files.ts'
-import { type LinkMove, rebaseNoteLinks, rewriteMovedLinks } from './links.ts'
+import { checkMoves, type LinkMove, rebaseNoteLinks, rewriteMovedLinks } from './links.ts'
 import { lowerCaseEntries, uniqueStem } from './names.ts'
 import { findH1, hashText, type Note, type ReadonlyNoteMeta, toNote } from './note.ts'
 import {
@@ -337,16 +337,23 @@ export class Vault {
     return this.#exclusive(() => this.#writeNote(id, input))
   }
 
-  /** Saves `edit(note)` based on one exclusive read of it; a conflict if `baseHash` is given and differs. */
+  /**
+   * Saves `edit(note)` based on one exclusive read of the note; adapters use this for read-edit-save
+   * instead of comparing hashes themselves. The edit runs on that read and the save uses the read's
+   * hash as its base, so it returns a conflict (and does not write) when a given `baseHash` differs
+   * from the read, or when the file changes between the read and the rename, even without `baseHash`.
+   * A missing note rejects with `NOT_FOUND` when `baseHash` is undefined, and returns a conflict with
+   * `current: null` when a `baseHash` is given. The edit never runs on a conflict or a missing note.
+   */
   editNote(
     id: string,
     baseHash: string | undefined,
     edit: (note: Note) => { body: string; frontmatter?: Frontmatter },
   ): Promise<WriteNoteResult> {
     return this.#exclusive(async () => {
-      const note = await this.#currentNote(id)
-      if (baseHash !== undefined && note?.hash !== baseHash) return { status: 'conflict', current: note }
-      if (!note) throw new VaultError('NOT_FOUND', `Note not found: ${id}`)
+      const note = baseHash === undefined ? await this.readNote(id) : await this.#currentNote(id)
+      const stale = baseHash !== undefined && note?.hash !== baseHash
+      if (note === null || stale) return { status: 'conflict', current: note }
       return this.#writeNote(id, { ...edit(note), baseHash: note.hash }, note)
     })
   }
@@ -995,26 +1002,12 @@ function assetsDirOf(noteFile: string): string {
   return noteFile.replace(/\.md$/, ASSETS_SUFFIX)
 }
 
-/** Validates link-update moves (note or non-root folder ids) and drops the no-op ones. */
-function checkMoves(moves: readonly LinkMove[]): LinkMove[] {
-  for (const move of moves) {
-    if (move.kind === 'note') {
-      noteSegments(move.from)
-      noteSegments(move.to)
-    } else {
-      if (move.from === '' || move.to === '') throw new VaultError('INVALID_PATH', 'Cannot move the vault root')
-      folderSegments(move.from)
-      folderSegments(move.to)
-    }
-  }
-  return moves.filter((move) => move.from !== move.to)
-}
-
-async function isFile(file: string): Promise<boolean> {
+/** The file's text, or `undefined` when it does not exist. */
+async function readOptional(file: string): Promise<string | undefined> {
   try {
-    return (await lstat(file)).isFile()
+    return await readFile(file, 'utf8')
   } catch (error) {
-    if (isNodeError(error, 'ENOENT')) return false
+    if (isNodeError(error, 'ENOENT')) return undefined
     throw error
   }
 }

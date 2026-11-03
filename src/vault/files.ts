@@ -72,12 +72,12 @@ export async function exists(file: string): Promise<boolean> {
   }
 }
 
-/** The file's text, or `undefined` when it does not exist. */
-export async function readOptional(file: string): Promise<string | undefined> {
+/** True when a regular file (not a symlink or directory) exists at `file`. */
+export async function isFile(file: string): Promise<boolean> {
   try {
-    return await readFile(file, 'utf8')
+    return (await lstat(file)).isFile()
   } catch (error) {
-    if (isNodeError(error, 'ENOENT')) return undefined
+    if (isNodeError(error, 'ENOENT')) return false
     throw error
   }
 }

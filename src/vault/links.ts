@@ -1,6 +1,7 @@
 import * as path from 'node:path'
 
-import { ASSETS_SUFFIX, encodeLinkPath, safeDecode } from './paths.ts'
+import { VaultError } from './errors.ts'
+import { ASSETS_SUFFIX, encodeLinkPath, folderSegments, noteSegments, safeDecode } from './paths.ts'
 
 /**
  * A note or folder that was renamed or moved, by id. A note move also covers its `<stem>.assets/`
@@ -10,6 +11,21 @@ export interface LinkMove {
   from: string
   to: string
   kind: 'note' | 'folder'
+}
+
+/** Validates link-update moves (note or non-root folder ids) and drops the no-op ones. */
+export function checkMoves(moves: readonly LinkMove[]): LinkMove[] {
+  for (const move of moves) {
+    if (move.kind === 'note') {
+      noteSegments(move.from)
+      noteSegments(move.to)
+    } else {
+      if (move.from === '' || move.to === '') throw new VaultError('INVALID_PATH', 'Cannot move the vault root')
+      folderSegments(move.from)
+      folderSegments(move.to)
+    }
+  }
+  return moves.filter((move) => move.from !== move.to)
 }
 
 interface MovedPrefix {
