@@ -4,7 +4,7 @@ import footnote from 'markdown-it-footnote'
 import sanitizeHtml from 'sanitize-html'
 
 import { renderMath } from '../editor/render/math.ts'
-import { isNoteLink, isRelativeLink } from '../shared/vault-ids.ts'
+import { isNoteLink, isRelativeLink, linkPath } from '../shared/vault-ids.ts'
 import { parseNoteText } from '../vault/frontmatter.ts'
 import { highlight, loadLanguages } from './highlight.ts'
 import { mathPlugin } from './math.ts'
@@ -226,10 +226,12 @@ export async function renderMarkdown(markdown: string, options: RenderOptions = 
 }
 
 /**
- * `other.md#x` → `other.html#x` (also `other.md/#x`; an inner `\` becomes `/`): links between notes
- * of an exported folder, by the shared `isNoteLink` rule. Anything else: `undefined`.
+ * `other.md#x` → `other.html#x`: links between notes of an exported folder, by the shared
+ * `isNoteLink` rule. The page path is built from the decoded link path (an inner `\` or `%2F` is a
+ * `/`; `other.md/#x` is `other.html#x`), each segment percent-encoded. Anything else: `undefined`.
  */
 export function noteLinkToHtml(href: string): string | undefined {
-  const match = isNoteLink(href) ? /^([^?#]*)\.md\/?([?#].*)?$/.exec(href) : null
-  return match?.[1] === undefined ? undefined : `${match[1].replace(/\\/g, '/')}.html${match[2] ?? ''}`
+  if (!isNoteLink(href)) return undefined
+  const page = linkPath(href).replace(/\\/g, '/').replace(/\/+$/, '').replace(/\.md$/, '.html')
+  return `${page.split('/').map(encodeURIComponent).join('/')}${/[?#].*$/.exec(href)?.[0] ?? ''}`
 }

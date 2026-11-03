@@ -1,6 +1,6 @@
 import * as path from 'node:path'
 
-import { isRelativeLink, linkPath, parentOf, resolveLinkPath, safeDecode } from '../shared/vault-ids.ts'
+import { isRelativeLink, linkPath, parentOf, resolveLinkPath } from '../shared/vault-ids.ts'
 import { VaultError } from './errors.ts'
 import { ASSETS_SUFFIX, encodeLinkPath, folderSegments, noteSegments } from './paths.ts'
 
@@ -86,16 +86,13 @@ export function rewriteRelativeLinks(
           return whole
         }
         const suffixIndex = destination.search(/[#?]/)
-        let pathPart = suffixIndex === -1 ? destination : destination.slice(0, suffixIndex)
-        let suffix = suffixIndex === -1 ? '' : destination.slice(suffixIndex)
-        // `note.md/#anchor` (common in notes copied from GitHub) is a link to `note.md`.
-        if (pathPart.endsWith('.md/')) {
-          pathPart = pathPart.slice(0, -1)
-          suffix = `/${suffix}`
-        }
-        const next = map(safeDecode(pathPart))
+        const suffix = suffixIndex === -1 ? '' : destination.slice(suffixIndex)
+        const relPath = linkPath(destination)
+        // `note.md/#anchor` (common in notes copied from GitHub) is a link to `note.md`; the slash stays.
+        const slash = relPath.endsWith('.md/') ? '/' : ''
+        const next = map(slash === '' ? relPath : relPath.slice(0, -1))
         if (next === undefined) return whole
-        const encoded = bracketed ? `<${next}${suffix}>` : `${encodeLinkPath(next)}${suffix}`
+        const encoded = bracketed ? `<${next}${slash}${suffix}>` : `${encodeLinkPath(next)}${slash}${suffix}`
         return `${prefix}${encoded}`
       },
     ),

@@ -199,4 +199,20 @@ export const LINK_CASES: readonly LinkCase[] = [
   },
   { kind: 'encoded anchor', href: '%23top', relative: false, note: undefined, html: undefined, moved: '%23top' },
   { kind: 'encoded query', href: '%3Fch3.md', relative: false, note: undefined, html: undefined, moved: '%3Fch3.md' },
+  {
+    kind: 'encoded separator',
+    href: 'sub%2Fn.md',
+    relative: true,
+    note: 'Guides/sub/n.md',
+    html: 'sub/n.html',
+    moved: '../Guides/sub/n.md',
+  },
+  {
+    kind: 'note.md/#anchor with an encoded slash',
+    href: 'ch3.md%2F#x',
+    relative: true,
+    note: 'Guides/ch3.md',
+    html: 'ch3.html#x',
+    moved: '../Guides/ch3.md/#x',
+  },
 ]
