@@ -9,7 +9,9 @@ import { isNodeError } from './errors.ts'
  * the watcher) never see a half-written file. The temp name starts with `.`, which the vault ignores.
  * `beforeReplace` runs after the temp file is complete and just before the rename; when it resolves
  * `false` (or throws) the temp file is removed and `file` is left untouched. Resolves `true` when
- * `file` was replaced, `false` when `beforeReplace` declined.
+ * `file` was replaced, `false` when `beforeReplace` declined. Not a compare-and-swap: a write to
+ * `file` that lands after `beforeReplace` resolves and before the rename is overwritten undetected
+ * (POSIX rename cannot check the target); this is an accepted limitation.
  */
 export async function writeFileAtomic(
   file: string,

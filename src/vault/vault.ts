@@ -87,7 +87,9 @@ export interface WriteNoteInput {
   /**
    * Hash the caller's copy was based on (`Note.hash`); `null` means the note must not exist. The
    * file is checked on entry and again just before it is replaced, and the write returns a
-   * conflict if it differs. Omit to write unconditionally.
+   * conflict if it differs. An outside write landing in the short gap between that last check and
+   * the rename is not detected and is overwritten; POSIX rename has no compare-and-swap. Omit to
+   * write unconditionally.
    */
   baseHash?: string | null
 }

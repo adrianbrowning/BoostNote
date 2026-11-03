@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import * as path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -42,6 +42,7 @@ describe('writeNote baseHash', () => {
     expect(await read('note.md')).toBe('# Note\n\nWritten by an agent.\n')
     expect(result.status).toBe('conflict')
     expect(result.status === 'conflict' && result.current?.raw).toBe('# Note\n\nWritten by an agent.\n')
+    expect((await readdir(root)).filter((name) => name.endsWith('.tmp'))).toEqual([])
   })
 
   it('returns a conflict with the current note for a stale base hash without touching the file', async () => {
