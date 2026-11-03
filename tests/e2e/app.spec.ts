@@ -85,6 +85,7 @@ test('Select Tab menu items pick a tab by position; Select Tab 9 picks the last 
   await page.locator('[data-note="tasks.md"]').click({ modifiers: ['ControlOrMeta'] })
   await expect(page.locator('[role="tab"]')).toHaveCount(3)
   const selected = page.locator('[role="tab"][aria-selected="true"]')
+  await expect(selected).toHaveAttribute('data-tab', 'tasks.md')
   await app.clickMenu('select-tab-1')
   await expect(selected).toHaveAttribute('data-tab', 'diagram.md')
   await app.clickMenu('select-tab-9')
