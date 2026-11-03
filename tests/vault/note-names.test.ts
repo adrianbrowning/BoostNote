@@ -80,8 +80,8 @@ describe('note titles', () => {
 
     await put('1-1/Craig.md', '# 2026-09-18\n\nNotes\n')
     vault = await openVault(root)
-    expect(vault.index.get('1-1/Craig.md')?.title).toBe('Craig')
-    expect(vault.index.search('craig').map((hit) => hit.id)).toEqual(['1-1/Craig.md'])
+    expect((await vault.findNote('1-1/Craig.md'))?.title).toBe('Craig')
+    expect((await vault.search('craig')).map((hit) => hit.id)).toEqual(['1-1/Craig.md'])
   })
 
   it('names new notes Untitled, unique ignoring case', async () => {
@@ -197,8 +197,8 @@ describe('rename files from titles', () => {
     expect(await read('1-1/Craig.md')).toBe('# 2026-09-18\n\nCatch-up\n')
     expect(await read('Work/Meeting notes.md')).toBe('already taken\n')
     expect(await read('.trash/Work/old-note.md')).toBe('# Old note\n[w](./welcome-to-boostnote.md)\n')
-    expect(vault.index.get('Work/Welcome to Boostnote!.md')?.title).toBe('Welcome to Boostnote!')
-    expect(vault.index.has('Work/welcome-to-boostnote.md')).toBe(false)
+    expect((await vault.findNote('Work/Welcome to Boostnote!.md'))?.title).toBe('Welcome to Boostnote!')
+    expect(await vault.hasNote('Work/welcome-to-boostnote.md')).toBe(false)
     expect((await vault.planTitleRenames()).renames).toEqual([])
   })
 
@@ -212,7 +212,7 @@ describe('rename files from titles', () => {
     expect(report.titlesRemoved).toBe(2)
     expect(await read('notes/My plan.md')).toBe('---\ntags: [a]\n---\nbody\n')
     expect(await read('notes/Other plan.md')).toBe('---\ntags: [b]\n---\nbody\n')
-    expect(vault.index.get('notes/My plan.md')?.title).toBe('My plan')
+    expect((await vault.findNote('notes/My plan.md'))?.title).toBe('My plan')
   })
 
   it('skips renames that no longer apply', async () => {

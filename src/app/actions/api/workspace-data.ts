@@ -50,13 +50,13 @@ export async function workspaceData(services: AppServices, root?: string): Promi
   const recent = services.vaults.recent.map((item) => ({ root: item, name: path.basename(item) }))
   const open = services.vaults.all.map((item) => ({ root: item.root, name: path.basename(item.root) }))
   if (!vault) return { vault: null, open, recent, tree: null, notes: [], trash: [] }
-  const trash = await vault.listTrash()
+  const [trash, tree, notes] = await Promise.all([vault.listTrash(), vault.tree(), vault.notes()])
   return {
     vault: { root: vault.root, name: path.basename(vault.root) },
     open,
     recent,
-    tree: folderSummary(vault.tree()),
-    notes: vault.index.all().map(summary),
+    tree: folderSummary(tree),
+    notes: notes.map(summary),
     trash: trash.map(({ id, kind, originalPath, deletedAt, title }) => ({
       id,
       kind,

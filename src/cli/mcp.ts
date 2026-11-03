@@ -250,7 +250,7 @@ export function createMcpServer(vault: Vault): McpServer {
       list: async () => {
         await vault.refresh()
         return {
-          resources: vault.index.all().map((meta) => ({
+          resources: (await vault.notes()).map((meta) => ({
             uri: noteUri(meta.id),
             name: meta.id,
             title: meta.title,

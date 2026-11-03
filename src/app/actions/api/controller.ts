@@ -129,7 +129,7 @@ export function createApiController(services: AppServices) {
 
       search: guarded(async ({ request, url }: { request: Request; url: URL }) => {
         const vault = requireVault(services, request)
-        const hits = vault.index.search(url.searchParams.get('q') ?? '', 500)
+        const hits = await vault.search(url.searchParams.get('q') ?? '', 500)
         return json({ ids: hits.map((hit) => hit.id) })
       }),
 

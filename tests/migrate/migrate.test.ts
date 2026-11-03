@@ -173,19 +173,19 @@ describe('migrateStorage', () => {
     // The report is saved, and the result opens as a vault.
     expect(JSON.parse(await readTarget('.boostnote/migration-report.json')).counts.notes).toBe(7)
     const vault = await openVault(target)
-    expect(vault.tree().folders.map((folder) => folder.id)).toEqual([
+    expect((await vault.tree()).folders.map((folder) => folder.id)).toEqual([
       'Work',
       'Personal',
       'work 2',
       'Empty - Folder',
       'Unknown 1',
     ])
-    expect(vault.index.get('Work/Welcome to Boostnote!.md')).toMatchObject({
+    expect(await vault.findNote('Work/Welcome to Boostnote!.md')).toMatchObject({
       title: 'Welcome to Boostnote!',
       starred: true,
       tags: ['intro', 'docs'],
     })
-    expect(vault.index.get('Unknown 1/Orphan.md')?.title).toBe('Orphan')
+    expect((await vault.findNote('Unknown 1/Orphan.md'))?.title).toBe('Orphan')
     const trash = await vault.listTrash()
     expect(trash.map((item) => item.title)).toEqual(['Old idea'])
     expect(await vault.restore('Personal/Old idea.md')).toBe('Personal/Old idea.md')

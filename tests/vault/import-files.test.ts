@@ -63,7 +63,7 @@ describe('importFiles', () => {
     expect(report.notes).toEqual([{ source: file, id: 'Hello World.md' }])
     expect(await read('Hello World.md')).toBe(text)
     expect((await stat(path.join(root, 'Hello World.md'))).mtime.getTime()).toBe(mtime.getTime())
-    expect(vault.index.get('Hello World.md')?.title).toBe('Kept')
+    expect((await vault.findNote('Hello World.md'))?.title).toBe('Kept')
   })
 
   it('keeps bytes that are not valid UTF-8 when no link changes', async () => {

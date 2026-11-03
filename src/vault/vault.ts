@@ -36,7 +36,7 @@ import {
   TRASH_DIR,
   uniqueName,
 } from './paths.ts'
-import { NoteIndex } from './search.ts'
+import { NoteIndex, type SearchHit } from './search.ts'
 
 export type VaultEventType = 'note-changed' | 'note-added' | 'note-removed' | 'tree-changed'
 
@@ -62,7 +62,7 @@ export interface FolderNode {
   name: string
   color?: string
   folders: FolderNode[]
-  notes: NoteMeta[]
+  notes: Readonly<NoteMeta>[]
 }
 
 export interface TrashItem extends TrashEntry {
@@ -168,7 +168,7 @@ export class Vault {
   /** Real (symlink-resolved) absolute path of the vault folder. */
   readonly root: string
   /** In-memory index of all notes; kept current by the vault's own operations and the watcher. */
-  readonly index = new NoteIndex()
+  readonly #index = new NoteIndex()
 
   #config: VaultConfig
   readonly #files = new Map<string, KnownFile>()
@@ -238,16 +238,40 @@ export class Vault {
 
   // ── Reading ────────────────────────────────────────────────────────────────────────────────
 
+  /** The indexed note `id`, or `undefined`. */
+  async findNote(id: string): Promise<Readonly<NoteMeta> | undefined> {
+    return this.#index.get(id)
+  }
+
+  async hasNote(id: string): Promise<boolean> {
+    return this.#index.has(id)
+  }
+
+  /** All notes, sorted by id. */
+  async notes(): Promise<readonly Readonly<NoteMeta>[]> {
+    return this.#index.all()
+  }
+
+  /** Every tag with the number of notes carrying it; sorted case-insensitively. */
+  async tags(): Promise<{ tag: string; count: number }[]> {
+    return [...this.#index.tags()].map(([tag, ids]) => ({ tag, count: ids.length }))
+  }
+
+  /** Notes matching `query`, best first (see `NoteIndex.search`). */
+  async search(query: string, limit?: number): Promise<SearchHit[]> {
+    return this.#index.search(query, limit)
+  }
+
   /** Folder tree with notes; folders follow `folderOrder`, then name. */
-  tree(): FolderNode {
+  async tree(): Promise<FolderNode> {
     const order = this.#config.folderOrder ?? []
     const children = new Map<string, string[]>()
     for (const id of this.#folders) {
       const parent = noteFolder(id)
       children.set(parent, [...(children.get(parent) ?? []), id])
     }
-    const notes = new Map<string, NoteMeta[]>()
-    for (const meta of this.index.all()) notes.set(meta.folder, [...(notes.get(meta.folder) ?? []), meta])
+    const notes = new Map<string, Readonly<NoteMeta>[]>()
+    for (const meta of this.#index.all()) notes.set(meta.folder, [...(notes.get(meta.folder) ?? []), meta])
     const rank = (id: string) => {
       const index = order.indexOf(id)
       return index === -1 ? Number.POSITIVE_INFINITY : index
@@ -350,7 +374,7 @@ export class Vault {
       const taken = new Map<string, Set<string>>()
       // `x.md` before `x-2.md` before `x-10.md`, so the importer's original keeps the plain name.
       const order = (id: string) => id.replace(/-(\d+)\.md$/, (_match, n: string) => `\uffff${n.padStart(9, '0')}`)
-      const ids = this.index
+      const ids = this.#index
         .all()
         .map((meta) => meta.id)
         .sort((a, b) => (order(a) < order(b) ? -1 : order(a) > order(b) ? 1 : 0))
@@ -755,13 +779,13 @@ export class Vault {
     this.#files.set(id, { hash: hashText(raw), mtimeMs: stats.mtimeMs, size: stats.size })
     this.#addAncestors(id)
     const note = toNote(id, raw, parseNoteText(raw), stats)
-    this.index.put(note)
+    this.#index.put(note)
     return note
   }
 
   #untrack(id: string): void {
     this.#files.delete(id)
-    this.index.delete(id)
+    this.#index.delete(id)
   }
 
   #addAncestors(id: string): void {
@@ -799,7 +823,7 @@ export class Vault {
     if (id === toId) return id
     await this.#existingFolder(noteFolder(toId))
     if (!(await sameOrMissing(from, to))) throw new VaultError('EXISTS', `Already exists: ${toId}`)
-    const inside = this.index
+    const inside = this.#index
       .all()
       .map((meta) => meta.id)
       .filter((noteId) => noteId.startsWith(`${id}/`))
@@ -833,7 +857,7 @@ export class Vault {
   async #rewriteIncomingLinks(moves: readonly LinkMove[], write: boolean): Promise<LinkUpdateReport> {
     const report: LinkUpdateReport = { notes: [], total: 0 }
     if (moves.length === 0) return report
-    for (const meta of this.index.all()) {
+    for (const meta of this.#index.all()) {
       const applicable = moves.filter((move) =>
         move.kind === 'note' ? move.to !== meta.id : !meta.id.startsWith(`${move.to}/`),
       )
@@ -904,7 +928,7 @@ export class Vault {
       const known = this.#files.get(id)
       this.#files.set(id, { hash, mtimeMs: stats.mtimeMs, size: stats.size })
       if (known?.hash === hash) continue
-      this.index.put(toNote(id, raw, parseNoteText(raw), stats))
+      this.#index.put(toNote(id, raw, parseNoteText(raw), stats))
       events.push({ type: known ? 'note-changed' : 'note-added', id })
     }
     for (const id of [...this.#files.keys()]) {
