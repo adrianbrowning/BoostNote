@@ -14,7 +14,7 @@ import {
   writeTrashIndex,
 } from './config.ts'
 import { isNodeError, VaultError } from './errors.ts'
-import { copyFileAtomic, exists, writeFileAtomic } from './files.ts'
+import { copyFileAtomic, exists, readOptional, writeFileAtomic } from './files.ts'
 import { type Frontmatter, keepUnchangedValues, parseNoteText, serializeNoteText } from './frontmatter.ts'
 import { type ImportFilesReport, type ImportOptions, planImport } from './import-files.ts'
 import { type LinkMove, rebaseNoteLinks, rewriteMovedLinks } from './links.ts'
@@ -334,33 +334,20 @@ export class Vault {
    * first write; the existing YAML text is edited in place so untouched keys keep their bytes.
    */
   writeNote(id: string, input: WriteNoteInput): Promise<WriteNoteResult> {
+    return this.#exclusive(() => this.#writeNote(id, input))
+  }
+
+  /** Saves `edit(note)` based on one exclusive read of it; a conflict if `baseHash` is given and differs. */
+  editNote(
+    id: string,
+    baseHash: string | undefined,
+    edit: (note: Note) => { body: string; frontmatter?: Frontmatter },
+  ): Promise<WriteNoteResult> {
     return this.#exclusive(async () => {
-      const file = await resolveInside(this.root, noteSegments(id))
-      const matchesBase = (raw: string | undefined) =>
-        input.baseHash === undefined || (raw === undefined ? null : hashText(raw)) === input.baseHash
-      const conflict = async (): Promise<WriteNoteResult> => ({
-        status: 'conflict',
-        current: await this.readNote(id).catch((error: unknown) => {
-          if (error instanceof VaultError && error.code === 'NOT_FOUND') return null
-          throw error
-        }),
-      })
-      const previousRaw = await readOptional(file)
-      if (!matchesBase(previousRaw)) return conflict()
-      const previous = previousRaw === undefined ? undefined : parseNoteText(previousRaw)
-      const frontmatter = input.frontmatter
-        ? keepUnchangedValues(previous?.frontmatter ?? {}, input.frontmatter)
-        : { ...previous?.frontmatter }
-      const now = new Date().toISOString()
-      if (frontmatter.created === undefined) {
-        frontmatter.created =
-          previous?.frontmatter.created ?? (previous ? (await stat(file)).birthtime.toISOString() : now)
-      }
-      frontmatter.updated = now
-      const raw = serializeNoteText(frontmatter, input.body, previous)
-      // An outside program may write between the read above and the rename; check again last.
-      if (!(await writeFileAtomic(file, raw, async () => matchesBase(await readOptional(file))))) return conflict()
-      return { status: 'saved', note: await this.#track(id, file, raw) }
+      const note = await this.#currentNote(id)
+      if (baseHash !== undefined && note?.hash !== baseHash) return { status: 'conflict', current: note }
+      if (!note) throw new VaultError('NOT_FOUND', `Note not found: ${id}`)
+      return this.#writeNote(id, { ...edit(note), baseHash: note.hash }, note)
     })
   }
 
@@ -770,6 +757,37 @@ export class Vault {
     return run
   }
 
+  /** Saves `input`; `read` is the note the caller already read, else the file is read here. */
+  async #writeNote(id: string, input: WriteNoteInput, read?: Note): Promise<WriteNoteResult> {
+    const file = await resolveInside(this.root, noteSegments(id))
+    const matchesBase = (raw: string | undefined) =>
+      input.baseHash === undefined || (raw === undefined ? null : hashText(raw)) === input.baseHash
+    const conflict = async () => ({ status: 'conflict' as const, current: await this.#currentNote(id) })
+    const previousRaw = read ? read.raw : await readOptional(file)
+    if (!matchesBase(previousRaw)) return conflict()
+    const previous = previousRaw === undefined ? undefined : parseNoteText(previousRaw)
+    const frontmatter = input.frontmatter
+      ? keepUnchangedValues(previous?.frontmatter ?? {}, input.frontmatter)
+      : { ...previous?.frontmatter }
+    const now = new Date().toISOString()
+    if (frontmatter.created === undefined) {
+      frontmatter.created =
+        previous?.frontmatter.created ?? (previous ? (await stat(file)).birthtime.toISOString() : now)
+    }
+    frontmatter.updated = now
+    const raw = serializeNoteText(frontmatter, input.body, previous)
+    // An outside program may write between the read above and the rename; check again last.
+    if (!(await writeFileAtomic(file, raw, async () => matchesBase(await readOptional(file))))) return conflict()
+    return { status: 'saved', note: await this.#track(id, file, raw) }
+  }
+
+  #currentNote(id: string): Promise<Note | null> {
+    return this.readNote(id).catch((error: unknown) => {
+      if (error instanceof VaultError && error.code === 'NOT_FOUND') return null
+      throw error
+    })
+  }
+
   #emit(events: VaultEvent[]): void {
     for (const event of events) for (const listener of this.#listeners) listener(event)
   }
@@ -989,15 +1007,6 @@ function checkMoves(moves: readonly LinkMove[]): LinkMove[] {
     }
   }
   return moves.filter((move) => move.from !== move.to)
-}
-
-async function readOptional(file: string): Promise<string | undefined> {
-  try {
-    return await readFile(file, 'utf8')
-  } catch (error) {
-    if (isNodeError(error, 'ENOENT')) return undefined
-    throw error
-  }
 }
 
 async function isFile(file: string): Promise<boolean> {
