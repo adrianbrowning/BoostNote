@@ -5,5 +5,6 @@
   [`docs/modernisation/REMIX-NOTES.md`](docs/modernisation/REMIX-NOTES.md) for this app's gotchas.
 - Architecture, decisions and per-feature behaviour (vault, links, tabs, export, CLI/MCP, drop
   import): [`docs/modernisation/PLAN.md`](docs/modernisation/PLAN.md), one section per feature.
-- Smoke-run the real app on a copy of a vault with `pnpm smoke` (see `scripts/smoke.ts`); never point
+- Smoke-run the real app on a copy of a vault with `pnpm smoke` (see `scripts/smoke.ts`); the committed
+  sample vault works out of the box: `pnpm smoke --vault-copy tests/fixtures/sample-vault`. Never point
   the app or a test at the user's own vault.
