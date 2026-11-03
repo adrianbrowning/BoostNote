@@ -32,7 +32,8 @@
     "cli": "node src/cli/index.js",
     "test:e2e": "playwright test",
     "smoke": "node --import remix/node-tsx scripts/smoke.ts",
-    "prepare": "git config core.hooksPath .githooks || true"
+    "prepare": "git config core.hooksPath .githooks || true",
+    "prototype:vaults": "node --import remix/node-tsx scripts/prototype-vaults.ts"
   },
   "pnpm": {
     "onlyBuiltDependencies": [
