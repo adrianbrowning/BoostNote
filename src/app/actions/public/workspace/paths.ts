@@ -1,15 +1,5 @@
-/** POSIX-path helpers for vault ids in the browser (`work/todo.md`, folder `work`, root `''`). */
-
-/** Folder id of a note or folder id (`''` at the root). */
-export function parentOf(id: string): string {
-  const slash = id.lastIndexOf('/')
-  return slash === -1 ? '' : id.slice(0, slash)
-}
-
-/** Last segment of a vault id or an OS path (`/` or `\` separated). */
-export function baseName(file: string): string {
-  return file.replace(/[\\/]+$/, '').replace(/^.*[\\/]/, '')
-}
+/** Folder and note-link helpers for vault ids in the browser (`work/todo.md`, folder `work`, root `''`). */
+import { parentOf, safeDecode } from '../../../../shared/vault-ids.ts'
 
 /** `work/a` → `['work', 'work/a']`: the folder and its ancestors, root excluded. */
 export function folderChain(folder: string): string[] {
@@ -25,12 +15,7 @@ export function folderChain(folder: string): string[] {
 export function resolveNoteLink(fromId: string, href: string): string | undefined {
   if (/^[a-z][a-z\d+.-]*:/i.test(href) || href.startsWith('/') || href.startsWith('#')) return undefined
   // `note.md/#anchor` (as in notes copied from GitHub) opens `note.md`.
-  let target = href.replace(/[?#].*$/, '').replace(/(\.md)\/$/i, '$1')
-  try {
-    target = decodeURIComponent(target)
-  } catch {
-    // Keep the raw text when it isn't valid percent-encoding.
-  }
+  const target = safeDecode(href.replace(/[?#].*$/, '').replace(/(\.md)\/$/i, '$1'))
   if (!/\.md$/i.test(target)) return undefined
   const segments: string[] = []
   for (const segment of [...parentOf(fromId).split('/'), ...target.replace(/\\/g, '/').split('/')]) {

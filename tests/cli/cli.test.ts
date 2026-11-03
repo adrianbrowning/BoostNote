@@ -184,6 +184,11 @@ describe('note ids', () => {
     expect((await cli([])).code).toBe(2)
     expect((await cli(['--help'])).code).toBe(0)
   })
+
+  it('strips a lowercase .md from a bare name only; .MD is part of the name', async () => {
+    expect((await cli(['read', 'plan.md', '--json'])).json().id).toBe('work/plan.md')
+    expect((await cli(['read', 'plan.MD'])).code).toBe(4)
+  })
 })
 
 describe('writing', () => {

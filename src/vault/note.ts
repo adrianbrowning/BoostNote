@@ -1,7 +1,6 @@
 import { createHash } from 'node:crypto'
-
+import { noteDisplayName, parentOf } from '../shared/vault-ids.ts'
 import type { Frontmatter, NoteText } from './frontmatter.ts'
-import { noteFolder, noteStem } from './paths.ts'
 
 /** What the index and lists know about a note. */
 export interface NoteMeta {
@@ -175,9 +174,7 @@ export function excerptOf(body: string): string {
 
 /** A note's displayed name: its frontmatter `title` (a non-empty string), else its file name stem. */
 export function noteTitle(id: string, frontmatter: Frontmatter): string {
-  return typeof frontmatter.title === 'string' && frontmatter.title.trim() !== ''
-    ? frontmatter.title.trim()
-    : noteStem(id)
+  return noteDisplayName(id, frontmatter)
 }
 
 /** Builds a `Note` from a parsed file. `stats` supplies date fallbacks for notes without frontmatter dates. */
@@ -186,7 +183,7 @@ export function toNote(id: string, raw: string, text: NoteText, stats: { birthti
   const title = noteTitle(id, frontmatter)
   return {
     id,
-    folder: noteFolder(id),
+    folder: parentOf(id),
     title,
     tags: readTags(frontmatter.tags),
     starred: frontmatter.starred === true,

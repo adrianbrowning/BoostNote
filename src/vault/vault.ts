@@ -1,7 +1,7 @@
 import { type Dirent, type FSWatcher, type Stats, watch } from 'node:fs'
 import { lstat, mkdir, readdir, readFile, realpath, rename, rm, stat, utimes } from 'node:fs/promises'
 import * as path from 'node:path'
-
+import { joinId, lastSegment, noteStem, parentOf, safeDecode } from '../shared/vault-ids.ts'
 import {
   type FolderConfig,
   readConfig,
@@ -26,13 +26,9 @@ import {
   encodeLinkPath,
   folderSegments,
   isHiddenName,
-  joinId,
   noteFileName,
-  noteFolder,
   noteSegments,
-  noteStem,
   resolveInside,
-  safeDecode,
   sanitizeFileName,
   slugify,
   TRASH_DIR,
@@ -282,7 +278,7 @@ export class Vault {
     const order = this.#config.folderOrder ?? []
     const children = new Map<string, string[]>()
     for (const id of this.#folders) {
-      const parent = noteFolder(id)
+      const parent = parentOf(id)
       children.set(parent, [...(children.get(parent) ?? []), id])
     }
     const notes = new Map<string, ReadonlyNoteMeta[]>()
@@ -294,11 +290,11 @@ export class Vault {
     const build = (id: string): FolderNode => {
       const color = this.#config.folders[id]?.color
       const sorted = (children.get(id) ?? []).sort(
-        (a, b) => rank(a) - rank(b) || path.posix.basename(a).localeCompare(path.posix.basename(b)),
+        (a, b) => rank(a) - rank(b) || lastSegment(a).localeCompare(lastSegment(b)),
       )
       return {
         id,
-        name: id === '' ? path.basename(this.root) : path.posix.basename(id),
+        name: id === '' ? path.basename(this.root) : lastSegment(id),
         ...(color ? { color } : {}),
         folders: sorted.map(build),
         notes: notes.get(id) ?? [],
@@ -382,9 +378,9 @@ export class Vault {
   /** Renames the file — the note's name — to `<name>.md`; its assets folder follows and links are rewritten. */
   renameNote(id: string, name: string): Promise<Note> {
     return this.#exclusive(async () => {
-      const stem = sanitizeFileName(name.replace(/\.md$/i, ''))
+      const stem = sanitizeFileName(name.replace(/\.md$/, ''))
       if (stem === '') throw new VaultError('INVALID_PATH', `Invalid note name: ${JSON.stringify(name)}`)
-      const toId = joinId(noteFolder(id), `${stem}.md`)
+      const toId = joinId(parentOf(id), `${stem}.md`)
       return this.#relocateNote(id, toId)
     })
   }
@@ -459,7 +455,7 @@ export class Vault {
         try {
           noteSegments(rename.from)
           noteSegments(rename.to)
-          if (noteFolder(rename.from) !== noteFolder(rename.to)) {
+          if (parentOf(rename.from) !== parentOf(rename.to)) {
             throw new VaultError('INVALID_PATH', `Not in the same folder: ${rename.from} → ${rename.to}`)
           }
           if (sanitizeFileName(noteStem(rename.to)) !== noteStem(rename.to)) {
@@ -520,7 +516,7 @@ export class Vault {
   /** Moves a note into `folder`, keeping its file name unless taken (then ` 2`, …). */
   moveNote(id: string, folder: string): Promise<Note> {
     return this.#exclusive(async () => {
-      if (noteFolder(id) === folder) return this.readNote(id)
+      if (parentOf(id) === folder) return this.readNote(id)
       const dir = await this.#existingFolder(folder)
       const toId = joinId(folder, `${await uniqueStem(dir, noteStem(id))}.md`)
       return this.#relocateNote(id, toId)
@@ -532,10 +528,10 @@ export class Vault {
     return this.#exclusive(async () => {
       const file = await resolveInside(this.root, noteSegments(id))
       if (!(await isFile(file))) throw new VaultError('NOT_FOUND', `Note not found: ${id}`)
-      const trashDir = await resolveInside(this.root, [TRASH_DIR, ...folderSegments(noteFolder(id))])
+      const trashDir = await resolveInside(this.root, [TRASH_DIR, ...folderSegments(parentOf(id))])
       await mkdir(trashDir, { recursive: true })
       const trashStem = await uniqueStem(trashDir, noteStem(id))
-      const trashId = joinId(noteFolder(id), `${trashStem}.md`)
+      const trashId = joinId(parentOf(id), `${trashStem}.md`)
       await rename(file, path.join(trashDir, `${trashStem}.md`))
       await renameIfExists(assetsDirOf(file), path.join(trashDir, `${trashStem}${ASSETS_SUFFIX}`))
       this.#untrack(id)
@@ -573,7 +569,7 @@ export class Vault {
       if (!entry) throw new VaultError('NOT_FOUND', `Not in trash: ${trashId}`)
       const source = await this.#trashPath(trashId, entry.kind)
       if (!(await exists(source))) throw new VaultError('NOT_FOUND', `Not in trash: ${trashId}`)
-      const parent = noteFolder(entry.originalPath)
+      const parent = parentOf(entry.originalPath)
       const parentDir = await resolveInside(this.root, folderSegments(parent))
       await mkdir(parentDir, { recursive: true })
       let restoredId: string
@@ -592,7 +588,7 @@ export class Vault {
         await this.#track(restoredId, target, next)
       } else {
         const names = await lowerCaseEntries(parentDir)
-        const name = uniqueName(path.posix.basename(entry.originalPath), (c) => names.has(c.toLowerCase()), ' ')
+        const name = uniqueName(lastSegment(entry.originalPath), (c) => names.has(c.toLowerCase()), ' ')
         restoredId = joinId(parent, name)
         folderSegments(restoredId)
         await rename(source, path.join(parentDir, name))
@@ -624,7 +620,7 @@ export class Vault {
       const id = joinId(parent, this.#folderName(name))
       folderSegments(id)
       try {
-        await mkdir(path.join(parentDir, path.posix.basename(id)))
+        await mkdir(path.join(parentDir, lastSegment(id)))
       } catch (error) {
         if (isNodeError(error, 'EEXIST')) throw new VaultError('EXISTS', `Already exists: ${id}`)
         throw error
@@ -636,7 +632,7 @@ export class Vault {
 
   /** Renames a folder in place; returns the new id. Colours and order follow the folder. */
   renameFolder(id: string, name: string): Promise<string> {
-    return this.#exclusive(() => this.#relocateFolder(id, joinId(noteFolder(id), this.#folderName(name))))
+    return this.#exclusive(() => this.#relocateFolder(id, joinId(parentOf(id), this.#folderName(name))))
   }
 
   /** Moves a folder under `parent`; returns the new id. */
@@ -645,7 +641,7 @@ export class Vault {
       if (parent === id || parent.startsWith(`${id}/`)) {
         throw new VaultError('INVALID_PATH', `Cannot move ${id} into itself`)
       }
-      return this.#relocateFolder(id, joinId(parent, path.posix.basename(id)))
+      return this.#relocateFolder(id, joinId(parent, lastSegment(id)))
     })
   }
 
@@ -654,10 +650,10 @@ export class Vault {
     return this.#exclusive(async () => {
       if (id === '') throw new VaultError('INVALID_PATH', 'Cannot delete the vault root')
       const dir = await this.#existingFolder(id)
-      const trashParent = await resolveInside(this.root, [TRASH_DIR, ...folderSegments(noteFolder(id))])
+      const trashParent = await resolveInside(this.root, [TRASH_DIR, ...folderSegments(parentOf(id))])
       await mkdir(trashParent, { recursive: true })
       const names = await lowerCaseEntries(trashParent)
-      const name = uniqueName(path.posix.basename(id), (c) => names.has(c.toLowerCase()), ' ')
+      const name = uniqueName(lastSegment(id), (c) => names.has(c.toLowerCase()), ' ')
       await rename(dir, path.join(trashParent, name))
       const folders: Record<string, FolderConfig> = {}
       for (const [key, folder] of Object.entries(this.#config.folders)) {
@@ -669,7 +665,7 @@ export class Vault {
       this.#config.folderOrder = this.#config.folderOrder?.filter((key) => key !== id && !key.startsWith(`${id}/`))
       await writeConfig(this.root, this.#config)
       await this.#scan(false)
-      return this.#addTrashEntry(joinId(noteFolder(id), name), {
+      return this.#addTrashEntry(joinId(parentOf(id), name), {
         kind: 'folder',
         originalPath: id,
         deletedAt: new Date().toISOString(),
@@ -753,7 +749,7 @@ export class Vault {
     if (pathPart === '' || pathPart.includes('\0') || /^(?:[a-z][a-z\d+.-]*:|[/\\])/i.test(pathPart)) {
       throw new VaultError('INVALID_PATH', `Not a relative link: ${href}`)
     }
-    const target = path.posix.normalize(path.posix.join(noteFolder(noteId), pathPart.replace(/\\/g, '/')))
+    const target = path.posix.normalize(path.posix.join(parentOf(noteId), pathPart.replace(/\\/g, '/')))
     const segments = target.split('/')
     if (target === '.' || segments.some((segment) => segment === '..' || segment.startsWith('.'))) {
       throw new VaultError('INVALID_PATH', `Link leaves the vault: ${href}`)
@@ -849,7 +845,7 @@ export class Vault {
   }
 
   #addAncestors(id: string): void {
-    for (let folder = noteFolder(id); folder !== ''; folder = noteFolder(folder)) this.#folders.add(folder)
+    for (let folder = parentOf(id); folder !== ''; folder = parentOf(folder)) this.#folders.add(folder)
   }
 
   async #relocateNote(fromId: string, toId: string): Promise<Note> {
@@ -881,7 +877,7 @@ export class Vault {
     const from = await this.#existingFolder(id)
     const to = await resolveInside(this.root, folderSegments(toId))
     if (id === toId) return id
-    await this.#existingFolder(noteFolder(toId))
+    await this.#existingFolder(parentOf(toId))
     if (!(await sameOrMissing(from, to))) throw new VaultError('EXISTS', `Already exists: ${toId}`)
     const inside = this.#index
       .all()

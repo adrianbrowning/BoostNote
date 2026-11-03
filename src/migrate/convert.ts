@@ -1,4 +1,4 @@
-import { safeDecode } from '../vault/paths.ts'
+import { safeDecode } from '../shared/vault-ids.ts'
 import type { LegacyNote } from './legacy.ts'
 
 /** CodeMirror mode names/ids the legacy app stored → fenced-code language. */

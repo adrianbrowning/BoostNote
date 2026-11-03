@@ -1,5 +1,6 @@
 import { cp, mkdir, readFile, stat, writeFile } from 'node:fs/promises'
 import * as path from 'node:path'
+import { lastSegment, noteStem, parentOf } from '../shared/vault-ids.ts'
 import type { Note, NoteMeta, Vault } from '../vault/index.ts'
 import { rewriteRelativeLinks } from '../vault/links.ts'
 import { htmlDocument } from './document.ts'
@@ -86,16 +87,15 @@ export async function exportFolderHtml(
   const byFolder = new Map<string, Array<{ href: string; title: string }>>()
   for (const note of notes) {
     const relId = note.id.slice(prefix.length)
-    const relHtml = relId.replace(/\.md$/i, '.html')
+    const relHtml = relId.replace(/\.md$/, '.html')
     const file = path.join(targetDir, ...relHtml.split('/'))
     await mkdir(path.dirname(file), { recursive: true })
     await writeFile(file, await renderNotePage(vault, note, { ...options, linkNotes: true }))
-    const relFolder = path.posix.dirname(relId)
-    const group = relFolder === '.' ? '' : relFolder
+    const group = parentOf(relId)
     byFolder.set(group, [...(byFolder.get(group) ?? []), { href: encodeHref(relHtml), title: note.title }])
   }
 
-  const name = folder === '' ? path.basename(vault.root) : path.posix.basename(folder)
+  const name = folder === '' ? path.basename(vault.root) : lastSegment(folder)
   let body = `<h1>${escapeHtml(name)}</h1>\n`
   for (const [group, pages] of [...byFolder].sort(([a], [b]) => a.localeCompare(b))) {
     if (group !== '') body += `<h2>${escapeHtml(group)}</h2>\n`
@@ -113,16 +113,9 @@ export async function exportFolderHtml(
  */
 export async function exportNoteMarkdown(vault: Vault, id: string, targetFile: string): Promise<void> {
   const { raw } = await vault.readNote(id)
-  const stem = path.posix.basename(id).replace(/\.md$/i, '')
-  const targetStem = path.basename(targetFile).replace(/\.md$/i, '')
-  const assets = path.join(
-    vault.root,
-    ...path.posix
-      .dirname(id)
-      .split('/')
-      .filter((part) => part !== '.'),
-    `${stem}.assets`,
-  )
+  const stem = noteStem(id)
+  const targetStem = noteStem(targetFile)
+  const assets = path.join(vault.root, ...parentOf(id).split('/'), `${stem}.assets`)
   const hasAssets = (await stat(assets).catch(() => undefined))?.isDirectory() ?? false
   const own = new RegExp(`^(\\./)?${stem.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\.assets/`)
   const text =

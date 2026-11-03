@@ -215,4 +215,11 @@ describe('vault export', () => {
     expect(text).toContain('title: Todo')
     expect((await stat(path.join(out, 'Renamed.assets/a.png'))).size).toBe(4)
   })
+
+  it('keeps an upper-case .MD as part of the exported file stem', async () => {
+    const target = path.join(out, 'Renamed.MD')
+    await exportNoteMarkdown(vault, 'work/todo.md', target)
+    expect(await readFile(target, 'utf8')).toContain('![shot](./Renamed.MD.assets/a.png)')
+    expect((await stat(path.join(out, 'Renamed.MD.assets/a.png'))).size).toBe(4)
+  })
 })

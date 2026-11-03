@@ -3,9 +3,10 @@ import type { Handle } from 'remix/component'
 import { css, on, ref } from 'remix/component'
 
 import { createLivePreviewEditor, type EditorTheme } from '../../../../editor/index.ts'
+import { lastSegment, parentOf } from '../../../../shared/vault-ids.ts'
 import { client, vaultAssetUrl } from './api.ts'
 import type { WorkspaceModel } from './model.ts'
-import { parentOf, resolveNoteLink } from './paths.ts'
+import { resolveNoteLink } from './paths.ts'
 import { PropertiesPanel } from './properties.tsx'
 import { ReaderPane } from './reader-pane.tsx'
 import { button, emptyState, emptyTitle, iconButton, input, muted, primaryButton } from './styles.ts'
@@ -270,7 +271,7 @@ export function EditorPane(handle: Handle<{ model: WorkspaceModel }>) {
                 </div>
               ) : null}
               <div mix={[muted, pathStyle]} title={note.id}>
-                {folder === '' ? model.data.vault?.name : folder} · {note.id.slice(note.id.lastIndexOf('/') + 1)}
+                {folder === '' ? model.data.vault?.name : folder} · {lastSegment(note.id)}
               </div>
             </div>
             <button

@@ -98,6 +98,13 @@ describe('note titles', () => {
     expect((await vault.renameNote('a.md', ' Notes: today? ')).id).toBe('Notes- today-.md')
     await expect(vault.renameNote('Notes- today-.md', ' .. ')).rejects.toMatchObject({ code: 'INVALID_PATH' })
   })
+
+  it('strips only a lowercase .md from a new name; .MD stays part of it', async () => {
+    await put('a.md', 'x')
+    vault = await openVault(root)
+    expect((await vault.renameNote('a.md', 'B.md')).id).toBe('B.md')
+    expect((await vault.renameNote('B.md', 'C.MD')).id).toBe('C.MD.md')
+  })
 })
 
 describe('rename files from titles', () => {

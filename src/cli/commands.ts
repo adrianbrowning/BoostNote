@@ -3,9 +3,8 @@
  * `Vault`. Every write goes through the vault (atomic, traversal-safe); results are plain JSON
  * data so the CLI (`--json`) and the MCP tools return the same shapes.
  */
-import * as path from 'node:path'
-
 import { type TaskProgress, taskProgress } from '../app/actions/public/workspace/tasks.ts'
+import { noteStem } from '../shared/vault-ids.ts'
 import {
   type FolderNode,
   type Frontmatter,
@@ -175,12 +174,8 @@ export async function resolveNoteId(vault: Vault, input: string): Promise<string
   if (id === '') throw new CommandError('USAGE', 'Missing note id')
   if (await vault.hasNote(id)) return id
   if (!id.endsWith('.md') && (await vault.hasNote(`${id}.md`))) return `${id}.md`
-  const name = id.replace(/\.md$/i, '')
-  const named = (await vault.notes()).map((meta) => ({
-    id: meta.id,
-    stem: path.posix.basename(meta.id, '.md'),
-    title: meta.title,
-  }))
+  const name = id.replace(/\.md$/, '')
+  const named = (await vault.notes()).map((meta) => ({ id: meta.id, stem: noteStem(meta.id), title: meta.title }))
   const exact = named.filter((note) => note.stem === name || note.title === name)
   const lower = name.toLowerCase()
   const matches =
