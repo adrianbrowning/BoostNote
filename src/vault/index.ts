@@ -2,6 +2,8 @@
  * Vault storage core: plain `.md` notes with YAML frontmatter in a user-chosen folder. Pure Node,
  * no Electron imports; the router controllers (phase 4) are its only intended caller.
  */
+
+export { noteDisplayName as noteTitle } from '../shared/vault-ids.ts'
 export type { FolderConfig, TrashEntry, TrashKind, VaultConfig } from './config.ts'
 export { VaultError, type VaultErrorCode } from './errors.ts'
 export { type Frontmatter, type NoteText, parseNoteText, serializeNoteText, toJsonValue } from './frontmatter.ts'
@@ -13,7 +15,7 @@ export {
   type ImportRead,
 } from './import-files.ts'
 export type { LinkMove } from './links.ts'
-export { type Note, type NoteMeta, noteTitle, type ReadonlyNoteMeta } from './note.ts'
+export type { Note, NoteMeta, ReadonlyNoteMeta } from './note.ts'
 export { noteFileName } from './paths.ts'
 export type { SearchHit } from './search.ts'
 export {

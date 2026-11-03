@@ -172,15 +172,10 @@ export function excerptOf(body: string): string {
   return excerpt.length > EXCERPT_LENGTH ? `${excerpt.slice(0, EXCERPT_LENGTH - 1).trimEnd()}…` : excerpt
 }
 
-/** A note's displayed name: its frontmatter `title` (a non-empty string), else its file name stem. */
-export function noteTitle(id: string, frontmatter: Frontmatter): string {
-  return noteDisplayName(id, frontmatter)
-}
-
 /** Builds a `Note` from a parsed file. `stats` supplies date fallbacks for notes without frontmatter dates. */
 export function toNote(id: string, raw: string, text: NoteText, stats: { birthtime: Date; mtime: Date }): Note {
   const { frontmatter, body } = text
-  const title = noteTitle(id, frontmatter)
+  const title = noteDisplayName(id, frontmatter)
   return {
     id,
     folder: parentOf(id),
