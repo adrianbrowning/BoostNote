@@ -66,8 +66,9 @@ Things that are easy to get wrong:
   that only ship CommonJS cannot be served (mermaid is vendored, see `src/app/vendor.ts`).
 - Never top-level `await app.whenReady()` in the main-process import graph: Electron emits `ready`
   only after the entry module has evaluated.
-- Every app keyboard shortcut is a native menu accelerator (`shortcuts.ts`), delivered to the
-  renderer as an SSE `menu` event.
+- Every app keyboard shortcut is a native menu accelerator defined in the shared command table
+  (`src/shared/commands.ts`), delivered to the renderer as an SSE `menu` event; `shortcuts.ts` only
+  matches reserved shortcuts.
 
 ## Debugging
 
