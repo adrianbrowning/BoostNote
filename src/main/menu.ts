@@ -68,7 +68,7 @@ export function buildMenuTemplate({
   const selectTab: MenuItemConstructorOptions = {
     label: commandLabel(selectTabRow.label, platform),
     // Cmd/Ctrl+1–8 pick a tab, the last item picks the last tab (`index` -1).
-    submenu: selectTabRow.tabAccelerators.map(({ label, accelerator }, index, all) => ({
+    submenu: selectTabRow.tabs.map(({ label, accelerator }, index, all) => ({
       id: `select-tab-${index + 1}`,
       label,
       accelerator,

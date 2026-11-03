@@ -80,7 +80,7 @@ describe('command table', () => {
   })
 
   it('labels each Select Tab item next to its accelerator', () => {
-    expect(commandRow('select-tab').tabAccelerators).toEqual([
+    expect(commandRow('select-tab').tabs).toEqual([
       { label: 'Tab 1', accelerator: 'CmdOrCtrl+1' },
       { label: 'Tab 2', accelerator: 'CmdOrCtrl+2' },
       { label: 'Tab 3', accelerator: 'CmdOrCtrl+3' },
@@ -96,7 +96,7 @@ describe('command table', () => {
   it('gives a row either its own accelerator or tab items, never both', () => {
     const rows: CommandRow[] = [
       { id: 'a', label: 'A', accelerator: 'CmdOrCtrl+A', needsVault: false },
-      { id: 'b', label: 'B', tabAccelerators: [{ label: 'B 1', accelerator: 'CmdOrCtrl+1' }], needsVault: false },
+      { id: 'b', label: 'B', tabs: [{ label: 'B 1', accelerator: 'CmdOrCtrl+1' }], needsVault: false },
     ]
     expect(rows.flatMap(commandAccelerators)).toEqual(['CmdOrCtrl+A', 'CmdOrCtrl+1'])
     // @ts-expect-error a row with tab items has no accelerator of its own
@@ -104,10 +104,11 @@ describe('command table', () => {
       id: 'c',
       label: 'C',
       accelerator: 'CmdOrCtrl+C',
-      tabAccelerators: [],
+      tabs: [],
       needsVault: false,
     }
-    expect(both.id).toBe('c')
+    // The @ts-expect-error above, enforced by `pnpm typecheck`, is the assertion.
+    void both
   })
 
   it('marks the commands that need an open vault', () => {
@@ -143,10 +144,10 @@ describe('command table', () => {
 
 describe('commandRow', () => {
   it('finds the row for a command', () => {
-    expect(commandRow('new-note')).toEqual({
-      id: 'new-note',
-      label: 'New Note',
-      accelerator: 'CmdOrCtrl+N',
+    expect(commandRow('print')).toEqual({
+      id: 'print',
+      label: 'Print…',
+      accelerator: 'CmdOrCtrl+P',
       needsVault: true,
     })
   })

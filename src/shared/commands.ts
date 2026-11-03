@@ -15,7 +15,7 @@ interface CommandRowBase {
   readonly needsVault: boolean
 }
 
-/** A submenu item of a row with `tabAccelerators`: one per accelerator. */
+/** A submenu item of a row with `tabs`: one per accelerator. */
 export interface TabItem {
   readonly label: string
   /** Electron accelerator; `CmdOrCtrl` is ⌘ on macOS, Ctrl elsewhere. */
@@ -30,9 +30,9 @@ export type CommandRow =
   | (CommandRowBase & {
       /** Electron accelerator; `CmdOrCtrl` is ⌘ on macOS, Ctrl elsewhere. */
       readonly accelerator?: string
-      readonly tabAccelerators?: never
+      readonly tabs?: never
     })
-  | (CommandRowBase & { readonly tabAccelerators: readonly TabItem[]; readonly accelerator?: never })
+  | (CommandRowBase & { readonly tabs: readonly TabItem[]; readonly accelerator?: never })
 
 export const COMMANDS = [
   { id: 'new-note', label: 'New Note', accelerator: 'CmdOrCtrl+N', needsVault: true },
@@ -77,7 +77,7 @@ export const COMMANDS = [
   {
     id: 'select-tab',
     label: 'Select Tab',
-    tabAccelerators: [
+    tabs: [
       { label: 'Tab 1', accelerator: 'CmdOrCtrl+1' },
       { label: 'Tab 2', accelerator: 'CmdOrCtrl+2' },
       { label: 'Tab 3', accelerator: 'CmdOrCtrl+3' },
@@ -114,11 +114,7 @@ export function commandRow<C extends MenuCommand>(id: C): Extract<(typeof COMMAN
 
 /** Every accelerator `row` binds: its own, or its submenu's. */
 export function commandAccelerators(row: CommandRow): readonly string[] {
-  return row.tabAccelerators
-    ? row.tabAccelerators.map((tab) => tab.accelerator)
-    : row.accelerator
-      ? [row.accelerator]
-      : []
+  return row.tabs ? row.tabs.map((tab) => tab.accelerator) : row.accelerator ? [row.accelerator] : []
 }
 
 /** The label to show on `platform`. */
