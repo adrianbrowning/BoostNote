@@ -6,7 +6,7 @@
       "src": "src",
       "npm": "node_modules"
     },
-    "allowFiles": ["src/app/routes.ts", "src/app/**/public/**", "src/editor/**"],
+    "allowFiles": ["src/app/routes.ts", "src/app/**/public/**", "src/editor/**", "src/shared/**"],
     "allowPackages": [
       "remix",
       "@codemirror/autocomplete",
