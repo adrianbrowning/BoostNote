@@ -459,11 +459,14 @@ are the only tabs while no vault is open. Grants live in memory, so reader tabs 
 Playwright `_electron` launches the app from source with a temp vault and `--user-data-dir` profile
 (settings preset with `lastVault` and the global hotkey off) and waits for the SSE connection before
 sending menu commands. Native dialogs are answered by replacing `dialog.showSaveDialog` /
-`showOpenDialog` in main via `electronApp.evaluate`. Covered: a note renders mermaid SVG and KaTeX
-(fully rendered while unfocused); typing is saved to disk; an external write live-reloads; tabs survive
-a reload; importing the legacy fixture storage through the dialog; HTML export contains mermaid `<svg>`
-and KaTeX markup (and is screenshotted in a window); PDF export; a `.md` passed on argv and via
-`open-file`. `pnpm test` stays unit-only (Vitest excludes `tests/e2e`).
+`showOpenDialog` in main via `electronApp.evaluate`. On macOS the window opens inactive and can never
+become the key window (`tests/e2e/background-windows.cjs`, preloaded with `-r`), and the page gets
+CDP focus emulation (Playwright skips it for Electron): key presses made in other apps while the
+suite runs used to land in a test (`eWeekly plan`, arrow keys moving the note list). Covered: a note
+renders mermaid SVG and KaTeX (fully rendered while unfocused); typing is saved to disk; an external
+write live-reloads; tabs survive a reload; importing the legacy fixture storage through the dialog;
+HTML export contains mermaid `<svg>` and KaTeX markup (and is screenshotted in a window); PDF export;
+a `.md` passed on argv and via `open-file`. `pnpm test` stays unit-only (Vitest excludes `tests/e2e`).
 
 ### Packaging and release
 
