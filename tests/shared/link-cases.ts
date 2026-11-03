@@ -14,8 +14,8 @@ export interface LinkCase {
   /** `resolveNoteLink(FROM, href)`: the note it opens. */
   note: string | undefined
   /**
-   * `noteLinkToHtml(href)`: the link in exported HTML. Export has no note to resolve from, so a note
-   * link that would leave the vault still maps; dot-folders do not.
+   * `noteLinkToHtml(FROM, href)`: the link in exported HTML, relative to `FROM`. A link that leaves the
+   * vault, a dot-folder, or a non-note link stays as written (`undefined`).
    */
   html: string | undefined
   /** The link after the vault moves `FROM` to `Archive/ch4.md`. */
@@ -118,8 +118,16 @@ export const LINK_CASES: readonly LinkCase[] = [
     href: '../../out.md',
     relative: true,
     note: undefined,
-    html: '../../out.html',
+    html: undefined,
     moved: '../../out.md',
+  },
+  {
+    kind: 'traversal through dot segments',
+    href: 'sub/../../../x.md',
+    relative: true,
+    note: undefined,
+    html: undefined,
+    moved: 'sub/../../../x.md',
   },
   {
     kind: 'hidden segment',

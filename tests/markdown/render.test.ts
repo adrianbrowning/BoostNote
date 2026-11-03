@@ -12,7 +12,7 @@ import {
   renderMarkdown,
 } from '../../src/markdown/index.ts'
 import { openVault, type Vault } from '../../src/vault/index.ts'
-import { LINK_CASES } from '../shared/link-cases.ts'
+import { FROM, LINK_CASES } from '../shared/link-cases.ts'
 
 const html = async (markdown: string, options?: Parameters<typeof renderMarkdown>[1]) =>
   (await renderMarkdown(markdown, options)).html
@@ -113,7 +113,7 @@ describe('renderMarkdown', () => {
   it('resolves relative images and rewrites relative links', async () => {
     const out = await html('![a](./n.assets/a.png) ![r](https://e.com/r.png) [n](other.md#x) [w](https://e.com/a.md)', {
       resolveImage: async (src) => (src === './n.assets/a.png' ? 'data:image/png;base64,AAA' : undefined),
-      rewriteLink: noteLinkToHtml,
+      rewriteLink: (href) => noteLinkToHtml('n.md', href),
     })
     expect(out).toContain('<img src="data:image/png;base64,AAA" alt="a" />'.replace(' />', ''))
     expect(out).toContain('src="https://e.com/r.png"')
@@ -124,7 +124,12 @@ describe('renderMarkdown', () => {
 
 describe('noteLinkToHtml', () => {
   it.each(LINK_CASES)('$kind: $href', ({ href, html }) => {
-    expect(noteLinkToHtml(href)).toBe(html)
+    expect(noteLinkToHtml(FROM, href)).toBe(html)
+  })
+
+  it('leaves a link above a root note as written', () => {
+    expect(noteLinkToHtml('n.md', '../x.md')).toBeUndefined()
+    expect(noteLinkToHtml('n.md', 'x.md')).toBe('x.html')
   })
 })
 

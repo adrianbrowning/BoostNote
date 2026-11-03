@@ -48,7 +48,7 @@ async function renderNotePage(
   const { raw } = await vault.readNote(note.id)
   const rendered = await renderMarkdown(raw, {
     resolveImage: (src) => inlineImage(vault, note.id, src),
-    ...(options.linkNotes ? { rewriteLink: noteLinkToHtml } : {}),
+    ...(options.linkNotes ? { rewriteLink: (href: string) => noteLinkToHtml(note.id, href) } : {}),
     ...(options.renderMermaid ? { renderMermaid: options.renderMermaid } : {}),
   })
   return htmlDocument({ title: note.title, body: rendered.html, math: rendered.hasMath })
