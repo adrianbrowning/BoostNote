@@ -141,6 +141,31 @@ describe('vault notes', () => {
   })
 })
 
+describe('writeNote frontmatter', () => {
+  it('keeps the YAML of values sent back unchanged after a JSON round trip and writes edited keys', async () => {
+    await put(
+      'y.md',
+      '---\nratio: .nan\nquoted: "keep me" # note\ntitle: Old\ncreated: 2020-01-01T00:00:00.000Z\n---\nBody\n',
+    )
+    vault = await openVault(root)
+    const before = await vault.readNote('y.md')
+    const sent = JSON.parse(JSON.stringify({ ...before.frontmatter, title: 'New' })) as Record<string, unknown>
+    const result = await vault.writeNote('y.md', { body: 'Body\n', baseHash: before.hash, frontmatter: sent })
+    expect(result.status).toBe('saved')
+    const raw = await read('y.md')
+    expect(raw).toContain('ratio: .nan\n')
+    expect(raw).toContain('quoted: "keep me" # note\n')
+    expect(raw).toContain('title: New\n')
+  })
+
+  it('writes keys named like inherited object properties as sent', async () => {
+    vault = await openVault(root)
+    const result = await vault.writeNote('p.md', { body: 'Body\n', baseHash: null, frontmatter: { toString: null } })
+    expect(result.status).toBe('saved')
+    expect(await read('p.md')).toContain('toString: null\n')
+  })
+})
+
 describe('vault trash', () => {
   it('deletes notes (with assets) to .trash and restores them', async () => {
     await put('work/todo.md', '# Todo\n![a](./todo.assets/a.png)\n')
