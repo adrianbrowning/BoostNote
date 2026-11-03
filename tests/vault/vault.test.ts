@@ -276,7 +276,7 @@ describe('vault path safety', () => {
       '\\etc\\passwd',
       '%5Cetc%5Cpasswd',
       '%2Fetc%2Fpasswd',
-      '%23top',
+      '.trash/../x.png',
       '#top',
       '?x=1',
       '',
@@ -288,6 +288,7 @@ describe('vault path safety', () => {
     expect(await vault.assetPath('a/n.md', 'n.assets\\p%20q.png')).toBe(
       path.join(vault.root, 'a', 'n.assets', 'p q.png'),
     )
+    expect(await vault.assetPath('a/n.md', '%23top')).toBe(path.join(vault.root, 'a', '#top'))
   })
 
   it('rejects paths that escape through symlinks', async () => {

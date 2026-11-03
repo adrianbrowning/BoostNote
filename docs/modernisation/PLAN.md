@@ -354,7 +354,7 @@ sanitising too (`resolveImage`, async); relative link `href`s go through `rewrit
 stylesheet with its WOFF2 fonts inlined as `data:` URIs (only when the note has math), and a CSP meta
 tag that forbids scripts and any fetch except images. `noteToHtml` inlines a note's images
 (`vault.assetPath` → `data:` URI); `exportFolderHtml` writes one page per note at the same relative
-path, note links (`isNoteLink`) rewritten to `.html` (`ch3.md/#x` → `ch3.html#x`), plus an `index.html` listing (`_contents.html` when the folder
+path, note links that resolve inside the vault (`resolveNoteLink` from the exported note) rewritten to `.html`, relative to the exported page (`ch3.md/#x` → `ch3.html#x`, `sub//../ch3.md` → `ch3.html`; a link that leaves the vault stays as written), plus an `index.html` listing (`_contents.html` when the folder
 has its own `index.md`, which then becomes `index.html`); `exportNoteMarkdown` copies the file and its
 `<stem>.assets/` (renamed after the new file name, links rewritten).
 
@@ -741,7 +741,7 @@ styles and CSP, the asset server, controlled inputs, testing) are in
 
 - **Shared rules:** vault-id, note-name and link rules that the renderer needs too (`parentOf`,
   `lastSegment`, `isNoteFileName`, `noteStem`, `joinId`, `noteDisplayName`, `safeDecode`, `linkPath`,
-  `isRelativeLink`, `resolveLinkPath`, `isNoteLink`, `resolveNoteLink`) live in `src/shared/vault-ids.ts`, beside `src/vault`. It has
+  `isRelativeLink`, `normalizeLinkPath`, `resolveLinkPath`, `relativeId`, `isNoteLink`, `resolveNoteLink`) live in `src/shared/vault-ids.ts`, beside `src/vault`. It has
   no `node:` imports (a Biome `noNodejsModules` override on `src/shared/**` enforces it) and
   `remix.json` `allowFiles` serves it to the page. The Markdown extension is lowercase `.md` only:
   `noteStem('B.MD')` is `B.MD`, and a link to `B.MD` is no note link.

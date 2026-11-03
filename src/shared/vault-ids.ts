@@ -54,15 +54,15 @@ export function linkPath(href: string): string {
 }
 
 /**
- * A scheme (`https:`, `mailto:`), an absolute or protocol-relative path (`/`, `//`), a leading `\`,
- * or (only possible after decoding: `%23top`, `%3Fx`) an anchor or a query.
+ * A scheme (`https:`, `mailto:`), an absolute or protocol-relative path (`/`, `//`) or a leading `\`.
+ * Tested after decoding; a decoded leading `#` or `?` (`%23ideas.md`) is part of the file name.
  */
-const NOT_RELATIVE = /^(?:[a-z][a-z\d+.-]*:|[/\\#?])/i
+const NOT_RELATIVE = /^(?:[a-z][a-z\d+.-]*:|[/\\])/i
 
 /**
  * Whether `href` is a relative link (`../work/todo.md#x`, `todo.assets/a.png`): its `linkPath` is not
- * empty (so not `#anchor`, `?query` or `''`), has no NUL and does not start with a scheme, `/`, `//`,
- * `\`, `#` or `?`. Checked after decoding, so `%2Fetc%2Fx.md` is absolute too.
+ * empty (so not a raw `#anchor`, `?query` or `''`), has no NUL and does not start with a scheme, `/`,
+ * `//` or `\`. Checked after decoding, so `%2Fetc%2Fx.md` is absolute too.
  */
 export function isRelativeLink(href: string): boolean {
   const target = linkPath(href)
@@ -77,18 +77,35 @@ function isHiddenSegment(segment: string): boolean {
 /**
  * The vault id that the decoded relative path `relPath` names from folder `folder` (`''`: the
  * root, also a possible result). `\` is a separator like `/`, `.`, `..` and empty segments are
- * resolved (`a//b`, `note.md/`). `undefined` when it leaves the vault or has a hidden segment
- * (`.trash/x.md`).
+ * resolved (`a//b`, `note.md/`). `undefined` only when it climbs above the vault root; hidden
+ * segments are kept (link rewriting re-bases links into dot-folders).
  */
-export function resolveLinkPath(folder: string, relPath: string): string | undefined {
+export function normalizeLinkPath(folder: string, relPath: string): string | undefined {
   const segments: string[] = []
   for (const segment of [...folder.split('/'), ...relPath.replace(/\\/g, '/').split('/')]) {
     if (segment === '' || segment === '.') continue
-    if (isHiddenSegment(segment)) return undefined
     if (segment !== '..') segments.push(segment)
     else if (segments.pop() === undefined) return undefined
   }
   return segments.join('/')
+}
+
+/**
+ * `normalizeLinkPath`, but `undefined` when `folder` or `relPath` has a hidden segment (`.trash/x.md`,
+ * also `.trash/../x.md`), checked before `..` is resolved.
+ */
+export function resolveLinkPath(folder: string, relPath: string): string | undefined {
+  if (`${folder}/${relPath}`.replace(/\\/g, '/').split('/').some(isHiddenSegment)) return undefined
+  return normalizeLinkPath(folder, relPath)
+}
+
+/** Vault id `toId` as a relative path from folder `folder` (`a/b`, `a/c/d.md` → `../c/d.md`). */
+export function relativeId(folder: string, toId: string): string {
+  const from = folder === '' ? [] : folder.split('/')
+  const to = toId.split('/')
+  let common = 0
+  while (common < from.length && common < to.length - 1 && from[common] === to[common]) common++
+  return [...from.slice(common).map(() => '..'), ...to.slice(common)].join('/')
 }
 
 /**

@@ -154,6 +154,16 @@ describe('the shared link table, when the linking note moves', () => {
   })
 })
 
+describe('links into a dot-folder, when the linking note moves', () => {
+  it('are re-based like any other relative link', async () => {
+    await put('Guides/n.md', '![d](.attachments/d.png)\n')
+    await mkdir(path.join(root, 'Archive'))
+    vault = await openVault(root)
+    const note = await vault.moveNote('Guides/n.md', 'Archive')
+    expect(note.body).toBe('![d](../Guides/.attachments/d.png)\n')
+  })
+})
+
 describe('backslashes in links to a renamed note', () => {
   it('follow the rename when inner, and stay when leading', async () => {
     await put('notes/a.md', 'A\n')

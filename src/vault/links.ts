@@ -1,6 +1,6 @@
 import * as path from 'node:path'
 
-import { isRelativeLink, linkPath, parentOf, resolveLinkPath } from '../shared/vault-ids.ts'
+import { isRelativeLink, linkPath, normalizeLinkPath, parentOf } from '../shared/vault-ids.ts'
 import { VaultError } from './errors.ts'
 import { ASSETS_SUFFIX, encodeLinkPath, folderSegments, noteSegments } from './paths.ts'
 
@@ -144,7 +144,7 @@ export function rebaseNoteLinks(
   const toDir = parentOf(toId)
   const prefixes = movedPrefixes(moves)
   return rewriteRelativeLinks(markdown, (relPath) => {
-    const old = resolveLinkPath(fromDir, relPath)
+    const old = normalizeLinkPath(fromDir, relPath)
     if (old === undefined) return undefined
     const relative = path.posix.relative(toDir, movedTarget(old, prefixes) ?? old)
     if (relative === '') return undefined
@@ -166,7 +166,7 @@ export function rewriteMovedLinks(
   const prefixes = movedPrefixes(moves)
   let links = 0
   const body = rewriteRelativeLinks(markdown, (relPath) => {
-    const target = resolveLinkPath(dir, relPath)
+    const target = normalizeLinkPath(dir, relPath)
     const next = target === undefined ? undefined : movedTarget(target, prefixes)
     if (next === undefined) return undefined
     links++

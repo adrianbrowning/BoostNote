@@ -4,7 +4,7 @@ import footnote from 'markdown-it-footnote'
 import sanitizeHtml from 'sanitize-html'
 
 import { renderMath } from '../editor/render/math.ts'
-import { isRelativeLink, linkPath, resolveNoteLink } from '../shared/vault-ids.ts'
+import { isRelativeLink, parentOf, relativeId, resolveNoteLink } from '../shared/vault-ids.ts'
 import { parseNoteText } from '../vault/frontmatter.ts'
 import { highlight, loadLanguages } from './highlight.ts'
 import { mathPlugin } from './math.ts'
@@ -228,11 +228,13 @@ export async function renderMarkdown(markdown: string, options: RenderOptions = 
 /**
  * `other.md#x` → `other.html#x`: links between notes of an exported folder, from note `fromId`,
  * by the shared `resolveNoteLink` rule: a link that leaves the vault gives `undefined`. The page
- * path, relative to `fromId`, is built from the decoded link path (an inner `\` or `%2F` is a `/`;
- * `other.md/#x` is `other.html#x`), each segment percent-encoded. Anything else: `undefined`.
+ * path is the resolved note id relative to `fromId`'s folder (`sub//../ch3.md` → `ch3.html`,
+ * `other.md/#x` → `other.html#x`), each segment percent-encoded, plus the raw query and fragment.
+ * Anything else: `undefined`.
  */
 export function noteLinkToHtml(fromId: string, href: string): string | undefined {
-  if (resolveNoteLink(fromId, href) === undefined) return undefined
-  const page = linkPath(href).replace(/\\/g, '/').replace(/\/+$/, '').replace(/\.md$/, '.html')
+  const note = resolveNoteLink(fromId, href)
+  if (note === undefined) return undefined
+  const page = relativeId(parentOf(fromId), note).replace(/\.md$/, '.html')
   return `${page.split('/').map(encodeURIComponent).join('/')}${/[?#].*$/.exec(href)?.[0] ?? ''}`
 }
