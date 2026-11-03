@@ -126,9 +126,9 @@ describe('MCP server', () => {
       ['update_properties', { set: { starred: true } }],
     ] as const) {
       const stale = await call(tool, { id: 'work/todo.md', ...args, baseHash: note.hash })
-      expect(stale.isError).toBe(true)
-      expect(stale.text).toMatch(/^CONFLICT: Note changed since it was read: work\/todo\.md/)
-      expect(stale.text).toContain(current.hash)
+      expect(stale.isError, tool).toBe(true)
+      expect(stale.text, tool).toMatch(/^CONFLICT: Note changed since it was read: work\/todo\.md/)
+      expect(stale.text, tool).toContain(current.hash)
     }
     expect(await readFile(path.join(root, 'work/todo.md'), 'utf8')).toBe('# Todo\n\nedited elsewhere\n')
   })
