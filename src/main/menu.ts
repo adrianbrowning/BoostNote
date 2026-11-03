@@ -53,13 +53,14 @@ export function buildMenuTemplate({
     click: installCommandLineTool,
   }
   const items = new Map<MenuCommand, MenuItemConstructorOptions>()
-  const selectTab: MenuItemConstructorOptions[] = []
+  const selectTab: MenuItemConstructorOptions & { submenu: MenuItemConstructorOptions[] } = { submenu: [] }
   for (const row of COMMANDS) {
     if ('tabAccelerators' in row) {
+      selectTab.label = commandLabel(row.label, platform)
       // Cmd/Ctrl+1–8 pick a tab, the last accelerator picks the last tab (`index` -1).
       row.tabAccelerators.forEach((accelerator, index, all) => {
         const last = index === all.length - 1
-        selectTab.push({
+        selectTab.submenu.push({
           id: `${row.id}-${index + 1}`,
           label: last ? 'Last Tab' : `Tab ${index + 1}`,
           accelerator,
@@ -184,7 +185,7 @@ export function buildMenuTemplate({
         { type: 'separator' },
         item('next-tab'),
         item('previous-tab'),
-        { label: 'Select Tab', submenu: selectTab },
+        selectTab,
         ...(isMac ? [{ type: 'separator' } as const, { role: 'front' } as const] : []),
       ],
     },

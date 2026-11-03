@@ -102,5 +102,6 @@ describe('native menu template', () => {
       click()
     }
     expect(send.mock.calls).toEqual([['new-note'], ['select-tab', 0], ['select-tab', 7], ['select-tab', -1]])
+    expect(items.some((item) => item.label === 'Select Tab' && Array.isArray(item.submenu))).toBe(true)
   })
 })
