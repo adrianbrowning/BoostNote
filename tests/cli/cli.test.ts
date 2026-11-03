@@ -214,6 +214,10 @@ describe('writing', () => {
     const staleJson = await cli(['append', 'work/todo.md', 'more', '--base-hash', hash, '--json'])
     expect(staleJson.code).toBe(3)
     expect(JSON.parse(staleJson.stderr).error).toMatchObject({ code: 'CONFLICT', currentHash: written.json().hash })
+    const staleProps = await cli(['set-props', 'work/todo.md', 'starred=true', '--base-hash', hash, '--json'])
+    expect(staleProps.code).toBe(3)
+    expect(JSON.parse(staleProps.stderr).error).toMatchObject({ code: 'CONFLICT', currentHash: written.json().hash })
+    expect(await read('work/todo.md')).toBe(raw)
   })
 
   it('appends text on a line of its own', async () => {

@@ -263,11 +263,10 @@ export async function writeNote(vault: Vault, input: string, body: string, baseH
 export async function appendToNote(vault: Vault, input: string, text: string, baseHash?: string): Promise<WriteResult> {
   const id = await resolveNoteId(vault, input)
   const note = await vault.readNote(id)
-  if (baseHash !== undefined && note.hash !== baseHash) throw conflict(id, note.hash)
   const separator = note.body === '' || note.body.endsWith('\n') ? '' : '\n'
   const ending = text.endsWith('\n') ? '' : '\n'
   const body = `${note.body}${separator}${text}${ending}`
-  return written(conflictChecked(id, await vault.writeNote(id, { body, baseHash: note.hash })))
+  return written(conflictChecked(id, await vault.writeNote(id, { body, baseHash: baseHash ?? note.hash })))
 }
 
 /** Sets/removes frontmatter keys; the YAML of keys not named is left byte for byte. */
@@ -284,11 +283,10 @@ export async function updateProperties(
   checkProperties(set)
   const id = await resolveNoteId(vault, input)
   const note = await vault.readNote(id)
-  if (baseHash !== undefined && note.hash !== baseHash) throw conflict(id, note.hash)
   const frontmatter: Frontmatter = { ...note.frontmatter, ...set }
   for (const key of remove) delete frontmatter[key]
   return toDocument(
-    conflictChecked(id, await vault.writeNote(id, { body: note.body, frontmatter, baseHash: note.hash })),
+    conflictChecked(id, await vault.writeNote(id, { body: note.body, frontmatter, baseHash: baseHash ?? note.hash })),
   )
 }
 
