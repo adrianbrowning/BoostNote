@@ -341,9 +341,12 @@ export class Vault {
    * Saves `edit(note)` based on one exclusive read of the note; adapters use this for read-edit-save
    * instead of comparing hashes themselves. The edit runs on that read and the save uses the read's
    * hash as its base, so it returns a conflict (and does not write) when a given `baseHash` differs
-   * from the read, or when the file changes between the read and the rename, even without `baseHash`.
-   * A missing note rejects with `NOT_FOUND` when `baseHash` is undefined, and returns a conflict with
-   * `current: null` when a `baseHash` is given. The edit never runs on a conflict or a missing note.
+   * from the read, or when the file changes after the read, even without `baseHash`. That later
+   * change is caught by the final check just before the rename; the short gap after it is accepted
+   * (see `writeFileAtomic`). A missing note rejects with `NOT_FOUND` when `baseHash` is undefined,
+   * and returns a conflict with `current: null` when a `baseHash` is given. The edit does not run
+   * when the note is missing or a given `baseHash` differs from the read; on a conflict found just
+   * before the rename it has already run, but nothing is written.
    */
   editNote(
     id: string,
@@ -351,9 +354,12 @@ export class Vault {
     edit: (note: Note) => { body: string; frontmatter?: Frontmatter },
   ): Promise<WriteNoteResult> {
     return this.#exclusive(async () => {
-      const note = baseHash === undefined ? await this.readNote(id) : await this.#currentNote(id)
-      const stale = baseHash !== undefined && note?.hash !== baseHash
-      if (note === null || stale) return { status: 'conflict', current: note }
+      if (baseHash === undefined) {
+        const note = await this.readNote(id)
+        return this.#writeNote(id, { ...edit(note), baseHash: note.hash }, note)
+      }
+      const note = await this.#currentNote(id)
+      if (note === null || note.hash !== baseHash) return { status: 'conflict', current: note }
       return this.#writeNote(id, { ...edit(note), baseHash: note.hash }, note)
     })
   }
