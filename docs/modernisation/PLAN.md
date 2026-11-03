@@ -745,13 +745,17 @@ styles and CSP, the asset server, controlled inputs, testing) are in
   no `node:` imports (a Biome `noNodejsModules` override on `src/shared/**` enforces it) and
   `remix.json` `allowFiles` serves it to the page. The Markdown extension is lowercase `.md` only:
   `noteStem('B.MD')` is `B.MD`, and a link to `B.MD` is no note link.
-- **Relative links, one rule** (`isRelativeLink`, used by link rewriting on rename/move, `assetPath`,
-  reader assets, export and editor link following): the path (no `?query`/`#fragment`) is decoded
-  first, then must be non-empty and must not start with a scheme, `/` (absolute, `//` protocol-relative),
-  `\`, `#` or `?`, so `%2Fetc%2Fx.md` is absolute too. Resolving it (`resolveLinkPath`): an inner `\` is
-  a separator, `.`/`..` are resolved, and a link that leaves the vault or has a hidden segment
-  (`.trash/x.md`) resolves to nothing, so link rewriting leaves it as written. `resolveNoteLink` adds
-  the note-file rule; `note.md/#anchor` (as copied from GitHub) opens `note.md`.
+- **Relative links, one rule** (`isRelativeLink`, used by link rewriting on rename/move/restore, `assetPath`,
+  reader assets, export and editor link following): the path without the raw `?query`/`#fragment` is
+  decoded first, then must be non-empty, contain no NUL and not start with a scheme, `/` (absolute, `//`
+  protocol-relative) or `\`, so `%2Fetc%2Fx.md` is absolute too. Only a raw `#anchor`/`?query` is
+  non-relative; a decoded leading `#` or `?` (`%23ideas.md`) is part of the file name. Link rewriting
+  (`normalizeLinkPath`) treats an inner `\` as a separator and resolves `.`/`..`; it re-bases links into
+  dot-folders (`.attachments/d.png`) and leaves only a link that climbs above the vault as written.
+  Rewritten destinations are percent-encoded again (`#`, `?`, `%`, `<`, `>` also inside `<…>`).
+  `resolveLinkPath` (`assetPath`, `resolveNoteLink`) also rejects a hidden segment, checked before `..`
+  is resolved (`.trash/../x.png`). `resolveNoteLink` adds the note-file rule; `note.md/#anchor` (as
+  copied from GitHub) opens `note.md`.
 - **Entry point:** `openVault(root, { watch: true })` returns a `Vault`: `tree()`, `index` (titles, tags,
   starred, `search()`), `readNote`/`writeNote`/`editNote` (read-edit-save for adapters)/`createNote`/`renameNote`/`moveNote`/`deleteNote`,
   `listTrash`/`restore`/`emptyTrash`, folder CRUD + colours/order, `saveAsset`/`assetPath`,

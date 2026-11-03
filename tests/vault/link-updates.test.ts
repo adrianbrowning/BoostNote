@@ -164,6 +164,32 @@ describe('links into a dot-folder, when the linking note moves', () => {
   })
 })
 
+describe('angle-bracket links to a note whose name has # or ?', () => {
+  it.each([
+    ['#', '%23'],
+    ['?', '%3F'],
+  ])('stay encoded when the linking note moves (%s)', async (char, enc) => {
+    await put(`Guides/${char}ideas.md`, 'I\n')
+    await put('Guides/n.md', `[x](<${enc}ideas.md>)\n`)
+    await mkdir(path.join(root, 'Archive'))
+    vault = await openVault(root)
+    const note = await vault.moveNote('Guides/n.md', 'Archive')
+    expect(note.body).toBe(`[x](<../Guides/${enc}ideas.md>)\n`)
+  })
+
+  it.each([
+    ['#', '%23'],
+    ['?', '%3F'],
+  ])('stay encoded when the note is renamed (%s)', async (char, enc) => {
+    await put(`Guides/${char}ideas.md`, 'I\n')
+    await put('index.md', `[x](<Guides/${enc}ideas.md>)\n`)
+    vault = await openVault(root)
+    await vault.renameNote(`Guides/${char}ideas.md`, `${char}plans`)
+    await planThenApply([{ from: `Guides/${char}ideas.md`, to: `Guides/${char}plans.md`, kind: 'note' }])
+    expect(await read('index.md')).toBe(`[x](<Guides/${enc}plans.md>)\n`)
+  })
+})
+
 describe('backslashes in links to a renamed note', () => {
   it('follow the rename when inner, and stay when leading', async () => {
     await put('notes/a.md', 'A\n')

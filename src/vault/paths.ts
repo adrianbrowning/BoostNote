@@ -152,5 +152,12 @@ export function uniqueName(base: string, taken: (candidate: string) => boolean, 
 
 /** Percent-encodes the characters that would break a CommonMark link destination (or start its query or fragment). */
 export function encodeLinkPath(relPath: string): string {
-  return relPath.replace(/[ #%()<>?]/g, (char) => `%${char.charCodeAt(0).toString(16).toUpperCase().padStart(2, '0')}`)
+  return relPath.replace(/[ #%()<>?]/g, percentEncode)
 }
+
+/** Like `encodeLinkPath` for an angle-bracket destination (`<my note.md>`), where spaces may stay literal. */
+export function encodeBracketedLinkPath(relPath: string): string {
+  return relPath.replace(/[#%<>?]/g, percentEncode)
+}
+
+const percentEncode = (char: string) => `%${char.charCodeAt(0).toString(16).toUpperCase().padStart(2, '0')}`

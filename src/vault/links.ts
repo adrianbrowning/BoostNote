@@ -2,7 +2,7 @@ import * as path from 'node:path'
 
 import { isRelativeLink, linkPath, normalizeLinkPath, parentOf } from '../shared/vault-ids.ts'
 import { VaultError } from './errors.ts'
-import { ASSETS_SUFFIX, encodeLinkPath, folderSegments, noteSegments } from './paths.ts'
+import { ASSETS_SUFFIX, encodeBracketedLinkPath, encodeLinkPath, folderSegments, noteSegments } from './paths.ts'
 
 /**
  * A note or folder that was renamed or moved, by id. A note move also covers its `<stem>.assets/`
@@ -92,7 +92,9 @@ export function rewriteRelativeLinks(
         const slash = relPath.endsWith('.md/') ? '/' : ''
         const next = map(slash === '' ? relPath : relPath.slice(0, -1))
         if (next === undefined) return whole
-        const encoded = bracketed ? `<${next}${slash}${suffix}>` : `${encodeLinkPath(next)}${slash}${suffix}`
+        const encoded = bracketed
+          ? `<${encodeBracketedLinkPath(next)}${slash}${suffix}>`
+          : `${encodeLinkPath(next)}${slash}${suffix}`
         return `${prefix}${encoded}`
       },
     ),
