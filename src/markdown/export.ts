@@ -1,6 +1,6 @@
 import { cp, mkdir, readFile, stat, writeFile } from 'node:fs/promises'
 import * as path from 'node:path'
-import type { NoteMeta, Vault } from '../vault/index.ts'
+import type { Note, NoteMeta, Vault } from '../vault/index.ts'
 import { rewriteRelativeLinks } from '../vault/links.ts'
 import { htmlDocument } from './document.ts'
 import { noteLinkToHtml, renderMarkdown } from './render.ts'
@@ -23,8 +23,16 @@ export interface ExportOptions {
   renderMermaid?(source: string): Promise<string>
 }
 
+/** What folder export needs from a vault; `Vault` satisfies it. */
+export interface ExportVault {
+  readonly root: string
+  notes(): Promise<readonly Pick<NoteMeta, 'id' | 'title'>[]>
+  readNote(id: string): Promise<Pick<Note, 'raw'>>
+  assetPath(noteId: string, href: string): Promise<string>
+}
+
 /** `data:` URI of an image the note links to; `undefined` for non-images, missing files or links outside the vault. */
-async function inlineImage(vault: Vault, noteId: string, src: string): Promise<string | undefined> {
+async function inlineImage(vault: ExportVault, noteId: string, src: string): Promise<string | undefined> {
   const type = IMAGE_TYPES[/\.([a-z0-9]+)(?:[?#].*)?$/i.exec(src)?.[1]?.toLowerCase() ?? '']
   if (!type) return undefined
   const file = await vault.assetPath(noteId, src)
@@ -32,7 +40,7 @@ async function inlineImage(vault: Vault, noteId: string, src: string): Promise<s
 }
 
 async function renderNotePage(
-  vault: Vault,
+  vault: ExportVault,
   note: Pick<NoteMeta, 'id' | 'title'>,
   options: ExportOptions & { linkNotes: boolean },
 ): Promise<string> {
@@ -66,7 +74,7 @@ const encodeHref = (relPath: string) => relPath.split('/').map(encodeURIComponen
  * `index.html` and the listing is `_contents.html`. Returns the listing's path and the page count.
  */
 export async function exportFolderHtml(
-  vault: Vault,
+  vault: ExportVault,
   folder: string,
   targetDir: string,
   options: ExportOptions = {},

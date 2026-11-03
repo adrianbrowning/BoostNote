@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os'
 import * as path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 
+import type { ExportVault } from '../../src/markdown/export.ts'
 import {
   exportFolderHtml,
   exportNoteMarkdown,
@@ -186,14 +187,24 @@ describe('vault export', () => {
     expect((await stat(path.join(sub, 'todo.html'))).isFile()).toBe(true)
   })
 
-  it('lists exported pages in id order', async () => {
-    await writeFile(path.join(root, 'work/Beta.md'), '# Beta\n')
-    await writeFile(path.join(root, 'work/apple.md'), '# Apple\n')
-    await vault.refresh()
-    await exportFolderHtml(vault, 'work', out)
+  it('lists exported pages in the order vault.notes() gives them', async () => {
+    // Deliberately not id-sorted: export must keep the vault's order, not re-sort it.
+    const notes = [
+      { id: 'b.md', title: 'B' },
+      { id: 'a.md', title: 'A' },
+    ]
+    const fake = {
+      root,
+      notes: async () => notes,
+      readNote: async (id: string) => ({ raw: `# ${id}\n` }),
+      assetPath: async () => {
+        throw new Error('no assets')
+      },
+    } satisfies ExportVault
+    await exportFolderHtml(fake, '', out)
     const index = await readFile(path.join(out, 'index.html'), 'utf8')
     const titles = [...index.matchAll(/<a href="[^"]*">([^<]*)<\/a>/g)].map((match) => match[1])
-    expect(titles).toEqual(['apple', 'Beta', 'Todo'])
+    expect(titles).toEqual(['B', 'A'])
   })
 
   it('exports markdown with its assets folder renamed after the file', async () => {

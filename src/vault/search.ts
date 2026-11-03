@@ -111,7 +111,7 @@ export class NoteIndex {
         }
         total += score
       }
-      if (total > 0) hits.push({ ...entry.meta, score: total })
+      if (total > 0) hits.push(Object.freeze({ ...entry.meta, score: total }))
     }
     return hits.sort((a, b) => b.score - a.score || b.updated.localeCompare(a.updated)).slice(0, limit)
   }

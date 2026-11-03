@@ -83,6 +83,11 @@ describe('vault queries', () => {
     if (!listed) throw new Error('work/alpha.md is not listed')
     const listedTags = listed.tags as string[]
     expect(() => listedTags.splice(0)).toThrow(TypeError)
+    const [hit] = await vault.search('rust')
+    const writableHit = hit as unknown as { score: number }
+    expect(() => {
+      writableHit.score = 0
+    }).toThrow(TypeError)
     expect(await vault.findNote('work/alpha.md')).toMatchObject({ title: 'alpha', tags: ['rust', 'Lang'] })
   })
 
