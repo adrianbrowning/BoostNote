@@ -1,7 +1,16 @@
 import { type Dirent, type FSWatcher, type Stats, watch } from 'node:fs'
 import { lstat, mkdir, readdir, readFile, realpath, rename, rm, stat, utimes } from 'node:fs/promises'
 import * as path from 'node:path'
-import { joinId, lastSegment, noteStem, parentOf, safeDecode } from '../shared/vault-ids.ts'
+import {
+  isNoteFileName,
+  isRelativeLink,
+  joinId,
+  lastSegment,
+  linkPath,
+  noteStem,
+  parentOf,
+  resolveLinkPath,
+} from '../shared/vault-ids.ts'
 import {
   type FolderConfig,
   readConfig,
@@ -745,16 +754,10 @@ export class Vault {
    */
   async assetPath(noteId: string, href: string): Promise<string> {
     noteSegments(noteId)
-    const pathPart = safeDecode(href.replace(/[?#].*$/, ''))
-    if (pathPart === '' || pathPart.includes('\0') || /^(?:[a-z][a-z\d+.-]*:|[/\\])/i.test(pathPart)) {
-      throw new VaultError('INVALID_PATH', `Not a relative link: ${href}`)
-    }
-    const target = path.posix.normalize(path.posix.join(parentOf(noteId), pathPart.replace(/\\/g, '/')))
-    const segments = target.split('/')
-    if (target === '.' || segments.some((segment) => segment === '..' || segment.startsWith('.'))) {
-      throw new VaultError('INVALID_PATH', `Link leaves the vault: ${href}`)
-    }
-    return resolveInside(this.root, segments)
+    if (!isRelativeLink(href)) throw new VaultError('INVALID_PATH', `Not a relative link: ${href}`)
+    const target = resolveLinkPath(parentOf(noteId), linkPath(href))
+    if (target === undefined || target === '') throw new VaultError('INVALID_PATH', `Link leaves the vault: ${href}`)
+    return resolveInside(this.root, target.split('/'))
   }
 
   // ── Internals ──────────────────────────────────────────────────────────────────────────────
@@ -957,7 +960,7 @@ export class Vault {
         if (entry.isDirectory()) {
           folders.add(id)
           await walk(path.join(dir, entry.name), id)
-        } else if (entry.isFile() && entry.name.endsWith('.md') && entry.name.length > 3) {
+        } else if (entry.isFile() && isNoteFileName(entry.name)) {
           found.set(id, path.join(dir, entry.name))
         }
       }

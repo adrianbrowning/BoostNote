@@ -3,7 +3,6 @@
  * no Electron imports; the router controllers (phase 4) are its only intended caller.
  */
 
-export { noteDisplayName as noteTitle } from '../shared/vault-ids.ts'
 export type { FolderConfig, TrashEntry, TrashKind, VaultConfig } from './config.ts'
 export { VaultError, type VaultErrorCode } from './errors.ts'
 export { type Frontmatter, type NoteText, parseNoteText, serializeNoteText, toJsonValue } from './frontmatter.ts'

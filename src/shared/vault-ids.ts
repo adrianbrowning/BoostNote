@@ -17,10 +17,15 @@ export function lastSegment(id: string): string {
   return id.replace(/[\\/]+$/, '').replace(/^.*[\\/]/, '')
 }
 
+/** Whether a file name is a note's: it ends in lowercase `.md` and has a stem (`a.md`; not `.md`, `B.MD`). */
+export function isNoteFileName(name: string): boolean {
+  return name.endsWith('.md') && name.length > 3
+}
+
 /** File name without `.md` (`work/todo.md` → `todo`); `.MD` and a bare `.md` are kept. */
 export function noteStem(id: string): string {
   const name = lastSegment(id)
-  return name.endsWith('.md') && name.length > 3 ? name.slice(0, -3) : name
+  return isNoteFileName(name) ? name.slice(0, -3) : name
 }
 
 /** `folder` + `name` as a vault id (`''` is the root). */
@@ -41,4 +46,69 @@ export function safeDecode(value: string): string {
   } catch {
     return value
   }
+}
+
+/** A link's path: its `?query` and `#fragment` cut off, then percent-decoded (`a%20b.md#x` → `a b.md`). */
+export function linkPath(href: string): string {
+  return safeDecode(href.replace(/[?#].*$/, ''))
+}
+
+/**
+ * A scheme (`https:`, `mailto:`), an absolute or protocol-relative path (`/`, `//`), a leading `\`,
+ * or (only possible after decoding: `%23top`, `%3Fx`) an anchor or a query.
+ */
+const NOT_RELATIVE = /^(?:[a-z][a-z\d+.-]*:|[/\\#?])/i
+
+/**
+ * Whether `href` is a relative link (`../work/todo.md#x`, `todo.assets/a.png`): its `linkPath` is not
+ * empty (so not `#anchor`, `?query` or `''`), has no NUL and does not start with a scheme, `/`, `//`,
+ * `\`, `#` or `?`. Checked after decoding, so `%2Fetc%2Fx.md` is absolute too.
+ */
+export function isRelativeLink(href: string): boolean {
+  const target = linkPath(href)
+  return target !== '' && !target.includes('\0') && !NOT_RELATIVE.test(target)
+}
+
+/** A dot-file or dot-folder (`.trash`, `.boostnote`), not the `.`/`..` navigation segments. */
+function isHiddenSegment(segment: string): boolean {
+  return segment.startsWith('.') && segment !== '.' && segment !== '..'
+}
+
+/**
+ * The vault id that the decoded relative path `relPath` names from folder `folder` (`''`: the
+ * root, also a possible result). `\` is a separator like `/`, `.`, `..` and empty segments are
+ * resolved (`a//b`, `note.md/`). `undefined` when it leaves the vault or has a hidden segment
+ * (`.trash/x.md`).
+ */
+export function resolveLinkPath(folder: string, relPath: string): string | undefined {
+  const segments: string[] = []
+  for (const segment of [...folder.split('/'), ...relPath.replace(/\\/g, '/').split('/')]) {
+    if (segment === '' || segment === '.') continue
+    if (isHiddenSegment(segment)) return undefined
+    if (segment !== '..') segments.push(segment)
+    else if (segments.pop() === undefined) return undefined
+  }
+  return segments.join('/')
+}
+
+/**
+ * Whether `href` is a link to a note, whatever note it is in: a relative link whose path ends in a
+ * note file name (lowercase `.md`; also the `note.md/#anchor` form copied from GitHub) with no
+ * hidden segment. Whether it stays inside the vault depends on the note: see `resolveNoteLink`.
+ */
+export function isNoteLink(href: string): boolean {
+  if (!isRelativeLink(href)) return false
+  const segments = linkPath(href)
+    .replace(/\\/g, '/')
+    .split('/')
+    .filter((segment) => segment !== '')
+  return !segments.some(isHiddenSegment) && isNoteFileName(segments.at(-1) ?? '')
+}
+
+/**
+ * The note a link in note `fromId` opens (`../work/todo.md#x` → `work/todo.md`, `note.md/#x` →
+ * `note.md`), or `undefined` for anything that is not a note link (`isNoteLink`) inside the vault.
+ */
+export function resolveNoteLink(fromId: string, href: string): string | undefined {
+  return isNoteLink(href) ? resolveLinkPath(parentOf(fromId), linkPath(href)) : undefined
 }

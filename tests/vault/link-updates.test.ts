@@ -4,6 +4,7 @@ import * as path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 
 import { type LinkMove, openVault, type Vault } from '../../src/vault/index.ts'
+import { FROM, LINK_CASES } from '../shared/link-cases.ts'
 
 let root: string
 let vault: Vault
@@ -140,6 +141,27 @@ describe('link updates after moving a note to another folder', () => {
     expect(await read('work/sub/n.md')).toBe('[t](../../archive/2026/todo.md)\n')
     expect(await read('r.md')).toBe('[t](./archive/2026/todo.md)\n')
     expect(await read('archive/2026/y.md')).toBe('[t](todo.md) [t2](./todo.md)\n')
+  })
+})
+
+describe('the shared link table, when the linking note moves', () => {
+  it.each(LINK_CASES)('$kind: $href', async ({ href, moved }) => {
+    await put(FROM, `[l](${href}) <img src="${href}">\n`)
+    await mkdir(path.join(root, 'Archive'))
+    vault = await openVault(root)
+    const note = await vault.moveNote(FROM, 'Archive')
+    expect(note.body).toBe(`[l](${moved}) <img src="${moved}">\n`)
+  })
+})
+
+describe('backslashes in links to a renamed note', () => {
+  it('follow the rename when inner, and stay when leading', async () => {
+    await put('notes/a.md', 'A\n')
+    await put('index.md', '[a](notes\\a.md#x) [b](\\notes\\a.md)\n')
+    vault = await openVault(root)
+    await vault.renameNote('notes/a.md', 'Alpha')
+    await planThenApply([{ from: 'notes/a.md', to: 'notes/Alpha.md', kind: 'note' }])
+    expect(await read('index.md')).toBe('[a](notes/Alpha.md#x) [b](\\notes\\a.md)\n')
   })
 })
 

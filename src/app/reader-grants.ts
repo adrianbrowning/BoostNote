@@ -3,7 +3,7 @@ import { constants } from 'node:fs'
 import { type FileHandle, lstat, open, realpath } from 'node:fs/promises'
 import * as path from 'node:path'
 
-import { safeDecode } from '../shared/vault-ids.ts'
+import { isRelativeLink, linkPath } from '../shared/vault-ids.ts'
 import type { ImportOptions } from '../vault/index.ts'
 import { isInside } from '../vault/paths.ts'
 
@@ -150,8 +150,8 @@ export class ReaderGrants {
   async asset(ticket: string, src: string): Promise<{ bytes: Buffer; name: string } | undefined> {
     const file = this.#paths.get(ticket)
     if (file === undefined) return undefined
-    const link = safeDecode(src.replace(/[?#].*$/, ''))
-    if (link === '' || link.includes('\0') || /^(?:[a-z][a-z\d+.-]*:|[/\\])/i.test(link)) return undefined
+    if (!isRelativeLink(src)) return undefined
+    const link = linkPath(src)
     const folder = path.dirname(file)
     const real = await realpath(path.resolve(folder, link)).catch(refused)
     if (real === undefined || assetRefusal(folder, link, real) !== undefined) return undefined

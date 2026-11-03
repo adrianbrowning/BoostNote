@@ -272,10 +272,22 @@ describe('vault path safety', () => {
       'file:///etc/passwd',
       '..%2F..%2Fx',
       '../.boostnote/config.json',
+      '.trash/x.png',
+      '\\etc\\passwd',
+      '%5Cetc%5Cpasswd',
+      '%2Fetc%2Fpasswd',
+      '%23top',
+      '#top',
+      '?x=1',
+      '',
+      'a%00.png',
     ]) {
       await expect(vault.assetPath('a/n.md', href)).rejects.toMatchObject({ code: 'INVALID_PATH' })
     }
     expect(await vault.assetPath('a/n.md', '../b/c.png?x=1#y')).toBe(path.join(vault.root, 'b', 'c.png'))
+    expect(await vault.assetPath('a/n.md', 'n.assets\\p%20q.png')).toBe(
+      path.join(vault.root, 'a', 'n.assets', 'p q.png'),
+    )
   })
 
   it('rejects paths that escape through symlinks', async () => {

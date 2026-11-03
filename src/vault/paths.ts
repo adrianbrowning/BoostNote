@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto'
 import { realpath } from 'node:fs/promises'
 import * as path from 'node:path'
 
+import { isNoteFileName } from '../shared/vault-ids.ts'
 import { isNodeError, VaultError } from './errors.ts'
 
 /** Directory (relative to the vault root) that holds deleted notes and folders. */
@@ -47,7 +48,7 @@ export function folderSegments(folder: string): string[] {
 export function noteSegments(id: string): string[] {
   const segments = splitRelative(id, 'note id')
   const last = segments.at(-1)
-  if (!last?.endsWith('.md') || last.length === 3) {
+  if (last === undefined || !isNoteFileName(last)) {
     throw new VaultError('INVALID_PATH', `Invalid note id: ${JSON.stringify(id)}`)
   }
   return segments

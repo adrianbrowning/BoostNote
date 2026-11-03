@@ -1,6 +1,17 @@
 import { describe, expect, it } from 'vitest'
 
-import { joinId, lastSegment, noteDisplayName, noteStem, parentOf, safeDecode } from '../../src/shared/vault-ids.ts'
+import {
+  isNoteFileName,
+  isRelativeLink,
+  joinId,
+  lastSegment,
+  noteDisplayName,
+  noteStem,
+  parentOf,
+  resolveNoteLink,
+  safeDecode,
+} from '../../src/shared/vault-ids.ts'
+import { FROM, LINK_CASES } from './link-cases.ts'
 
 describe('parentOf', () => {
   it.each([
@@ -26,6 +37,22 @@ describe('lastSegment', () => {
     ['/Users/me/notes/', 'notes'],
   ])('%j → %j', (id, last) => {
     expect(lastSegment(id)).toBe(last)
+  })
+})
+
+describe('isNoteFileName', () => {
+  it.each([
+    ['a.md', true],
+    ['Git cheat sheet.md', true],
+    ['a.md.md', true],
+    ['.md', false],
+    ['B.MD', false],
+    ['a.Md', false],
+    ['notes.md.bak', false],
+    ['a', false],
+    ['', false],
+  ])('%j → %j', (name, isNote) => {
+    expect(isNoteFileName(name)).toBe(isNote)
   })
 })
 
@@ -80,5 +107,26 @@ describe('safeDecode', () => {
     ['', ''],
   ])('%j → %j', (value, decoded) => {
     expect(safeDecode(value)).toBe(decoded)
+  })
+})
+
+describe('isRelativeLink', () => {
+  it.each(LINK_CASES)('$kind: $href', ({ href, relative }) => {
+    expect(isRelativeLink(href)).toBe(relative)
+  })
+
+  it('rejects a NUL in the decoded path', () => {
+    expect(isRelativeLink('a%00.png')).toBe(false)
+  })
+})
+
+describe('resolveNoteLink', () => {
+  it.each(LINK_CASES)('$kind: $href', ({ href, note }) => {
+    expect(resolveNoteLink(FROM, href)).toBe(note)
+  })
+
+  it('resolves from a note at the vault root', () => {
+    expect(resolveNoteLink('index.md', 'Guides/ch3.md')).toBe('Guides/ch3.md')
+    expect(resolveNoteLink('index.md', '../ch3.md')).toBeUndefined()
   })
 })

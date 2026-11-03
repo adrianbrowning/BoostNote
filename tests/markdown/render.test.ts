@@ -12,6 +12,7 @@ import {
   renderMarkdown,
 } from '../../src/markdown/index.ts'
 import { openVault, type Vault } from '../../src/vault/index.ts'
+import { LINK_CASES } from '../shared/link-cases.ts'
 
 const html = async (markdown: string, options?: Parameters<typeof renderMarkdown>[1]) =>
   (await renderMarkdown(markdown, options)).html
@@ -122,11 +123,8 @@ describe('renderMarkdown', () => {
 })
 
 describe('noteLinkToHtml', () => {
-  it('maps .md links and leaves the rest', () => {
-    expect(noteLinkToHtml('a/b.md')).toBe('a/b.html')
-    expect(noteLinkToHtml('../b.MD?x=1#y')).toBe('../b.html?x=1#y')
-    expect(noteLinkToHtml('img.png')).toBeUndefined()
-    expect(noteLinkToHtml('#top')).toBeUndefined()
+  it.each(LINK_CASES)('$kind: $href', ({ href, html }) => {
+    expect(noteLinkToHtml(href)).toBe(html)
   })
 })
 

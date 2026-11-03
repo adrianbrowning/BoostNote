@@ -1,6 +1,6 @@
 import * as path from 'node:path'
 
-import { safeDecode } from '../shared/vault-ids.ts'
+import { isRelativeLink, linkPath, parentOf, resolveLinkPath, safeDecode } from '../shared/vault-ids.ts'
 import { VaultError } from './errors.ts'
 import { ASSETS_SUFFIX, encodeLinkPath, folderSegments, noteSegments } from './paths.ts'
 
@@ -43,10 +43,6 @@ interface MovedPrefix {
  */
 const LINK = /(`+)[^\n]*?(?<!`)\1(?!`)|(\]\(\s*)(<[^>\n]*>|[^\s)]+)|(\b(?:src|href)\s*=\s*["'])([^"'\n]+)/g
 
-function isRelative(destination: string): boolean {
-  return !/^(?:[a-z][a-z\d+.-]*:|\/|#)/i.test(destination)
-}
-
 /** Calls `transform` on every line outside fenced code blocks. */
 function mapOutsideCode(markdown: string, transform: (line: string) => string): string {
   let fence: string | undefined
@@ -66,10 +62,10 @@ function mapOutsideCode(markdown: string, transform: (line: string) => string): 
 }
 
 /**
- * Rewrites relative link destinations outside code blocks and code spans. `map` receives the
- * decoded path (no `#fragment`/`?query`) and returns a replacement path, or `undefined` to keep
- * the link as is. `onOther` sees the destinations that are not relative paths (URLs, absolute
- * paths; not same-note `#anchors`), which are always kept.
+ * Rewrites relative link destinations (`isRelativeLink`) outside code blocks and code spans. `map`
+ * receives the decoded path (no `#fragment`/`?query`) and returns a replacement path, or `undefined`
+ * to keep the link as is. `onOther` sees the destinations that are not relative links but have a path
+ * (URLs, absolute paths; not same-note `#anchors`), which are always kept.
  */
 export function rewriteRelativeLinks(
   markdown: string,
@@ -85,19 +81,18 @@ export function rewriteRelativeLinks(
         const raw = mdDest ?? htmlDest ?? ''
         const bracketed = raw.startsWith('<') && raw.endsWith('>')
         const destination = bracketed ? raw.slice(1, -1) : raw
-        if (!isRelative(destination)) {
-          if (!destination.startsWith('#')) onOther?.(destination)
+        if (!isRelativeLink(destination)) {
+          if (linkPath(destination) !== '') onOther?.(destination)
           return whole
         }
         const suffixIndex = destination.search(/[#?]/)
         let pathPart = suffixIndex === -1 ? destination : destination.slice(0, suffixIndex)
         let suffix = suffixIndex === -1 ? '' : destination.slice(suffixIndex)
         // `note.md/#anchor` (common in notes copied from GitHub) is a link to `note.md`.
-        if (/\.md\/$/i.test(pathPart)) {
+        if (pathPart.endsWith('.md/')) {
           pathPart = pathPart.slice(0, -1)
           suffix = `/${suffix}`
         }
-        if (pathPart === '') return whole
         const next = map(safeDecode(pathPart))
         if (next === undefined) return whole
         const encoded = bracketed ? `<${next}${suffix}>` : `${encodeLinkPath(next)}${suffix}`
@@ -148,12 +143,12 @@ export function rebaseNoteLinks(
   moves: readonly LinkMove[] = [{ from: fromId, to: toId, kind: 'note' }],
 ): string {
   if (fromId === toId) return markdown
-  const fromDir = path.posix.dirname(fromId)
-  const toDir = path.posix.dirname(toId)
+  const fromDir = parentOf(fromId)
+  const toDir = parentOf(toId)
   const prefixes = movedPrefixes(moves)
   return rewriteRelativeLinks(markdown, (relPath) => {
-    const old = path.posix.normalize(path.posix.join(fromDir, relPath))
-    if (old === '..' || old.startsWith('../')) return undefined
+    const old = resolveLinkPath(fromDir, relPath)
+    if (old === undefined) return undefined
     const relative = path.posix.relative(toDir, movedTarget(old, prefixes) ?? old)
     if (relative === '') return undefined
     const next = relative.startsWith('../') ? relative : `./${relative}`
@@ -174,7 +169,8 @@ export function rewriteMovedLinks(
   const prefixes = movedPrefixes(moves)
   let links = 0
   const body = rewriteRelativeLinks(markdown, (relPath) => {
-    const next = movedTarget(path.posix.normalize(path.posix.join(dir, relPath)), prefixes)
+    const target = resolveLinkPath(dir, relPath)
+    const next = target === undefined ? undefined : movedTarget(target, prefixes)
     if (next === undefined) return undefined
     links++
     const relative = path.posix.relative(dir, next)

@@ -354,7 +354,7 @@ sanitising too (`resolveImage`, async); relative link `href`s go through `rewrit
 stylesheet with its WOFF2 fonts inlined as `data:` URIs (only when the note has math), and a CSP meta
 tag that forbids scripts and any fetch except images. `noteToHtml` inlines a note's images
 (`vault.assetPath` → `data:` URI); `exportFolderHtml` writes one page per note at the same relative
-path, `.md` links rewritten to `.html`, plus an `index.html` listing (`_contents.html` when the folder
+path, note links (`isNoteLink`) rewritten to `.html` (`ch3.md/#x` → `ch3.html#x`), plus an `index.html` listing (`_contents.html` when the folder
 has its own `index.md`, which then becomes `index.html`); `exportNoteMarkdown` copies the file and its
 `<stem>.assets/` (renamed after the new file name, links rewritten).
 
@@ -484,7 +484,7 @@ Linux installers on their own runners (`release` job) and attaches them to a dra
 
 The file name **is** the note's name (as in Obsidian/Hubble); the first `# H1` is just content.
 
-- **Displayed name** (`noteDisplayName`, `src/shared/vault-ids.ts`; the vault re-exports it as `noteTitle`): frontmatter `title` when it is a non-empty
+- **Displayed name** (`noteDisplayName`, `src/shared/vault-ids.ts`): frontmatter `title` when it is a non-empty
   string, else the file name stem. Used by the index (and its search title field), the note list,
   editor header, tabs, trash list and exports (document `<title>`, folder index pages).
 - **One sanitiser** (`noteFileName` / `sanitizeFileName`, `src/vault/paths.ts`) for new notes,
@@ -739,11 +739,19 @@ styles and CSP, the asset server, controlled inputs, testing) are in
 
 `src/vault` (public entry `src/vault/index.ts`) is plain Node, no Electron. Things consumers need to know:
 
-- **Shared rules:** vault-id and note-name rules that the renderer needs too (`parentOf`,
-  `lastSegment`, `noteStem`, `joinId`, `noteDisplayName`, `safeDecode`) live in
-  `src/shared/vault-ids.ts`, beside `src/vault`. It has no `node:` imports (a Biome
-  `noNodejsModules` override on `src/shared/**` enforces it) and `remix.json` `allowFiles` serves it
-  to the page. The Markdown extension is lowercase `.md` only: `noteStem('B.MD')` is `B.MD`.
+- **Shared rules:** vault-id, note-name and link rules that the renderer needs too (`parentOf`,
+  `lastSegment`, `isNoteFileName`, `noteStem`, `joinId`, `noteDisplayName`, `safeDecode`, `linkPath`,
+  `isRelativeLink`, `resolveLinkPath`, `isNoteLink`, `resolveNoteLink`) live in `src/shared/vault-ids.ts`, beside `src/vault`. It has
+  no `node:` imports (a Biome `noNodejsModules` override on `src/shared/**` enforces it) and
+  `remix.json` `allowFiles` serves it to the page. The Markdown extension is lowercase `.md` only:
+  `noteStem('B.MD')` is `B.MD`, and a link to `B.MD` is no note link.
+- **Relative links, one rule** (`isRelativeLink`, used by link rewriting on rename/move, `assetPath`,
+  reader assets, export and editor link following): the path (no `?query`/`#fragment`) is decoded
+  first, then must be non-empty and must not start with a scheme, `/` (absolute, `//` protocol-relative),
+  `\`, `#` or `?`, so `%2Fetc%2Fx.md` is absolute too. Resolving it (`resolveLinkPath`): an inner `\` is
+  a separator, `.`/`..` are resolved, and a link that leaves the vault or has a hidden segment
+  (`.trash/x.md`) resolves to nothing, so link rewriting leaves it as written. `resolveNoteLink` adds
+  the note-file rule; `note.md/#anchor` (as copied from GitHub) opens `note.md`.
 - **Entry point:** `openVault(root, { watch: true })` returns a `Vault`: `tree()`, `index` (titles, tags,
   starred, `search()`), `readNote`/`writeNote`/`editNote` (read-edit-save for adapters)/`createNote`/`renameNote`/`moveNote`/`deleteNote`,
   `listTrash`/`restore`/`emptyTrash`, folder CRUD + colours/order, `saveAsset`/`assetPath`,

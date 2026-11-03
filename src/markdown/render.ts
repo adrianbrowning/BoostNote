@@ -4,6 +4,7 @@ import footnote from 'markdown-it-footnote'
 import sanitizeHtml from 'sanitize-html'
 
 import { renderMath } from '../editor/render/math.ts'
+import { isNoteLink, isRelativeLink } from '../shared/vault-ids.ts'
 import { parseNoteText } from '../vault/frontmatter.ts'
 import { highlight, loadLanguages } from './highlight.ts'
 import { mathPlugin } from './math.ts'
@@ -142,11 +143,6 @@ md.renderer.rules.fence = (tokens, index, _options, env) => {
   )
 }
 
-/** Relative link (no scheme, not `/…`, `//…` or `#…`). */
-export function isRelativeUrl(url: string): boolean {
-  return url !== '' && !/^(?:[a-z][a-z\d+.-]*:|[/\\#])/i.test(url)
-}
-
 const TEXT_ALIGN = { 'text-align': [/^(?:left|right|center)$/] }
 
 /** Allow-list for raw HTML in notes (and everything markdown-it emits). Scripts, styles, frames, forms and event handlers go. */
@@ -206,13 +202,13 @@ export async function renderMarkdown(markdown: string, options: RenderOptions = 
     transformTags: {
       img: (tagName, attribs) => {
         const src = attribs.src ?? ''
-        if (!options.resolveImage || !isRelativeUrl(src)) return { tagName, attribs }
+        if (!options.resolveImage || !isRelativeLink(src)) return { tagName, attribs }
         images.push(src)
         return { tagName, attribs: { ...attribs, src: imageToken(images.length - 1) } }
       },
       a: (tagName, attribs) => {
         const href = attribs.href
-        const next = href !== undefined && isRelativeUrl(href) ? options.rewriteLink?.(href) : undefined
+        const next = href !== undefined && isRelativeLink(href) ? options.rewriteLink?.(href) : undefined
         return { tagName, attribs: next === undefined ? attribs : { ...attribs, href: next } }
       },
       input: (tagName, attribs) => ({ tagName, attribs: { ...attribs, disabled: '' } }),
@@ -229,8 +225,11 @@ export async function renderMarkdown(markdown: string, options: RenderOptions = 
   return { html, hasMath: env.hasMath }
 }
 
-/** `other.md#x` → `other.html#x`: links between notes of an exported folder. Anything else: `undefined`. */
+/**
+ * `other.md#x` → `other.html#x` (also `other.md/#x`; an inner `\` becomes `/`): links between notes
+ * of an exported folder, by the shared `isNoteLink` rule. Anything else: `undefined`.
+ */
 export function noteLinkToHtml(href: string): string | undefined {
-  const match = /^([^?#]*?)\.md((?:[?#].*)?)$/i.exec(href)
-  return match ? `${match[1]}.html${match[2]}` : undefined
+  const match = isNoteLink(href) ? /^([^?#]*)\.md\/?([?#].*)?$/.exec(href) : null
+  return match?.[1] === undefined ? undefined : `${match[1].replace(/\\/g, '/')}.html${match[2] ?? ''}`
 }
