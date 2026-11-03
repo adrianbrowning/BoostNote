@@ -1,16 +1,30 @@
-import { describe, expect, it } from 'vitest'
+import { mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import * as path from 'node:path'
+import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 
 import { restoreFromTrash } from '../../src/cli/commands.ts'
-import type { Vault } from '../../src/vault/index.ts'
+import { openVault, type Vault } from '../../src/vault/index.ts'
+
+let root: string
+let vault: Vault
+
+beforeEach(async () => {
+  root = await mkdtemp(path.join(tmpdir(), 'cli-commands-'))
+  vault = await openVault(root)
+})
+
+afterEach(async () => {
+  await vault?.close()
+  await rm(root, { recursive: true, force: true })
+})
 
 describe('restoreFromTrash', () => {
-  it('returns the vault restore result without asking whether the note exists', async () => {
-    const vault = {
-      restore: async (trashId: string) => ({ id: `${trashId} 2`, kind: 'folder' as const }),
-      hasNote: () => {
-        throw new Error('hasNote must not be called')
-      },
-    } as unknown as Vault
-    expect(await restoreFromTrash(vault, ' Ideas ')).toEqual({ id: 'Ideas 2', kind: 'folder' })
+  it('restores a trashed folder and reports its kind', async () => {
+    await vault.createFolder('', 'Ideas')
+    await writeFile(path.join(root, 'Ideas', 'plan.md'), '# Plan\n')
+    const trashed = await vault.deleteFolder('Ideas')
+    expect(await restoreFromTrash(vault, ` ${trashed.id} `)).toEqual({ id: 'Ideas', kind: 'folder' })
+    expect(vault.folders).toContain('Ideas')
   })
 })

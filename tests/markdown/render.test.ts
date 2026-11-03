@@ -186,6 +186,16 @@ describe('vault export', () => {
     expect((await stat(path.join(sub, 'todo.html'))).isFile()).toBe(true)
   })
 
+  it('lists exported pages in id order', async () => {
+    await writeFile(path.join(root, 'work/Beta.md'), '# Beta\n')
+    await writeFile(path.join(root, 'work/apple.md'), '# Apple\n')
+    await vault.refresh()
+    await exportFolderHtml(vault, 'work', out)
+    const index = await readFile(path.join(out, 'index.html'), 'utf8')
+    const titles = [...index.matchAll(/<a href="[^"]*">([^<]*)<\/a>/g)].map((match) => match[1])
+    expect(titles).toEqual(['apple', 'Beta', 'Todo'])
+  })
+
   it('exports markdown with its assets folder renamed after the file', async () => {
     const target = path.join(out, 'Renamed.md')
     await exportNoteMarkdown(vault, 'work/todo.md', target)

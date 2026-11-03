@@ -19,6 +19,11 @@ export interface NoteMeta {
   excerpt: string
 }
 
+/** `NoteMeta` as the vault's queries return it: frozen at runtime, so read-only to the compiler. */
+export interface ReadonlyNoteMeta extends Readonly<Omit<NoteMeta, 'tags'>> {
+  readonly tags: readonly string[]
+}
+
 /** A note as read from disk. */
 export interface Note extends NoteMeta {
   frontmatter: Frontmatter

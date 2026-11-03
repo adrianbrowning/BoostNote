@@ -72,9 +72,7 @@ export async function exportFolderHtml(
   options: ExportOptions = {},
 ): Promise<{ contents: string; pages: number }> {
   const prefix = folder === '' ? '' : `${folder}/`
-  const notes = (await vault.notes())
-    .filter((note) => note.id.startsWith(prefix))
-    .sort((a, b) => a.id.localeCompare(b.id))
+  const notes = (await vault.notes()).filter((note) => note.id.startsWith(prefix))
   await mkdir(targetDir, { recursive: true })
 
   const byFolder = new Map<string, Array<{ href: string; title: string }>>()

@@ -6,7 +6,7 @@
 import { fstatSync } from 'node:fs'
 import { parse as parseYaml } from 'yaml'
 
-import type { NoteMeta, Vault } from '../vault/index.ts'
+import type { ReadonlyNoteMeta, Vault } from '../vault/index.ts'
 import { openVault } from '../vault/index.ts'
 import {
   appendToNote,
@@ -446,7 +446,7 @@ function propertyValue(key: string, text: string): unknown {
 
 // ── Text output ──────────────────────────────────────────────────────────────────────────────
 
-function noteLine(meta: NoteMeta): string {
+function noteLine(meta: ReadonlyNoteMeta): string {
   const tags = meta.tags.length > 0 ? `  ${meta.tags.map((tag) => `#${tag}`).join(' ')}` : ''
   return `${meta.starred ? '★ ' : ''}${meta.id} — ${meta.title}${tags}  (${meta.updated.slice(0, 10)})`
 }
