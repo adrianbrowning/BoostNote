@@ -8,6 +8,7 @@ import {
   readTrashIndex,
   type TrashEntry,
   type TrashIndex,
+  type TrashKind,
   type VaultConfig,
   writeConfig,
   writeTrashIndex,
@@ -536,9 +537,9 @@ export class Vault {
 
   /**
    * Puts a trashed note or folder back at its original path (recreating missing parent folders,
-   * suffixing the name when the original is taken). Returns the restored note/folder id.
+   * suffixing the name when the original is taken). Returns the restored note/folder id and its kind.
    */
-  restore(trashId: string): Promise<string> {
+  restore(trashId: string): Promise<{ id: string; kind: TrashKind }> {
     return this.#exclusive(async () => {
       const index = await readTrashIndex(this.root)
       const entry = index.entries[trashId]
@@ -576,7 +577,7 @@ export class Vault {
       }
       delete index.entries[trashId]
       await writeTrashIndex(this.root, index)
-      return restoredId
+      return { id: restoredId, kind: entry.kind }
     })
   }
 

@@ -328,8 +328,7 @@ export async function trashNote(vault: Vault, input: string): Promise<TrashResul
 /** Puts a trashed note (or a folder the app trashed) back; returns where it now is. */
 export async function restoreFromTrash(vault: Vault, trashId: string): Promise<RestoreResult> {
   if (trashId.trim() === '') throw new CommandError('USAGE', 'Missing trash id')
-  const id = await vault.restore(trashId.trim())
-  return { id, kind: (await vault.hasNote(id)) ? 'note' : 'folder' }
+  return vault.restore(trashId.trim())
 }
 
 export function listTags(vault: Vault): Promise<TagCount[]> {
