@@ -90,7 +90,11 @@ const NOT_RELATIVE = /^(?:[a-z][a-z\d+.-]*:|[/\\])/i
  * `//` or `\`. Checked after decoding, so `%2Fetc%2Fx.md` is absolute too.
  */
 export function isRelativeLink(href: string): boolean {
-  const target = linkPath(href)
+  return isRelativePath(linkPath(href))
+}
+
+/** `isRelativeLink` for an already decoded `linkPath`. */
+function isRelativePath(target: string): boolean {
   return target !== '' && !target.includes('\0') && !NOT_RELATIVE.test(target)
 }
 
@@ -134,23 +138,12 @@ export function relativeId(folder: string, toId: string): string {
 }
 
 /**
- * Whether `href` is a link to a note, whatever note it is in: a relative link whose path ends in a
- * note file name (lowercase `.md`; also the `note.md/#anchor` form copied from GitHub) with no
- * hidden segment. Whether it stays inside the vault depends on the note: see `resolveNoteLink`.
- */
-export function isNoteLink(href: string): boolean {
-  if (!isRelativeLink(href)) return false
-  const segments = linkPath(href)
-    .replace(/\\/g, '/')
-    .split('/')
-    .filter((segment) => segment !== '')
-  return !segments.some(isHiddenSegment) && isNoteFileName(segments.at(-1) ?? '')
-}
-
-/**
  * The note a link in note `fromId` opens (`../work/todo.md#x` → `work/todo.md`, `note.md/#x` →
- * `note.md`), or `undefined` for anything that is not a note link (`isNoteLink`) inside the vault.
+ * `note.md`), or `undefined` unless `href` is a relative link whose last non-empty segment is a note
+ * file name (lowercase `.md`) and that resolves inside the vault with no hidden segment (`resolveLinkPath`).
  */
 export function resolveNoteLink(fromId: string, href: string): string | undefined {
-  return isNoteLink(href) ? resolveLinkPath(parentOf(fromId), linkPath(href)) : undefined
+  const relPath = linkPath(href)
+  if (!isRelativePath(relPath) || !isNoteFileName(lastSegment(relPath))) return undefined
+  return resolveLinkPath(parentOf(fromId), relPath)
 }

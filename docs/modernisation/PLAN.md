@@ -741,7 +741,7 @@ styles and CSP, the asset server, controlled inputs, testing) are in
 
 - **Shared rules:** vault-id, note-name and link rules that the renderer needs too (`parentOf`,
   `lastSegment`, `isNoteFileName`, `noteStem`, `joinId`, `noteDisplayName`, `safeDecode`, `linkPath`,
-  `isRelativeLink`, `normalizeLinkPath`, `resolveLinkPath`, `relativeId`, `isNoteLink`, `resolveNoteLink`) live in `src/shared/vault-ids.ts`, beside `src/vault`. It has
+  `isRelativeLink`, `normalizeLinkPath`, `resolveLinkPath`, `relativeId`, `resolveNoteLink`) live in `src/shared/vault-ids.ts`, beside `src/vault`. It has
   no `node:` imports (a Biome `noNodejsModules` override on `src/shared/**` enforces it) and
   `remix.json` `allowFiles` serves it to the page. The Markdown extension is lowercase `.md` only:
   `noteStem('B.MD')` is `B.MD`, and a link to `B.MD` is no note link. The `NoteMeta` list shape and

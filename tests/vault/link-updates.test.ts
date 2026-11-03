@@ -164,9 +164,12 @@ describe('links into a dot-folder, when the linking note moves', () => {
   })
 })
 
-describe('angle-bracket links to a note whose name has # or ?', () => {
+describe('angle-bracket links to a note whose name has #, %, <, > or ?', () => {
   it.each([
     ['#', '%23'],
+    ['%', '%25'],
+    ['<', '%3C'],
+    ['>', '%3E'],
     ['?', '%3F'],
   ])('stay encoded when the linking note moves (%s)', async (char, enc) => {
     await put(`Guides/${char}ideas.md`, 'I\n')
@@ -179,6 +182,9 @@ describe('angle-bracket links to a note whose name has # or ?', () => {
 
   it.each([
     ['#', '%23'],
+    ['%', '%25'],
+    ['<', '%3C'],
+    ['>', '%3E'],
     ['?', '%3F'],
   ])('stay encoded when the note is renamed (%s)', async (char, enc) => {
     await put(`Guides/${char}ideas.md`, 'I\n')
