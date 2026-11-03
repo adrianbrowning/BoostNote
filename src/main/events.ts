@@ -8,8 +8,6 @@
 import type { MenuCommand } from '../shared/commands.ts'
 import type { VaultEventType } from '../vault/index.ts'
 
-export type { MenuCommand }
-
 export interface MenuEvent {
   type: 'menu'
   command: MenuCommand

@@ -18,7 +18,6 @@ function build(platform: NodeJS.Platform, send: (command: string, index?: number
   })
 }
 
-/** Every menu item, submenus flattened. */
 function flatten(items: MenuItemConstructorOptions[]): MenuItemConstructorOptions[] {
   return items.flatMap((item) => [item, ...(Array.isArray(item.submenu) ? flatten(item.submenu) : [])])
 }
@@ -102,6 +101,62 @@ describe('native menu template', () => {
       click()
     }
     expect(send.mock.calls).toEqual([['new-note'], ['select-tab', 0], ['select-tab', 7], ['select-tab', -1]])
-    expect(items.some((item) => item.label === 'Select Tab' && Array.isArray(item.submenu))).toBe(true)
+  })
+
+  it('orders the command items per menu, with Export and Select Tab nested', () => {
+    const ids = (items: MenuItemConstructorOptions[]): unknown[] =>
+      items.flatMap((item): unknown[] =>
+        Array.isArray(item.submenu)
+          ? [{ [String(item.label ?? item.role)]: ids(item.submenu) }]
+          : item.id
+            ? [item.id]
+            : [],
+      )
+    expect(ids(build('linux'))).toEqual([
+      {
+        File: [
+          'new-note',
+          'new-folder',
+          'open-folder',
+          'import-storage',
+          'rename-from-titles',
+          { Export: ['export-html', 'export-pdf', 'export-markdown', 'export-folder', 'export-vault'] },
+          'print',
+          'reveal-note',
+          'close-tab',
+          'reopen-tab',
+          'preferences',
+        ],
+      },
+      { Edit: ['find'] },
+      { View: ['toggle-sidebar', 'toggle-note-list', 'toggle-properties', 'go-back', 'go-forward'] },
+      {
+        Window: [
+          'next-tab',
+          'previous-tab',
+          {
+            'Select Tab': [
+              'select-tab-1',
+              'select-tab-2',
+              'select-tab-3',
+              'select-tab-4',
+              'select-tab-5',
+              'select-tab-6',
+              'select-tab-7',
+              'select-tab-8',
+              'select-tab-9',
+            ],
+          },
+        ],
+      },
+      { help: ['check-updates', 'install-cli'] },
+    ])
+  })
+
+  it('gives every item a unique id', () => {
+    for (const platform of ['darwin', 'win32', 'linux'] as const) {
+      const ids = flatten(build(platform)).flatMap((item) => (item.id ? [item.id] : []))
+      expect(new Set(ids).size).toBe(ids.length)
+    }
   })
 })

@@ -79,7 +79,8 @@ Consequences:
 │                                                                          ▼               │
 │   src/app/router.ts  (Remix router: asyncContext → CSP nonce → render middleware)        │
 │     ├─ GET /          server-rendered document (src/app/ui/document.tsx)                 │
-│     ├─ GET /assets/*  remix/assets: compiles src/**/public/**, src/editor/**, packages   │
+│     ├─ GET /assets/*  remix/assets: compiles src/**/public/**, src/editor/**,            │
+│     │                 src/shared/**, packages                                            │
 │     ├─ GET /vendor/*  allow-listed package files served verbatim (mermaid's ESM build)  │
 │     ├─ GET /events    text/event-stream from the SSE hub                                 │
 │     ├─ GET /vault-assets/*  files a note links to (images), via vault.assetPath()        │

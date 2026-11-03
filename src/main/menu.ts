@@ -1,6 +1,6 @@
 import { app, Menu, type MenuItemConstructorOptions, shell } from 'electron'
 
-import { COMMANDS, commandLabel, type MenuCommand } from '../shared/commands.ts'
+import { COMMANDS, type CommandRow, commandAccelerators, commandLabel, type MenuCommand } from '../shared/commands.ts'
 
 const REPOSITORY_URL = 'https://github.com/adrianbrowning/BoostNote'
 
@@ -52,35 +52,24 @@ export function buildMenuTemplate({
     label: platform === 'win32' ? 'Command Line Tool…' : 'Install Command Line Tool…',
     click: installCommandLineTool,
   }
-  const items = new Map<MenuCommand, MenuItemConstructorOptions>()
-  const selectTab: MenuItemConstructorOptions & { submenu: MenuItemConstructorOptions[] } = { submenu: [] }
-  for (const row of COMMANDS) {
-    if ('tabAccelerators' in row) {
-      selectTab.label = commandLabel(row.label, platform)
-      // Cmd/Ctrl+1–8 pick a tab, the last accelerator picks the last tab (`index` -1).
-      row.tabAccelerators.forEach((accelerator, index, all) => {
-        const last = index === all.length - 1
-        selectTab.submenu.push({
-          id: `${row.id}-${index + 1}`,
-          label: last ? 'Last Tab' : `Tab ${index + 1}`,
-          accelerator,
-          click: () => send(row.id, last ? -1 : index),
-        })
-      })
-      continue
-    }
-    // Ids are the commands, so tests (and anything else) can find an item: `Menu.getApplicationMenu().getMenuItemById(command)`.
-    items.set(row.id, {
-      id: row.id,
-      label: commandLabel(row.label, platform),
-      ...('accelerator' in row ? { accelerator: row.accelerator } : {}),
-      click: () => send(row.id),
-    })
+  // Ids are the commands, so tests (and anything else) can find an item: `Menu.getApplicationMenu().getMenuItemById(command)`.
+  const item = (id: Exclude<MenuCommand, 'select-tab'>): MenuItemConstructorOptions => {
+    const { label, accelerator } = COMMANDS.find((command) => command.id === id) as CommandRow
+    return { id, label: commandLabel(label, platform), ...(accelerator ? { accelerator } : {}), click: () => send(id) }
   }
-  const item = (name: Exclude<MenuCommand, 'select-tab'>): MenuItemConstructorOptions => {
-    const options = items.get(name)
-    if (!options) throw new Error(`No command row: ${name}`)
-    return options
+  const selectTabRow = COMMANDS.find((command) => command.id === 'select-tab') as CommandRow
+  const selectTab: MenuItemConstructorOptions = {
+    label: commandLabel(selectTabRow.label, platform),
+    // Cmd/Ctrl+1–8 pick a tab, the last accelerator picks the last tab (`index` -1).
+    submenu: commandAccelerators(selectTabRow).map((accelerator, index, all) => {
+      const last = index === all.length - 1
+      return {
+        id: `select-tab-${index + 1}`,
+        label: last ? 'Last Tab' : `Tab ${index + 1}`,
+        accelerator,
+        click: () => send('select-tab', last ? -1 : index),
+      }
+    }),
   }
   const preferences = item('preferences')
 

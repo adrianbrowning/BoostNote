@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import { isReservedShortcut } from '../../src/app/actions/public/workspace/shortcuts.ts'
+import { COMMANDS, commandAccelerators } from '../../src/shared/commands.ts'
 
 const key = (
   code: string,
@@ -39,5 +40,29 @@ describe('isReservedShortcut', () => {
   it('leaves unbound keys and roles alone', () => {
     expect(isReservedShortcut(key('KeyB', { metaKey: true }), true)).toBe(false)
     expect(isReservedShortcut(key('KeyW', { metaKey: true, shiftKey: true }), true)).toBe(false)
+  })
+
+  // Electron accelerator key → KeyboardEvent.code, written out independently of shortcuts.ts.
+  const CODE: Record<string, string> = { '[': 'BracketLeft', ']': 'BracketRight', ',': 'Comma', Tab: 'Tab' }
+  const accelerators = COMMANDS.flatMap(commandAccelerators)
+  it.each(accelerators.flatMap((accelerator) => [true, false].map((isMac) => [accelerator, isMac] as const)))(
+    'reserves %s (macOS: %s)',
+    (accelerator, isMac) => {
+      const parts = accelerator.split('+')
+      const last = parts.at(-1) ?? ''
+      const code = CODE[last] ?? (/^\d$/.test(last) ? `Digit${last}` : `Key${last}`)
+      const mod = parts.includes('CmdOrCtrl')
+      const event = key(code, {
+        metaKey: mod && isMac,
+        ctrlKey: parts.includes('Ctrl') || (mod && !isMac),
+        altKey: parts.includes('Alt'),
+        shiftKey: parts.includes('Shift'),
+      })
+      expect(isReservedShortcut(event, isMac)).toBe(true)
+    },
+  )
+
+  it('covers every table accelerator, tab accelerators included', () => {
+    expect(accelerators).toHaveLength(25)
   })
 })

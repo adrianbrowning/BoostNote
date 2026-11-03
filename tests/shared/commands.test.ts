@@ -91,7 +91,7 @@ describe('command table', () => {
   })
 
   it('resolves platform labels', () => {
-    const label = (id: string, platform: string) =>
+    const label = (id: string, platform: NodeJS.Platform) =>
       commandLabel(COMMANDS.find((command) => command.id === id)?.label ?? '', platform)
     expect(label('preferences', 'darwin')).toBe('Settings…')
     expect(label('preferences', 'win32')).toBe('Preferences…')

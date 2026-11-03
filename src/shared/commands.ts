@@ -15,6 +15,8 @@ export interface CommandRow {
   readonly accelerator?: string
   /** Whether the workspace ignores the command until a vault is open. */
   readonly needsVault: boolean
+  /** Accelerators of a submenu with one item per accelerator (Window › Select Tab). */
+  readonly tabAccelerators?: readonly string[]
 }
 
 export const COMMANDS = [
@@ -73,12 +75,17 @@ export const COMMANDS = [
     ],
     needsVault: false,
   },
-] as const satisfies readonly (CommandRow & { readonly tabAccelerators?: readonly string[] })[]
+] as const satisfies readonly CommandRow[]
 
 /** Menu commands the workspace performs (it knows the selected folder, the open note and the tabs). */
 export type MenuCommand = (typeof COMMANDS)[number]['id']
 
-/** The label to show on `platform` (a `process.platform` value). */
-export function commandLabel(label: string | PlatformLabel, platform: string): string {
-  return typeof label === 'string' ? label : (label[platform as NodeJS.Platform] ?? label.default)
+/** Every accelerator `row` binds: its own, or its submenu's. */
+export function commandAccelerators(row: CommandRow): readonly string[] {
+  return row.tabAccelerators ?? (row.accelerator ? [row.accelerator] : [])
+}
+
+/** The label to show on `platform`. */
+export function commandLabel(label: string | PlatformLabel, platform: NodeJS.Platform): string {
+  return typeof label === 'string' ? label : (label[platform] ?? label.default)
 }

@@ -1,4 +1,4 @@
-import { COMMANDS } from '../../../../shared/commands.ts'
+import { COMMANDS, commandAccelerators } from '../../../../shared/commands.ts'
 
 const CODES: Record<string, string> = { '[': 'BracketLeft', ']': 'BracketRight', ',': 'Comma', Tab: 'Tab' }
 
@@ -6,9 +6,7 @@ const CODES: Record<string, string> = { '[': 'BracketLeft', ']': 'BracketRight',
  * Every accelerator in the command table (`select-tab`'s numbered ones included). The native menu
  * handles them, so the renderer reserves them: each shortcut fires exactly once, through the menu.
  */
-const RESERVED = COMMANDS.flatMap((command): readonly string[] =>
-  'tabAccelerators' in command ? command.tabAccelerators : 'accelerator' in command ? [command.accelerator] : [],
-).map((accelerator) => {
+const RESERVED = COMMANDS.flatMap(commandAccelerators).map((accelerator) => {
   const parts = accelerator.split('+')
   const key = parts.pop() ?? ''
   return {
