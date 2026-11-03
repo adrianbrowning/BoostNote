@@ -6,4 +6,4 @@ starred: true
 
 A small sample vault for `pnpm smoke --vault-copy tests/fixtures/sample-vault`.
 
-See [[Projects/Plan]].
+See [Plan](Projects/Plan.md).
