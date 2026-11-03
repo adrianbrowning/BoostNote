@@ -17,6 +17,7 @@ const realWriteFileAtomic = (await vi.importActual<typeof files>('../../src/vaul
 describe('writeNote baseHash', () => {
   let root: string
   let vault: Vault
+  const read = (name: string) => readFile(path.join(root, name), 'utf8')
 
   beforeEach(async () => {
     root = await mkdtemp(path.join(tmpdir(), 'boost-write-race-'))
@@ -37,31 +38,71 @@ describe('writeNote baseHash', () => {
       return realWriteFileAtomic(file, data, beforeReplace)
     })
 
-    await expect(vault.writeNote('note.md', { body: '# Note\n\nMine.\n', baseHash: hash })).rejects.toMatchObject({
-      code: 'CHANGED',
-    })
-    expect(await readFile(path.join(root, 'note.md'), 'utf8')).toBe('# Note\n\nWritten by an agent.\n')
+    const result = await vault.writeNote('note.md', { body: '# Note\n\nMine.\n', baseHash: hash })
+    expect(await read('note.md')).toBe('# Note\n\nWritten by an agent.\n')
+    expect(result.status).toBe('conflict')
+    expect(result.status === 'conflict' && result.current?.raw).toBe('# Note\n\nWritten by an agent.\n')
   })
 
-  it('rejects a stale base hash without touching the file', async () => {
-    await expect(vault.writeNote('note.md', { body: 'Mine.\n', baseHash: 'stale' })).rejects.toMatchObject({
-      code: 'CHANGED',
-    })
-    expect(await readFile(path.join(root, 'note.md'), 'utf8')).toBe('# Note\n\nOriginal.\n')
+  it('returns a conflict with the current note for a stale base hash without touching the file', async () => {
+    const result = await vault.writeNote('note.md', { body: 'Mine.\n', baseHash: 'stale' })
+    expect(await read('note.md')).toBe('# Note\n\nOriginal.\n')
+    expect(result).toMatchObject({ status: 'conflict', current: { id: 'note.md', raw: '# Note\n\nOriginal.\n' } })
   })
 
   it('treats a null base hash as "must not exist"', async () => {
-    await expect(vault.writeNote('note.md', { body: 'Mine.\n', baseHash: null })).rejects.toMatchObject({
-      code: 'CHANGED',
-    })
-    await vault.writeNote('new.md', { body: 'Fresh.\n', baseHash: null })
-    expect(await readFile(path.join(root, 'new.md'), 'utf8')).toContain('Fresh.')
+    const existing = await vault.writeNote('note.md', { body: 'Mine.\n', baseHash: null })
+    expect(existing).toMatchObject({ status: 'conflict', current: { raw: '# Note\n\nOriginal.\n' } })
+    const created = await vault.writeNote('new.md', { body: 'Fresh.\n', baseHash: null })
+    expect(created.status).toBe('saved')
+    expect(await read('new.md')).toContain('Fresh.')
   })
 
-  it('writes when the base hash matches', async () => {
+  it('returns a conflict with no current note when a string base hash names a missing note', async () => {
+    expect(await vault.writeNote('gone.md', { body: 'Mine.\n', baseHash: 'abc' })).toEqual({
+      status: 'conflict',
+      current: null,
+    })
+    await expect(read('gone.md')).rejects.toMatchObject({ code: 'ENOENT' })
+  })
+
+  it('saves when the base hash matches', async () => {
     const { hash } = await vault.readNote('note.md')
-    const saved = await vault.writeNote('note.md', { body: '# Note\n\nMine.\n', baseHash: hash })
-    expect(await readFile(path.join(root, 'note.md'), 'utf8')).toBe(saved.raw)
-    expect(saved.body).toContain('Mine.')
+    const result = await vault.writeNote('note.md', { body: '# Note\n\nMine.\n', baseHash: hash })
+    if (result.status !== 'saved') throw new Error('expected saved')
+    expect(await read('note.md')).toBe(result.note.raw)
+    expect(result.note.body).toContain('Mine.')
+    expect(result.note.hash).not.toBe(hash)
+  })
+})
+
+describe('writeNote frontmatter', () => {
+  let root: string
+  let vault: Vault
+
+  beforeEach(async () => {
+    root = await mkdtemp(path.join(tmpdir(), 'boost-write-yaml-'))
+    vault = await openVault(root)
+  })
+
+  afterEach(async () => {
+    await vault.close()
+    await rm(root, { recursive: true, force: true })
+  })
+
+  it('keeps the YAML of values sent back unchanged after a JSON round trip and writes edited keys', async () => {
+    await writeFile(
+      path.join(root, 'y.md'),
+      '---\nratio: .nan\nquoted: "keep me" # note\ntitle: Old\ncreated: 2020-01-01T00:00:00.000Z\n---\nBody\n',
+    )
+    await vault.refresh()
+    const before = await vault.readNote('y.md')
+    const sent = JSON.parse(JSON.stringify({ ...before.frontmatter, title: 'New' })) as Record<string, unknown>
+    const result = await vault.writeNote('y.md', { body: 'Body\n', baseHash: before.hash, frontmatter: sent })
+    expect(result.status).toBe('saved')
+    const raw = await readFile(path.join(root, 'y.md'), 'utf8')
+    expect(raw).toContain('ratio: .nan\n')
+    expect(raw).toContain('quoted: "keep me" # note\n')
+    expect(raw).toContain('title: New\n')
   })
 })

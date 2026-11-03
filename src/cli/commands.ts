@@ -17,6 +17,7 @@ import {
   type TagCount,
   type Vault,
   VaultError,
+  type WriteNoteResult,
 } from '../vault/index.ts'
 
 export type CommandErrorCode = 'USAGE' | 'NOT_FOUND' | 'CONFLICT' | 'AMBIGUOUS' | 'INVALID' | 'EXISTS' | 'ERROR'
@@ -52,8 +53,6 @@ export function toCommandError(error: unknown): CommandError {
     switch (error.code) {
       case 'NOT_FOUND':
         return new CommandError('NOT_FOUND', error.message)
-      case 'CHANGED':
-        return new CommandError('CONFLICT', error.message)
       case 'EXISTS':
         return new CommandError('EXISTS', error.message)
       default:
@@ -257,7 +256,7 @@ export async function createNote(vault: Vault, folder: string, options: CreateOp
 /** Replaces the body, keeping the frontmatter. With `baseHash`, fails with `CONFLICT` if the file changed since. */
 export async function writeNote(vault: Vault, input: string, body: string, baseHash?: string): Promise<WriteResult> {
   const id = await resolveNoteId(vault, input)
-  return written(await conflictChecked(vault, id, () => vault.writeNote(id, { body, baseHash })))
+  return written(conflictChecked(id, await vault.writeNote(id, { body, baseHash })))
 }
 
 /** Adds `text` at the end of the body, on a line of its own. */
@@ -268,7 +267,7 @@ export async function appendToNote(vault: Vault, input: string, text: string, ba
   const separator = note.body === '' || note.body.endsWith('\n') ? '' : '\n'
   const ending = text.endsWith('\n') ? '' : '\n'
   const body = `${note.body}${separator}${text}${ending}`
-  return written(await conflictChecked(vault, id, () => vault.writeNote(id, { body, baseHash: note.hash })))
+  return written(conflictChecked(id, await vault.writeNote(id, { body, baseHash: note.hash })))
 }
 
 /** Sets/removes frontmatter keys; the YAML of keys not named is left byte for byte. */
@@ -289,7 +288,7 @@ export async function updateProperties(
   const frontmatter: Frontmatter = { ...note.frontmatter, ...set }
   for (const key of remove) delete frontmatter[key]
   return toDocument(
-    await conflictChecked(vault, id, () => vault.writeNote(id, { body: note.body, frontmatter, baseHash: note.hash })),
+    conflictChecked(id, await vault.writeNote(id, { body: note.body, frontmatter, baseHash: note.hash })),
   )
 }
 
@@ -367,15 +366,10 @@ function conflict(id: string, currentHash: string | null): CommandError {
   })
 }
 
-/** Runs a vault write; a `CHANGED` failure becomes a conflict carrying the hash now on disk. */
-async function conflictChecked(vault: Vault, id: string, write: () => Promise<Note>): Promise<Note> {
-  try {
-    return await write()
-  } catch (error) {
-    if (!(error instanceof VaultError && error.code === 'CHANGED')) throw error
-    const current = await vault.readNote(id).catch(() => undefined)
-    throw conflict(id, current?.hash ?? null)
-  }
+/** The saved note of a vault write; a conflict becomes a `CONFLICT` carrying the hash now on disk. */
+function conflictChecked(id: string, result: WriteNoteResult): Note {
+  if (result.status === 'saved') return result.note
+  throw conflict(id, result.current?.hash ?? null)
 }
 
 async function relocated(vault: Vault, fromId: string, note: Note, options: RelocateOptions): Promise<RelocateResult> {

@@ -15,7 +15,7 @@ import {
 } from './config.ts'
 import { isNodeError, VaultError } from './errors.ts'
 import { copyFileAtomic, exists, writeFileAtomic } from './files.ts'
-import { type Frontmatter, parseNoteText, serializeNoteText } from './frontmatter.ts'
+import { type Frontmatter, keepUnchangedValues, parseNoteText, serializeNoteText } from './frontmatter.ts'
 import { type ImportFilesReport, type ImportOptions, planImport } from './import-files.ts'
 import { type LinkMove, rebaseNoteLinks, rewriteMovedLinks } from './links.ts'
 import { findH1, hashText, type Note, type ReadonlyNoteMeta, toNote } from './note.ts'
@@ -78,15 +78,21 @@ export interface TrashItem extends TrashEntry {
 
 export interface WriteNoteInput {
   body: string
-  /** Replaces the frontmatter; omit to keep the file's current frontmatter. */
+  /**
+   * Replaces the frontmatter; omit to keep the file's current frontmatter. Values equal to the
+   * file's after a JSON round trip keep their original value (and YAML bytes).
+   */
   frontmatter?: Frontmatter
   /**
    * Hash the caller's copy was based on (`Note.hash`); `null` means the note must not exist. The
-   * file is checked on entry and again just before it is replaced, and the write fails with
-   * `CHANGED` if it differs. Omit to write unconditionally.
+   * file is checked on entry and again just before it is replaced, and the write returns a
+   * conflict if it differs. Omit to write unconditionally.
    */
   baseHash?: string | null
 }
+
+/** Result of `writeNote`: the saved note, or the note on disk (`null` when missing) that blocked it. */
+export type WriteNoteResult = { status: 'saved'; note: Note } | { status: 'conflict'; current: Note | null }
 
 export interface CreateNoteOptions {
   /** Defaults to an empty body. */
@@ -324,18 +330,24 @@ export class Vault {
    * Writes a note (creating it if needed). `updated` is set to now, `created` is kept or set on the
    * first write; the existing YAML text is edited in place so untouched keys keep their bytes.
    */
-  writeNote(id: string, input: WriteNoteInput): Promise<Note> {
+  writeNote(id: string, input: WriteNoteInput): Promise<WriteNoteResult> {
     return this.#exclusive(async () => {
       const file = await resolveInside(this.root, noteSegments(id))
-      const assertBase = (raw: string | undefined) => {
-        if (input.baseHash === undefined) return
-        const hash = raw === undefined ? null : hashText(raw)
-        if (hash !== input.baseHash) throw new VaultError('CHANGED', `Note changed on disk: ${id}`)
-      }
+      const matchesBase = (raw: string | undefined) =>
+        input.baseHash === undefined || (raw === undefined ? null : hashText(raw)) === input.baseHash
+      const conflict = async (): Promise<WriteNoteResult> => ({
+        status: 'conflict',
+        current: await this.readNote(id).catch((error: unknown) => {
+          if (error instanceof VaultError && error.code === 'NOT_FOUND') return null
+          throw error
+        }),
+      })
       const previousRaw = await readOptional(file)
-      assertBase(previousRaw)
+      if (!matchesBase(previousRaw)) return conflict()
       const previous = previousRaw === undefined ? undefined : parseNoteText(previousRaw)
-      const frontmatter = { ...(input.frontmatter ?? previous?.frontmatter ?? {}) }
+      const frontmatter = input.frontmatter
+        ? keepUnchangedValues(previous?.frontmatter ?? {}, input.frontmatter)
+        : { ...previous?.frontmatter }
       const now = new Date().toISOString()
       if (frontmatter.created === undefined) {
         frontmatter.created =
@@ -344,8 +356,16 @@ export class Vault {
       frontmatter.updated = now
       const raw = serializeNoteText(frontmatter, input.body, previous)
       // An outside program may write between the read above and the rename; check again last.
-      await writeFileAtomic(file, raw, async () => assertBase(await readOptional(file)))
-      return this.#track(id, file, raw)
+      const changed = new Error('changed on disk')
+      try {
+        await writeFileAtomic(file, raw, async () => {
+          if (!matchesBase(await readOptional(file))) throw changed
+        })
+      } catch (error) {
+        if (error === changed) return conflict()
+        throw error
+      }
+      return { status: 'saved', note: await this.#track(id, file, raw) }
     })
   }
 

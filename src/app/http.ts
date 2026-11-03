@@ -8,7 +8,6 @@ export const VAULT_ERROR_STATUS: Record<VaultErrorCode, number> = {
   NOT_FOUND: 404,
   EXISTS: 409,
   NOT_A_VAULT: 400,
-  CHANGED: 409,
   TOO_LARGE: 413,
 }
 

@@ -7,8 +7,6 @@ export type VaultErrorCode =
   | 'EXISTS'
   /** The vault root is missing or not a directory. */
   | 'NOT_A_VAULT'
-  /** The note on disk no longer matches the `baseHash` a write was based on. */
-  | 'CHANGED'
   /** An import would copy more files or bytes than allowed. */
   | 'TOO_LARGE'
 

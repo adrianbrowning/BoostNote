@@ -4,6 +4,24 @@ import { isMap, isNode, isScalar, parseDocument, stringify } from 'yaml'
 /** Frontmatter as a plain object; key order is insertion order and is preserved on write. */
 export type Frontmatter = Record<string, unknown>
 
+/** `value` as JSON clients see it. YAML is parsed with the core schema, so this is lossless except for `.nan`/`.inf`. */
+export function toJsonValue(value: unknown): unknown {
+  return JSON.parse(JSON.stringify(value) ?? 'null')
+}
+
+/**
+ * `next` with each value that equals its `previous` value after a JSON round trip replaced by the
+ * previous value, so frontmatter sent back unchanged by a JSON client keeps its YAML (e.g. `.nan`).
+ */
+export function keepUnchangedValues(previous: Frontmatter, next: Frontmatter): Frontmatter {
+  return Object.fromEntries(
+    Object.entries(next).map(([key, value]) => {
+      const original = previous[key]
+      return [key, key in previous && isDeepStrictEqual(toJsonValue(original), value) ? original : value]
+    }),
+  )
+}
+
 /** A note file split into its frontmatter block and body. */
 export interface NoteText {
   frontmatter: Frontmatter
