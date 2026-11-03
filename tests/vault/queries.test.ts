@@ -71,6 +71,7 @@ describe('vault queries', () => {
 
   it('returns notes that cannot be changed', async () => {
     const note = await vault.findNote('work/alpha.md')
+    if (!note) throw new Error('work/alpha.md is not indexed')
     // Casts drop the Readonly type on purpose: the test proves the object is frozen at runtime.
     const writable = note as { title: string; tags: string[] }
     expect(() => {
@@ -78,7 +79,8 @@ describe('vault queries', () => {
     }).toThrow(TypeError)
     expect(() => writable.tags.push('extra')).toThrow(TypeError)
     const listed = (await vault.notes()).find((meta) => meta.id === 'work/alpha.md')
-    const listedTags = listed?.tags as string[]
+    if (!listed) throw new Error('work/alpha.md is not listed')
+    const listedTags = listed.tags as string[]
     expect(() => listedTags.splice(0)).toThrow(TypeError)
     expect(await vault.findNote('work/alpha.md')).toMatchObject({ title: 'alpha', tags: ['rust', 'Lang'] })
   })
