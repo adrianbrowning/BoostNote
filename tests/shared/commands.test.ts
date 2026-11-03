@@ -156,6 +156,7 @@ describe('commandRow', () => {
   })
 })
 
+// Compile-time only: `pnpm typecheck` enforces the @ts-expect-error cases below.
 describe('MenuEvent', () => {
   it('carries a tab index for select-tab only', () => {
     const events: MenuEvent[] = [
@@ -168,12 +169,6 @@ describe('MenuEvent', () => {
       // @ts-expect-error not a command
       { type: 'menu', command: 'check-updates' },
     ]
-    expect(events.map((event) => event.command)).toEqual([
-      'select-tab',
-      'new-note',
-      'select-tab',
-      'close-tab',
-      'check-updates',
-    ])
+    void events
   })
 })
