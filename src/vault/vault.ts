@@ -776,7 +776,7 @@ export class Vault {
     }
     frontmatter.updated = now
     const raw = serializeNoteText(frontmatter, input.body, previous)
-    // An outside program may write between the read above and the rename; check again last.
+    // A conditional save checks the base again last: an outside program may write between the read above and the rename.
     const beforeReplace = input.baseHash === undefined ? undefined : async () => matchesBase(await readOptional(file))
     if (!(await writeFileAtomic(file, raw, beforeReplace))) return conflict()
     return { status: 'saved', note: await this.#track(id, file, raw) }
