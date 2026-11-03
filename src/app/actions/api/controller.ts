@@ -5,7 +5,7 @@ import { createController } from 'remix/router'
 import { renderMarkdown } from '../../../markdown/index.ts'
 import { migrateStorage } from '../../../migrate/index.ts'
 import { type LinkMove, parseNoteText, type TitleRename, toJsonValue, type Vault } from '../../../vault/index.ts'
-import { errorResponse, HttpError, json, readJsonObject, requireString } from '../../http.ts'
+import { errorResponse, HttpError, isJsonObject, json, readJsonObject, requireString } from '../../http.ts'
 import { routes } from '../../routes.ts'
 import type { AppServices } from '../../services.ts'
 import type {
@@ -164,16 +164,13 @@ export function createApiController(services: AppServices) {
         // `null`: the note must not exist (saving a copy of a note that was removed on disk).
         const baseHash = body.baseHash === null ? null : requireString(body.baseHash, 'baseHash')
         const frontmatter = body.frontmatter
-        if (
-          frontmatter !== undefined &&
-          (typeof frontmatter !== 'object' || frontmatter === null || Array.isArray(frontmatter))
-        ) {
+        if (frontmatter !== undefined && !isJsonObject(frontmatter)) {
           throw new HttpError(400, 'BAD_REQUEST', 'Missing or invalid "frontmatter"')
         }
         const result = await vault.writeNote(id, {
           body: text,
           baseHash,
-          ...(frontmatter === undefined ? {} : { frontmatter: frontmatter as Record<string, unknown> }),
+          ...(frontmatter === undefined ? {} : { frontmatter }),
         })
         if (result.status === 'saved') return json(toNoteDocument(result.note))
         if (result.current === null) throw new HttpError(404, 'NOT_FOUND', `Note not found: ${id}`)

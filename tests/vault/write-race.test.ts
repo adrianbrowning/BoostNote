@@ -73,24 +73,27 @@ describe('writeNote baseHash', () => {
     expect(await read('note.md')).toBe(result.note.raw)
     expect(result.note.body).toContain('Mine.')
     expect(result.note.hash).not.toBe(hash)
+    expect(result.note.hash).toBe((await vault.readNote('note.md')).hash)
   })
 })
 
+async function tempVault(): Promise<{ root: string; vault: Vault } & AsyncDisposable> {
+  const root = await mkdtemp(path.join(tmpdir(), 'boost-write-yaml-'))
+  const vault = await openVault(root)
+  return {
+    root,
+    vault,
+    async [Symbol.asyncDispose]() {
+      await vault.close()
+      await rm(root, { recursive: true, force: true })
+    },
+  }
+}
+
 describe('writeNote frontmatter', () => {
-  let root: string
-  let vault: Vault
-
-  beforeEach(async () => {
-    root = await mkdtemp(path.join(tmpdir(), 'boost-write-yaml-'))
-    vault = await openVault(root)
-  })
-
-  afterEach(async () => {
-    await vault.close()
-    await rm(root, { recursive: true, force: true })
-  })
-
   it('keeps the YAML of values sent back unchanged after a JSON round trip and writes edited keys', async () => {
+    await using temp = await tempVault()
+    const { root, vault } = temp
     await writeFile(
       path.join(root, 'y.md'),
       '---\nratio: .nan\nquoted: "keep me" # note\ntitle: Old\ncreated: 2020-01-01T00:00:00.000Z\n---\nBody\n',
@@ -104,5 +107,13 @@ describe('writeNote frontmatter', () => {
     expect(raw).toContain('ratio: .nan\n')
     expect(raw).toContain('quoted: "keep me" # note\n')
     expect(raw).toContain('title: New\n')
+  })
+
+  it('writes keys named like inherited object properties as sent', async () => {
+    await using temp = await tempVault()
+    const { root, vault } = temp
+    const result = await vault.writeNote('p.md', { body: 'Body\n', baseHash: null, frontmatter: { toString: null } })
+    expect(result.status).toBe('saved')
+    expect(await readFile(path.join(root, 'p.md'), 'utf8')).toContain('toString: null\n')
   })
 })

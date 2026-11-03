@@ -17,7 +17,7 @@ export function keepUnchangedValues(previous: Frontmatter, next: Frontmatter): F
   return Object.fromEntries(
     Object.entries(next).map(([key, value]) => {
       const original = previous[key]
-      return [key, key in previous && isDeepStrictEqual(toJsonValue(original), value) ? original : value]
+      return [key, Object.hasOwn(previous, key) && isDeepStrictEqual(toJsonValue(original), value) ? original : value]
     }),
   )
 }

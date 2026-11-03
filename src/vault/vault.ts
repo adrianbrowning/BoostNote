@@ -18,6 +18,7 @@ import { copyFileAtomic, exists, writeFileAtomic } from './files.ts'
 import { type Frontmatter, keepUnchangedValues, parseNoteText, serializeNoteText } from './frontmatter.ts'
 import { type ImportFilesReport, type ImportOptions, planImport } from './import-files.ts'
 import { type LinkMove, rebaseNoteLinks, rewriteMovedLinks } from './links.ts'
+import { lowerCaseEntries, uniqueStem } from './names.ts'
 import { findH1, hashText, type Note, type ReadonlyNoteMeta, toNote } from './note.ts'
 import {
   ASSETS_SUFFIX,
@@ -356,15 +357,7 @@ export class Vault {
       frontmatter.updated = now
       const raw = serializeNoteText(frontmatter, input.body, previous)
       // An outside program may write between the read above and the rename; check again last.
-      const changed = new Error('changed on disk')
-      try {
-        await writeFileAtomic(file, raw, async () => {
-          if (!matchesBase(await readOptional(file))) throw changed
-        })
-      } catch (error) {
-        if (error === changed) return conflict()
-        throw error
-      }
+      if (!(await writeFileAtomic(file, raw, async () => matchesBase(await readOptional(file))))) return conflict()
       return { status: 'saved', note: await this.#track(id, file, raw) }
     })
   }
@@ -1028,22 +1021,4 @@ async function sameOrMissing(from: string, to: string): Promise<boolean> {
   if (!(await exists(from))) return false
   const [a, b] = await Promise.all([lstat(from), lstat(to)])
   return a.ino === b.ino && a.dev === b.dev
-}
-
-async function lowerCaseEntries(dir: string): Promise<Set<string>> {
-  try {
-    return new Set((await readdir(dir)).map((name) => name.toLowerCase()))
-  } catch (error) {
-    if (isNodeError(error, 'ENOENT')) return new Set()
-    throw error
-  }
-}
-
-/** First free stem in `dir` (checked case-insensitively against both `<stem>.md` and `<stem>.assets`). */
-async function uniqueStem(dir: string, base: string): Promise<string> {
-  const names = await lowerCaseEntries(dir)
-  return uniqueName(base, (candidate) => {
-    const lower = candidate.toLowerCase()
-    return names.has(`${lower}.md`) || names.has(`${lower}${ASSETS_SUFFIX}`)
-  })
 }

@@ -366,7 +366,6 @@ function conflict(id: string, currentHash: string | null): CommandError {
   })
 }
 
-/** The saved note of a vault write; a conflict becomes a `CONFLICT` carrying the hash now on disk. */
 function conflictChecked(id: string, result: WriteNoteResult): Note {
   if (result.status === 'saved') return result.note
   throw conflict(id, result.current?.hash ?? null)
