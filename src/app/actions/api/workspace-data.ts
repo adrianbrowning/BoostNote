@@ -1,24 +1,15 @@
 import * as path from 'node:path'
 
 import type { MigrationReport } from '../../../migrate/index.ts'
-import { type FolderNode, type Note, type ReadonlyNoteMeta, toJsonValue, type Vault } from '../../../vault/index.ts'
+import { toMeta } from '../../../shared/vault-ids.ts'
+import { type FolderNode, type Note, toJsonValue, type Vault } from '../../../vault/index.ts'
 import { HttpError } from '../../http.ts'
 import type { AppServices } from '../../services.ts'
-import type {
-  FolderSummary,
-  ImportSummary,
-  NoteDocument,
-  NoteSummary,
-  WorkspaceData,
-} from '../public/workspace/types.ts'
-
-function summary({ id, folder, title, tags, starred, created, updated, excerpt }: ReadonlyNoteMeta): NoteSummary {
-  return { id, folder, title, tags: [...tags], starred, created, updated, excerpt }
-}
+import type { FolderSummary, ImportSummary, NoteDocument, WorkspaceData } from '../public/workspace/types.ts'
 
 export function toNoteDocument(note: Note): NoteDocument {
   return {
-    ...summary(note),
+    ...toMeta(note),
     frontmatter: toJsonValue(note.frontmatter) as NoteDocument['frontmatter'],
     body: note.body,
     hash: note.hash,
@@ -50,7 +41,7 @@ export async function workspaceData(services: AppServices, root?: string): Promi
     open,
     recent,
     tree: folderSummary(tree),
-    notes: notes.map(summary),
+    notes: notes.map((meta) => toMeta(meta)),
     trash: trash.map(({ id, kind, originalPath, deletedAt, title }) => ({
       id,
       kind,

@@ -6,6 +6,31 @@
  * `''` (the root). Note files end in lowercase `.md`; `.MD` is not a note extension.
  */
 
+/** What the index and lists know about a note; also the JSON the client gets for a note list. */
+export interface NoteMeta {
+  /** POSIX path relative to the vault root, e.g. `work/todo.md`. */
+  id: string
+  /** Folder id (`''` for the vault root). */
+  folder: string
+  title: string
+  tags: string[]
+  starred: boolean
+  /** ISO-8601; frontmatter `created`, else the file's birth time. */
+  created: string
+  /** ISO-8601; frontmatter `updated`, else the file's modification time. */
+  updated: string
+  excerpt: string
+}
+
+/**
+ * A fresh, mutable copy of the `NoteMeta` fields of `note` (a full note or document loses
+ * `frontmatter`, `body`, `raw`, `hash`). Takes the vault's frozen query results too; `tags` is copied.
+ */
+export function toMeta(note: Readonly<Omit<NoteMeta, 'tags'>> & { readonly tags: readonly string[] }): NoteMeta {
+  const { id, folder, title, tags, starred, created, updated, excerpt } = note
+  return { id, folder, title, tags: [...tags], starred, created, updated, excerpt }
+}
+
 /** Folder id of a note or folder id (`work/todo.md` → `work`, `todo.md` → `''`). */
 export function parentOf(id: string): string {
   const slash = id.lastIndexOf('/')

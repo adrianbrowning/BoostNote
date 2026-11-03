@@ -744,7 +744,9 @@ styles and CSP, the asset server, controlled inputs, testing) are in
   `isRelativeLink`, `normalizeLinkPath`, `resolveLinkPath`, `relativeId`, `isNoteLink`, `resolveNoteLink`) live in `src/shared/vault-ids.ts`, beside `src/vault`. It has
   no `node:` imports (a Biome `noNodejsModules` override on `src/shared/**` enforces it) and
   `remix.json` `allowFiles` serves it to the page. The Markdown extension is lowercase `.md` only:
-  `noteStem('B.MD')` is `B.MD`, and a link to `B.MD` is no note link.
+  `noteStem('B.MD')` is `B.MD`, and a link to `B.MD` is no note link. The `NoteMeta` list shape and
+  its `toMeta` projection live there too: the vault index, the `/api` note lists and the client's
+  `NoteSummary` (an alias of `NoteMeta`) all use them.
 - **Relative links, one rule** (`isRelativeLink`, used by link rewriting on rename/move/restore, `assetPath`,
   reader assets, export and editor link following): the path without the raw `?query`/`#fragment` is
   decoded first, then must be non-empty, contain no NUL and not start with a scheme, `/` (absolute, `//`

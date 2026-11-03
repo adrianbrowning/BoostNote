@@ -4,14 +4,13 @@
  * data so the CLI (`--json`) and the MCP tools return the same shapes.
  */
 import { type TaskProgress, taskProgress } from '../app/actions/public/workspace/tasks.ts'
-import { noteStem } from '../shared/vault-ids.ts'
+import { type NoteMeta, noteStem } from '../shared/vault-ids.ts'
 import {
   type FolderNode,
   type Frontmatter,
   type LinkMove,
   type LinkUpdateReport,
   type Note,
-  type NoteMeta,
   type ReadonlyNoteMeta,
   type TagCount,
   type Vault,

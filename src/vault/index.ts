@@ -14,7 +14,7 @@ export {
   type ImportRead,
 } from './import-files.ts'
 export type { LinkMove } from './links.ts'
-export type { Note, NoteMeta, ReadonlyNoteMeta } from './note.ts'
+export type { Note, ReadonlyNoteMeta } from './note.ts'
 export { noteFileName } from './paths.ts'
 export type { SearchHit } from './search.ts'
 export {
