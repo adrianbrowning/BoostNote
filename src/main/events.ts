@@ -5,40 +5,8 @@
  * `broadcast(event)`. Each event is written as `event: <type>` with the JSON-encoded event as data.
  * This module is plain Node (no Electron imports) so it can be unit tested.
  */
+import type { MenuCommand } from '../shared/commands.ts'
 import type { VaultEventType } from '../vault/index.ts'
-
-/**
- * Menu commands the workspace performs (it knows the selected folder, the open note and the tabs).
- * Every app keyboard shortcut is a menu accelerator, so each one arrives exactly once, through here.
- */
-export type MenuCommand =
-  | 'new-note'
-  | 'new-folder'
-  | 'open-folder'
-  | 'import-storage'
-  /** File › Rename Files From Titles…: the bulk rename of slug-named (imported) notes. */
-  | 'rename-from-titles'
-  | 'reveal-note'
-  | 'close-tab'
-  | 'reopen-tab'
-  | 'next-tab'
-  | 'previous-tab'
-  /** `index`: 0–7 for tabs 1–8, `-1` for the last tab. */
-  | 'select-tab'
-  | 'go-back'
-  | 'go-forward'
-  | 'toggle-sidebar'
-  | 'toggle-note-list'
-  | 'toggle-properties'
-  | 'preferences'
-  | 'find'
-  /** File > Export: the open note as HTML / PDF / Markdown, printing it, the selected folder or the vault as HTML. */
-  | 'export-html'
-  | 'export-pdf'
-  | 'export-markdown'
-  | 'print'
-  | 'export-folder'
-  | 'export-vault'
 
 export interface MenuEvent {
   type: 'menu'

@@ -1,20 +1,46 @@
 import { app, Menu, type MenuItemConstructorOptions, shell } from 'electron'
 
-import { ACCELERATORS, TAB_ACCELERATORS } from '../app/actions/public/workspace/shortcuts.ts'
-import type { MenuCommand } from './events.ts'
+import { COMMANDS, type CommandRow, commandAccelerators, commandLabel, type MenuCommand } from '../shared/commands.ts'
 
 const REPOSITORY_URL = 'https://github.com/adrianbrowning/BoostNote'
+
+export interface MenuTemplateOptions {
+  platform: NodeJS.Platform
+  appName: string
+  send: (command: MenuCommand, index?: number) => void
+  checkForUpdates: () => void
+  installCommandLineTool: () => void
+}
 
 /**
  * Installs the application menu. App commands are forwarded to the renderer as SSE `menu` events;
  * "Check for Updates…" and "Install Command Line Tool…" run in main.
  */
 export function installMenu(
-  send: (command: MenuCommand, index?: number) => void,
+  send: MenuTemplateOptions['send'],
   checkForUpdates: () => void,
   installCommandLineTool: () => void,
 ): void {
-  const isMac = process.platform === 'darwin'
+  const template = buildMenuTemplate({
+    platform: process.platform,
+    appName: app.name,
+    send,
+    checkForUpdates,
+    installCommandLineTool,
+  })
+  Menu.setApplicationMenu(Menu.buildFromTemplate(template))
+  app.setAboutPanelOptions({ applicationName: 'Boostnote', applicationVersion: app.getVersion() })
+}
+
+/** The application menu: every command item's id, label and accelerator come from `COMMANDS`. */
+export function buildMenuTemplate({
+  platform,
+  appName,
+  send,
+  checkForUpdates,
+  installCommandLineTool,
+}: MenuTemplateOptions): MenuItemConstructorOptions[] {
+  const isMac = platform === 'darwin'
   const updates: MenuItemConstructorOptions = {
     id: 'check-updates',
     label: 'Check for Updates…',
@@ -23,35 +49,35 @@ export function installMenu(
   // Windows gets the command to run instead of an installed shim.
   const commandLineTool: MenuItemConstructorOptions = {
     id: 'install-cli',
-    label: process.platform === 'win32' ? 'Command Line Tool…' : 'Install Command Line Tool…',
+    label: platform === 'win32' ? 'Command Line Tool…' : 'Install Command Line Tool…',
     click: installCommandLineTool,
   }
-  const revealLabel = isMac ? 'Reveal in Finder' : process.platform === 'win32' ? 'Show in Explorer' : 'Show in Folder'
   // Ids are the commands, so tests (and anything else) can find an item: `Menu.getApplicationMenu().getMenuItemById(command)`.
-  const command = (label: string, name: MenuCommand): MenuItemConstructorOptions => ({
-    id: name,
-    label,
-    click: () => send(name),
-  })
-  const item = (label: string, name: keyof typeof ACCELERATORS): MenuItemConstructorOptions => ({
-    ...command(label, name),
-    accelerator: ACCELERATORS[name],
-  })
-  const preferences = item(isMac ? 'Settings…' : 'Preferences…', 'preferences')
-
-  const selectTab = TAB_ACCELERATORS.map(
-    (accelerator, index): MenuItemConstructorOptions => ({
-      label: index === 8 ? 'Last Tab' : `Tab ${index + 1}`,
-      accelerator,
-      click: () => send('select-tab', index === 8 ? -1 : index),
+  const item = (id: Exclude<MenuCommand, 'select-tab'>): MenuItemConstructorOptions => {
+    const { label, accelerator } = COMMANDS.find((command) => command.id === id) as CommandRow
+    return { id, label: commandLabel(label, platform), ...(accelerator ? { accelerator } : {}), click: () => send(id) }
+  }
+  const selectTabRow = COMMANDS.find((command) => command.id === 'select-tab') as CommandRow
+  const selectTab: MenuItemConstructorOptions = {
+    label: commandLabel(selectTabRow.label, platform),
+    // Cmd/Ctrl+1–8 pick a tab, the last accelerator picks the last tab (`index` -1).
+    submenu: commandAccelerators(selectTabRow).map((accelerator, index, all) => {
+      const last = index === all.length - 1
+      return {
+        id: `select-tab-${index + 1}`,
+        label: last ? 'Last Tab' : `Tab ${index + 1}`,
+        accelerator,
+        click: () => send('select-tab', last ? -1 : index),
+      }
     }),
-  )
+  }
+  const preferences = item('preferences')
 
-  const template: MenuItemConstructorOptions[] = [
+  return [
     ...(isMac
       ? [
           {
-            label: app.name,
+            label: appName,
             submenu: [
               { role: 'about' },
               updates,
@@ -73,29 +99,29 @@ export function installMenu(
     {
       label: 'File',
       submenu: [
-        item('New Note', 'new-note'),
-        item('New Folder…', 'new-folder'),
+        item('new-note'),
+        item('new-folder'),
         { type: 'separator' },
-        item('Open Folder…', 'open-folder'),
-        command('Import Boostnote Storage…', 'import-storage'),
-        command('Rename Files From Titles…', 'rename-from-titles'),
+        item('open-folder'),
+        item('import-storage'),
+        item('rename-from-titles'),
         {
           label: 'Export',
           submenu: [
-            command('Note as HTML…', 'export-html'),
-            command('Note as PDF…', 'export-pdf'),
-            command('Note as Markdown…', 'export-markdown'),
+            item('export-html'),
+            item('export-pdf'),
+            item('export-markdown'),
             { type: 'separator' },
-            command('Folder as HTML…', 'export-folder'),
-            command('Vault as HTML…', 'export-vault'),
+            item('export-folder'),
+            item('export-vault'),
           ],
         },
-        item('Print…', 'print'),
+        item('print'),
         { type: 'separator' },
-        item(revealLabel, 'reveal-note'),
+        item('reveal-note'),
         { type: 'separator' },
-        item('Close Tab', 'close-tab'),
-        item('Reopen Closed Tab', 'reopen-tab'),
+        item('close-tab'),
+        item('reopen-tab'),
         { type: 'separator' },
         ...(isMac
           ? [{ role: 'close', accelerator: 'CmdOrCtrl+Shift+W' } as const]
@@ -115,18 +141,18 @@ export function installMenu(
         { role: 'delete' },
         { role: 'selectAll' },
         { type: 'separator' },
-        item('Find…', 'find'),
+        item('find'),
       ],
     },
     {
       label: 'View',
       submenu: [
-        item('Toggle Sidebar', 'toggle-sidebar'),
-        item('Toggle Note List', 'toggle-note-list'),
-        item('Toggle Properties', 'toggle-properties'),
+        item('toggle-sidebar'),
+        item('toggle-note-list'),
+        item('toggle-properties'),
         { type: 'separator' },
-        item('Back', 'go-back'),
-        item('Forward', 'go-forward'),
+        item('go-back'),
+        item('go-forward'),
         { type: 'separator' },
         { role: 'reload' },
         { role: 'forceReload' },
@@ -146,9 +172,9 @@ export function installMenu(
         { role: 'minimize' },
         { role: 'zoom' },
         { type: 'separator' },
-        item('Next Tab', 'next-tab'),
-        item('Previous Tab', 'previous-tab'),
-        { label: 'Select Tab', submenu: selectTab },
+        item('next-tab'),
+        item('previous-tab'),
+        selectTab,
         ...(isMac ? [{ type: 'separator' } as const, { role: 'front' } as const] : []),
       ],
     },
@@ -165,7 +191,4 @@ export function installMenu(
       ],
     },
   ]
-
-  Menu.setApplicationMenu(Menu.buildFromTemplate(template))
-  app.setAboutPanelOptions({ applicationName: 'Boostnote', applicationVersion: app.getVersion() })
 }

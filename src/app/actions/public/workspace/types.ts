@@ -2,7 +2,8 @@
  * JSON shapes exchanged between the workspace client entry and the `/api` routes. Types only, so
  * both the browser modules and the main-process controllers import them.
  */
-import type { MenuCommand, MenuEvent, VaultChangeEvent } from '../../../../main/events.ts'
+
+import type { MenuEvent, VaultChangeEvent } from '../../../../main/events.ts'
 import type {
   OutsideFilePreference,
   PaneLayout,
@@ -12,6 +13,7 @@ import type {
 } from '../../../../main/settings.ts'
 import type { UpdateInfo } from '../../../../main/updates.ts'
 import type { OpenRequest } from '../../../../main/vault-session.ts'
+import type { MenuCommand } from '../../../../shared/commands.ts'
 import type {
   ImportFilesReport,
   LinkMove,

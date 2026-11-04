@@ -79,7 +79,8 @@ Consequences:
 │                                                                          ▼               │
 │   src/app/router.ts  (Remix router: asyncContext → CSP nonce → render middleware)        │
 │     ├─ GET /          server-rendered document (src/app/ui/document.tsx)                 │
-│     ├─ GET /assets/*  remix/assets: compiles src/**/public/**, src/editor/**, packages   │
+│     ├─ GET /assets/*  remix/assets: compiles src/**/public/**, src/editor/**,            │
+│     │                 src/shared/**, packages                                            │
 │     ├─ GET /vendor/*  allow-listed package files served verbatim (mermaid's ESM build)  │
 │     ├─ GET /events    text/event-stream from the SSE hub                                 │
 │     ├─ GET /vault-assets/*  files a note links to (images), via vault.assetPath()        │
@@ -301,15 +302,18 @@ side; `SettingsStore.ui` normalises the stored section (invalid fields fall back
 
 ### Menus and shortcuts
 
-Every app shortcut is a native menu accelerator (`ACCELERATORS` in
-`src/app/actions/public/workspace/shortcuts.ts`, shared by `src/main/menu.ts`): File (New Note ⌘N,
+Every app command is one row of the command table `COMMANDS` in `src/shared/commands.ts` (id, label,
+accelerator, whether it needs a vault); `MenuCommand` is derived from it, `src/main/menu.ts` builds
+each command item from it, and the renderer reserves its accelerators. Every app shortcut is a native
+menu accelerator: File (New Note ⌘N,
 New Folder ⇧⌘N, Open Folder ⌘O, Import, Export ▸ Note as HTML/PDF/Markdown, Folder/Vault as HTML,
 Print ⌘P, Reveal ⌥⌘R, Close Tab ⌘W, Reopen Closed Tab ⇧⌘T), Edit (roles,
 Find… ⌘F → the editor's search panel), View (Toggle Sidebar ⇧⌘E, Toggle Note List ⇧⌘J, Toggle
 Properties ⇧⌘P, Back ⌘[, Forward ⌘], reload/devtools, zoom roles, full screen), Window (Next/Previous
 Tab Ctrl+Tab / Ctrl+⇧Tab, Select Tab ⌘1…⌘9), Help (GitHub, these notes, Report an Issue). Items reach
-the renderer as SSE `menu` events (`{ command, index? }`); each item's `id` is its command, so
-`Menu.getApplicationMenu().getMenuItemById(command)` finds it (the e2e tests click items that way). The renderer binds none of these keys
+the renderer as SSE `menu` events (`{ command, index? }`); each item's `id` is its command (Select Tab
+items are `select-tab-1` … `select-tab-9`), so `Menu.getApplicationMenu().getMenuItemById(id)` finds
+it (the e2e tests click items that way). The renderer binds none of these keys
 itself; a capture-phase `keydown` listener only stops their propagation (without `preventDefault`)
 so CodeMirror's own bindings (Mod-[ / Mod-] indent, Mod-F) don't act as well. Each shortcut thus fires
 exactly once, through the menu. Mouse back/forward buttons and Cmd/Ctrl/middle-click are handled in
