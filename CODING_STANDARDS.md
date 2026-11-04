@@ -17,7 +17,8 @@ Rules a reviewer checks on a diff. Mechanical rules live in Biome, `tsc` and the
   finding.
 - **Saves are conditional.** Writes that replace a note the user or an agent may have edited pass the
   hash they are based on (`baseHash`), and a `{ status: 'conflict' }` result from `Vault.writeNote` becomes a
-  conflict (409 / `CONFLICT`), not an overwrite.
+  conflict (409 / `CONFLICT`), not an overwrite. An adapter that reads, edits and saves a note uses
+  `Vault.editNote(id, baseHash, edit)`; adapters never compare hashes themselves.
 
 ## UI (Remix 3)
 
