@@ -194,6 +194,16 @@ describe('notes', () => {
     expect(restored.id).toBe('Work/plan.md')
     workspace = await readJson<WorkspaceData>(await app.get(api.workspace.href()))
     expect(workspace.notes.map((item) => item.id)).toEqual(['Work/plan.md'])
+    expect(Object.keys(workspace.notes[0] ?? {}).sort()).toEqual([
+      'created',
+      'excerpt',
+      'folder',
+      'id',
+      'starred',
+      'tags',
+      'title',
+      'updated',
+    ])
     expect(workspace.trash).toEqual([])
   })
 
