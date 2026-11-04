@@ -71,3 +71,13 @@ export async function exists(file: string): Promise<boolean> {
     throw error
   }
 }
+
+/** The file's text, or `undefined` when it does not exist. */
+export async function readOptional(file: string): Promise<string | undefined> {
+  try {
+    return await readFile(file, 'utf8')
+  } catch (error) {
+    if (isNodeError(error, 'ENOENT')) return undefined
+    throw error
+  }
+}

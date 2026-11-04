@@ -262,12 +262,12 @@ export async function writeNote(vault: Vault, input: string, body: string, baseH
 /** Adds `text` at the end of the body, on a line of its own. */
 export async function appendToNote(vault: Vault, input: string, text: string, baseHash?: string): Promise<WriteResult> {
   const id = await resolveNoteId(vault, input)
-  const note = await vault.readNote(id)
-  if (baseHash !== undefined && note.hash !== baseHash) throw conflict(id, note.hash)
-  const separator = note.body === '' || note.body.endsWith('\n') ? '' : '\n'
-  const ending = text.endsWith('\n') ? '' : '\n'
-  const body = `${note.body}${separator}${text}${ending}`
-  return written(conflictChecked(id, await vault.writeNote(id, { body, baseHash: note.hash })))
+  const result = await vault.editNote(id, baseHash, (note) => {
+    const separator = note.body === '' || note.body.endsWith('\n') ? '' : '\n'
+    const ending = text.endsWith('\n') ? '' : '\n'
+    return { body: `${note.body}${separator}${text}${ending}` }
+  })
+  return written(conflictChecked(id, result))
 }
 
 /** Sets/removes frontmatter keys; the YAML of keys not named is left byte for byte. */
@@ -283,13 +283,12 @@ export async function updateProperties(
   for (const key of remove) if (key in set) throw new CommandError('USAGE', `"${key}" is both set and removed`)
   checkProperties(set)
   const id = await resolveNoteId(vault, input)
-  const note = await vault.readNote(id)
-  if (baseHash !== undefined && note.hash !== baseHash) throw conflict(id, note.hash)
-  const frontmatter: Frontmatter = { ...note.frontmatter, ...set }
-  for (const key of remove) delete frontmatter[key]
-  return toDocument(
-    conflictChecked(id, await vault.writeNote(id, { body: note.body, frontmatter, baseHash: note.hash })),
-  )
+  const result = await vault.editNote(id, baseHash, (note) => {
+    const frontmatter: Frontmatter = { ...note.frontmatter, ...set }
+    for (const key of remove) delete frontmatter[key]
+    return { body: note.body, frontmatter }
+  })
+  return toDocument(conflictChecked(id, result))
 }
 
 /** Renames the file (the note's name); other notes' links follow unless `updateLinks: false`. */
