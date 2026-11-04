@@ -51,37 +51,32 @@ describe('vault index', () => {
     await writeFile(path.join(root, 'gamma.md'), '---\ntags: [lang]\n---\n# Go notes\n\nGoroutines.\n')
     vault = await openVault(root)
 
-    expect([...vault.index.tags()]).toEqual([
-      ['lang', ['alpha.md', 'gamma.md']],
-      ['rust', ['alpha.md']],
+    expect(await vault.tags()).toEqual([
+      { tag: 'lang', count: 2 },
+      { tag: 'rust', count: 1 },
     ])
-    expect(vault.index.starred().map((note) => note.id)).toEqual(['alpha.md'])
-    expect(vault.index.search('rust').map((hit) => hit.id)).toEqual(['alpha.md', 'beta.md'])
-    expect(vault.index.search('rust pans').map((hit) => hit.id)).toEqual(['beta.md'])
-    expect(
-      vault.index
-        .search('#lang')
-        .map((hit) => hit.id)
-        .sort(),
-    ).toEqual(['alpha.md', 'gamma.md'])
-    expect(vault.index.search('#rust cooking')).toEqual([])
-    expect(vault.index.search('GOROUTINES')[0]).toMatchObject({ id: 'gamma.md', title: 'gamma' })
+    expect((await vault.notes()).filter((note) => note.starred).map((note) => note.id)).toEqual(['alpha.md'])
+    expect((await vault.search('rust')).map((hit) => hit.id)).toEqual(['alpha.md', 'beta.md'])
+    expect((await vault.search('rust pans')).map((hit) => hit.id)).toEqual(['beta.md'])
+    expect((await vault.search('#lang')).map((hit) => hit.id).sort()).toEqual(['alpha.md', 'gamma.md'])
+    expect(await vault.search('#rust cooking')).toEqual([])
+    expect((await vault.search('GOROUTINES'))[0]).toMatchObject({ id: 'gamma.md', title: 'gamma' })
     // Titles are file names: a file name matches, its first H1 only as body text.
-    expect(vault.index.search('gamma').map((hit) => hit.id)).toEqual(['gamma.md'])
-    expect(vault.index.search('   ')).toEqual([])
-    expect(vault.index.get('beta.md')?.excerpt).toBe('Rust on cast iron pans; rust removal, rust again.')
+    expect((await vault.search('gamma')).map((hit) => hit.id)).toEqual(['gamma.md'])
+    expect(await vault.search('   ')).toEqual([])
+    expect((await vault.findNote('beta.md'))?.excerpt).toBe('Rust on cast iron pans; rust removal, rust again.')
   })
 
   it('updates the index on writes, renames and deletes', async () => {
     vault = await openVault(root)
     const note = await vault.createNote('', 'Plan', { body: '# Plan\n\nzebra\n' })
-    expect(vault.index.search('zebra').map((hit) => hit.id)).toEqual([note.id])
+    expect((await vault.search('zebra')).map((hit) => hit.id)).toEqual([note.id])
     await vault.writeNote(note.id, { body: '# Plan\n\nlion\n' })
-    expect(vault.index.search('zebra')).toEqual([])
+    expect(await vault.search('zebra')).toEqual([])
     const renamed = await vault.renameNote(note.id, 'renamed')
-    expect(vault.index.search('lion').map((hit) => hit.id)).toEqual([renamed.id])
+    expect((await vault.search('lion')).map((hit) => hit.id)).toEqual([renamed.id])
     await vault.deleteNote(renamed.id)
-    expect(vault.index.search('lion')).toEqual([])
+    expect(await vault.search('lion')).toEqual([])
   })
 })
 
@@ -93,11 +88,11 @@ describe('vault watcher', () => {
 
     await writeFile(path.join(root, 'b.md'), '# B\n')
     await until(hasEvent('note-added', 'b.md'))
-    expect(vault.index.get('b.md')?.title).toBe('b')
+    expect((await vault.findNote('b.md'))?.title).toBe('b')
 
     await writeFile(path.join(root, 'a.md'), '# A\n\nchanged\n')
     await until(hasEvent('note-changed', 'a.md'))
-    expect(vault.index.get('a.md')?.excerpt).toBe('changed')
+    expect((await vault.findNote('a.md'))?.excerpt).toBe('changed')
 
     await mkdir(path.join(root, 'dir'))
     await rename(path.join(root, 'b.md'), path.join(root, 'dir', 'b.md'))
@@ -110,7 +105,7 @@ describe('vault watcher', () => {
 
     await unlink(path.join(root, 'a.md'))
     await until(hasEvent('note-removed', 'a.md'))
-    expect(vault.index.has('a.md')).toBe(false)
+    expect(await vault.hasNote('a.md')).toBe(false)
     expect(events.filter((event) => event.type === 'note-changed' && event.id === 'a.md')).toHaveLength(1)
   })
 

@@ -174,15 +174,17 @@ export function normalizeFolder(folder: string): string {
  * The note id `input` names: an exact id (with or without `.md`), else a bare name matching one
  * note's file name or title (exactly, then ignoring case). Several matches is an error listing them.
  */
-export function resolveNoteId(vault: Vault, input: string): string {
+export async function resolveNoteId(vault: Vault, input: string): Promise<string> {
   const id = input.replace(/\\/g, '/').replace(/^\/+/, '')
   if (id === '') throw new CommandError('USAGE', 'Missing note id')
-  if (vault.index.has(id)) return id
-  if (!id.endsWith('.md') && vault.index.has(`${id}.md`)) return `${id}.md`
+  if (await vault.hasNote(id)) return id
+  if (!id.endsWith('.md') && (await vault.hasNote(`${id}.md`))) return `${id}.md`
   const name = id.replace(/\.md$/i, '')
-  const named = vault.index
-    .all()
-    .map((meta) => ({ id: meta.id, stem: path.posix.basename(meta.id, '.md'), title: meta.title }))
+  const named = (await vault.notes()).map((meta) => ({
+    id: meta.id,
+    stem: path.posix.basename(meta.id, '.md'),
+    title: meta.title,
+  }))
   const exact = named.filter((note) => note.stem === name || note.title === name)
   const lower = name.toLowerCase()
   const matches =
@@ -200,13 +202,13 @@ export function resolveNoteId(vault: Vault, input: string): string {
 
 // ── Operations ───────────────────────────────────────────────────────────────────────────────
 
-export function listNotes(vault: Vault, options: ListOptions = {}): NoteMeta[] {
+export async function listNotes(vault: Vault, options: ListOptions = {}): Promise<Readonly<NoteMeta>[]> {
   const folder = options.folder === undefined ? undefined : normalizeFolder(options.folder)
   if (folder !== undefined && folder !== '' && !vault.folders.includes(folder)) {
     throw new CommandError('NOT_FOUND', `Folder not found: ${folder}`)
   }
   const sort = options.sort ?? 'updated'
-  const notes = vault.index.all().filter((meta) => {
+  const notes = (await vault.notes()).filter((meta) => {
     if (folder !== undefined) {
       const inside = options.recursive
         ? folder === '' || meta.folder === folder || meta.folder.startsWith(`${folder}/`)
@@ -227,20 +229,23 @@ export function listNotes(vault: Vault, options: ListOptions = {}): NoteMeta[] {
   return options.limit === undefined ? notes : notes.slice(0, positive(options.limit, 'limit'))
 }
 
-export function searchNotes(vault: Vault, query: string, limit = 20): SearchResult[] {
+export async function searchNotes(vault: Vault, query: string, limit = 20): Promise<SearchResult[]> {
   if (query.trim() === '') throw new CommandError('USAGE', 'Missing search query')
-  return vault.index
-    .search(query, positive(limit, 'limit'))
-    .map((hit) => ({ id: hit.id, title: hit.title, excerpt: hit.excerpt, score: hit.score }))
+  return (await vault.search(query, positive(limit, 'limit'))).map((hit) => ({
+    id: hit.id,
+    title: hit.title,
+    excerpt: hit.excerpt,
+    score: hit.score,
+  }))
 }
 
 export async function readNote(vault: Vault, input: string): Promise<NoteDocument> {
-  return toDocument(await vault.readNote(resolveNoteId(vault, input)))
+  return toDocument(await vault.readNote(await resolveNoteId(vault, input)))
 }
 
 /** The file exactly as stored (frontmatter included). */
 export async function readRaw(vault: Vault, input: string): Promise<string> {
-  return (await vault.readNote(resolveNoteId(vault, input))).raw
+  return (await vault.readNote(await resolveNoteId(vault, input))).raw
 }
 
 export async function createNote(vault: Vault, folder: string, options: CreateOptions = {}): Promise<WriteResult> {
@@ -254,13 +259,13 @@ export async function createNote(vault: Vault, folder: string, options: CreateOp
 
 /** Replaces the body, keeping the frontmatter. With `baseHash`, fails with `CONFLICT` if the file changed since. */
 export async function writeNote(vault: Vault, input: string, body: string, baseHash?: string): Promise<WriteResult> {
-  const id = resolveNoteId(vault, input)
+  const id = await resolveNoteId(vault, input)
   return written(await conflictChecked(vault, id, () => vault.writeNote(id, { body, baseHash })))
 }
 
 /** Adds `text` at the end of the body, on a line of its own. */
 export async function appendToNote(vault: Vault, input: string, text: string, baseHash?: string): Promise<WriteResult> {
-  const id = resolveNoteId(vault, input)
+  const id = await resolveNoteId(vault, input)
   const note = await vault.readNote(id)
   if (baseHash !== undefined && note.hash !== baseHash) throw conflict(id, note.hash)
   const separator = note.body === '' || note.body.endsWith('\n') ? '' : '\n'
@@ -281,7 +286,7 @@ export async function updateProperties(
   if (Object.keys(set).length === 0 && remove.length === 0) throw new CommandError('USAGE', 'No properties to change')
   for (const key of remove) if (key in set) throw new CommandError('USAGE', `"${key}" is both set and removed`)
   checkProperties(set)
-  const id = resolveNoteId(vault, input)
+  const id = await resolveNoteId(vault, input)
   const note = await vault.readNote(id)
   if (baseHash !== undefined && note.hash !== baseHash) throw conflict(id, note.hash)
   const frontmatter: Frontmatter = { ...note.frontmatter, ...set }
@@ -299,7 +304,7 @@ export async function renameNote(
   options: RelocateOptions = {},
 ): Promise<RelocateResult> {
   if (name.trim() === '') throw new CommandError('USAGE', 'Missing new name')
-  const id = resolveNoteId(vault, input)
+  const id = await resolveNoteId(vault, input)
   return relocated(vault, id, await vault.renameNote(id, name.trim()), options)
 }
 
@@ -310,13 +315,13 @@ export async function moveNote(
   folder: string,
   options: RelocateOptions = {},
 ): Promise<RelocateResult> {
-  const id = resolveNoteId(vault, input)
+  const id = await resolveNoteId(vault, input)
   return relocated(vault, id, await vault.moveNote(id, normalizeFolder(folder)), options)
 }
 
 /** Moves the note (and its assets) to the vault's `.trash/`; nothing is deleted. */
 export async function trashNote(vault: Vault, input: string): Promise<TrashResult> {
-  const entry = await vault.deleteNote(resolveNoteId(vault, input))
+  const entry = await vault.deleteNote(await resolveNoteId(vault, input))
   return { trashId: entry.id, originalPath: entry.originalPath, deletedAt: entry.deletedAt }
 }
 
@@ -324,14 +329,14 @@ export async function trashNote(vault: Vault, input: string): Promise<TrashResul
 export async function restoreFromTrash(vault: Vault, trashId: string): Promise<RestoreResult> {
   if (trashId.trim() === '') throw new CommandError('USAGE', 'Missing trash id')
   const id = await vault.restore(trashId.trim())
-  return { id, kind: vault.index.has(id) ? 'note' : 'folder' }
+  return { id, kind: (await vault.hasNote(id)) ? 'note' : 'folder' }
 }
 
-export function listTags(vault: Vault): TagCount[] {
-  return [...vault.index.tags()].map(([tag, ids]) => ({ tag, count: ids.length }))
+export function listTags(vault: Vault): Promise<TagCount[]> {
+  return vault.tags()
 }
 
-export function folderTree(vault: Vault): FolderTree {
+export async function folderTree(vault: Vault): Promise<FolderTree> {
   const convert = (node: FolderNode): FolderTree => ({
     id: node.id,
     name: node.name,
@@ -339,12 +344,12 @@ export function folderTree(vault: Vault): FolderTree {
     notes: node.notes.length,
     folders: node.folders.map(convert),
   })
-  return convert(vault.tree())
+  return convert(await vault.tree())
 }
 
 /** Task list progress of the note body (as the app's progress bar counts it). */
 export async function noteTasks(vault: Vault, input: string): Promise<TaskResult> {
-  const note = await vault.readNote(resolveNoteId(vault, input))
+  const note = await vault.readNote(await resolveNoteId(vault, input))
   return { id: note.id, title: note.title, ...taskProgress(note.body) }
 }
 

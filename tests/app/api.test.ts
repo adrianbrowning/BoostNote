@@ -411,7 +411,7 @@ describe('vaults', () => {
     expect(after.vault?.root).toBe(b.root)
     const late = await app.post(api.noteCreate.href(), { folder: '' }, { vault: a.root })
     expect(late.status).toBe(409)
-    expect(b.index.all()).toEqual([])
+    expect(await b.notes()).toEqual([])
   })
 
   it('opens only http(s) links externally', async () => {
@@ -674,7 +674,7 @@ describe('reader', () => {
     expect((await app.get(api.readerRead.href({ ticket }))).status).toBe(404)
     const again = await app.post(api.readerImport.href({ ticket }), { folder: 'work' })
     expect(again.status).toBe(404)
-    expect(vault.index.all().map((note) => note.id)).toEqual(['work/readme.md'])
+    expect((await vault.notes()).map((note) => note.id)).toEqual(['work/readme.md'])
   })
 
   it('keeps the ticket when adding a reader’s file imports no note, so another folder can be chosen', async () => {
@@ -742,7 +742,7 @@ describe('reader', () => {
     const gone = await app.post(api.readerImport.href({ ticket }), { folder: '' })
     expect(gone.status).toBe(404)
     expect(await gone.text()).not.toContain(app.dir)
-    expect(vault.index.all()).toEqual([])
+    expect(await vault.notes()).toEqual([])
   })
 })
 
@@ -794,7 +794,7 @@ describe('drop import', () => {
     expect((await post([loose], null)).status).toBe(400)
     expect((await post(Array.from({ length: MAX_IMPORT_PATHS + 1 }, () => loose))).status).toBe(413)
     expect((await post([loose], '../out')).status).toBe(400)
-    expect(app.vaults.current?.index.all()).toEqual([])
+    expect(await app.vaults.current?.notes()).toEqual([])
   })
 
   it('needs an open vault', async () => {

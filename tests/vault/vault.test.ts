@@ -34,7 +34,7 @@ describe('vault notes', () => {
     await put('notes.txt', 'not a note')
     vault = await openVault(root)
 
-    const tree = vault.tree()
+    const tree = await vault.tree()
     expect(tree.notes.map((note) => note.id)).toEqual(['inbox.md'])
     expect(tree.folders.map((folder) => folder.id)).toEqual(['work'])
     expect(tree.folders[0]?.folders.map((folder) => folder.id)).toEqual(['work/projects'])
@@ -62,7 +62,7 @@ describe('vault notes', () => {
 
     const fresh = await vault.writeNote('new/plain.md', { body: '# Plain\n' })
     expect(fresh.frontmatter.created).toBe(fresh.frontmatter.updated)
-    expect(vault.index.get('new/plain.md')?.title).toBe('plain')
+    expect((await vault.findNote('new/plain.md'))?.title).toBe('plain')
     expect(vault.folders).toContain('new')
   })
 
@@ -106,7 +106,7 @@ describe('vault notes', () => {
     expect(renamed.body).toContain('[sibling](other.md)')
     expect(renamed.body).toContain('[web](https://x.y/z.png)')
     expect(renamed.body).toContain('```\n![code](./todo.assets/a.png)\n```')
-    expect(vault.index.has('work/todo.md')).toBe(false)
+    expect(await vault.hasNote('work/todo.md')).toBe(false)
 
     const moved = await vault.moveNote(renamed.id, 'archive/2026')
     expect(moved.id).toBe('archive/2026/Done list.md')
@@ -147,7 +147,7 @@ describe('vault trash', () => {
     const entry = await vault.deleteNote('work/todo.md')
     expect(entry).toMatchObject({ id: 'work/todo.md', kind: 'note', originalPath: 'work/todo.md' })
     expect(await read('.trash/work/todo.assets/a.png')).toBe('A')
-    expect(vault.index.has('work/todo.md')).toBe(false)
+    expect(await vault.hasNote('work/todo.md')).toBe(false)
     expect((await vault.listTrash()).map((item) => [item.id, item.title])).toEqual([['work/todo.md', 'todo']])
 
     // Same name deleted twice gets a distinct trash slot.
@@ -162,7 +162,7 @@ describe('vault trash', () => {
     expect(restored).toBe('work/todo 2.md')
     expect(await read('work/todo 2.assets/a.png')).toBe('A')
     expect(await read('work/todo 2.md')).toContain('![a](./todo%202.assets/a.png)')
-    expect(vault.index.get('work/todo 2.md')?.title).toBe('todo 2')
+    expect((await vault.findNote('work/todo 2.md'))?.title).toBe('todo 2')
     expect((await vault.listTrash()).map((item) => item.id)).toEqual(['work/todo 2.md'])
 
     await vault.emptyTrash()
@@ -189,13 +189,13 @@ describe('vault folders', () => {
     await vault.setFolderColor('work', '#ff0000')
     await vault.setFolderColor('work/sub', '#00ff00')
     await vault.setFolderOrder(['work', 'Ideas - Drafts'])
-    expect(vault.tree().folders.map((folder) => [folder.id, folder.color])).toEqual([
+    expect((await vault.tree()).folders.map((folder) => [folder.id, folder.color])).toEqual([
       ['work', '#ff0000'],
       ['Ideas - Drafts', undefined],
     ])
 
     expect(await vault.renameFolder('work', 'Job')).toBe('Job')
-    expect(vault.index.has('Job/sub/n.md')).toBe(true)
+    expect(await vault.hasNote('Job/sub/n.md')).toBe(true)
     expect(vault.config.folders).toEqual({ Job: { color: '#ff0000' }, 'Job/sub': { color: '#00ff00' } })
     expect(vault.config.folderOrder).toEqual(['Job', 'Ideas - Drafts'])
     const config = JSON.parse(await read('.boostnote/config.json'))
@@ -208,11 +208,11 @@ describe('vault folders', () => {
 
     const entry = await vault.deleteFolder('Ideas - Drafts')
     expect(entry).toMatchObject({ kind: 'folder', folders: { sub: { color: '#00ff00' } } })
-    expect(vault.index.all()).toEqual([])
+    expect(await vault.notes()).toEqual([])
     expect(vault.config.folders['Ideas - Drafts/sub']).toBeUndefined()
 
     expect(await vault.restore(entry.id)).toBe('Ideas - Drafts')
-    expect(vault.index.has('Ideas - Drafts/sub/n.md')).toBe(true)
+    expect(await vault.hasNote('Ideas - Drafts/sub/n.md')).toBe(true)
     expect(vault.config.folders['Ideas - Drafts/sub']).toEqual({ color: '#00ff00' })
   })
 })

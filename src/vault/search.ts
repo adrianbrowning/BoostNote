@@ -37,8 +37,11 @@ export class NoteIndex {
   readonly #entries = new Map<string, Entry>()
 
   put(note: Note): void {
+    // Frozen (tags too) so query results cannot change the index; tags copied to leave `note` mutable.
+    const tags = [...note.tags]
+    Object.freeze(tags)
     this.#entries.set(note.id, {
-      meta: toMeta(note),
+      meta: Object.freeze({ ...toMeta(note), tags }),
       title: note.title.toLowerCase(),
       tags: note.tags.map((tag) => tag.toLowerCase()),
       body: note.body.toLowerCase(),
@@ -49,7 +52,7 @@ export class NoteIndex {
     this.#entries.delete(id)
   }
 
-  get(id: string): NoteMeta | undefined {
+  get(id: string): Readonly<NoteMeta> | undefined {
     return this.#entries.get(id)?.meta
   }
 
@@ -58,16 +61,16 @@ export class NoteIndex {
   }
 
   /** All notes, sorted by id. */
-  all(): NoteMeta[] {
+  all(): Readonly<NoteMeta>[] {
     return [...this.#entries.values()].map((entry) => entry.meta).sort((a, b) => a.id.localeCompare(b.id))
   }
 
   /** Notes directly inside `folder`, sorted by id. */
-  inFolder(folder: string): NoteMeta[] {
+  inFolder(folder: string): Readonly<NoteMeta>[] {
     return this.all().filter((meta) => meta.folder === folder)
   }
 
-  starred(): NoteMeta[] {
+  starred(): Readonly<NoteMeta>[] {
     return this.all().filter((meta) => meta.starred)
   }
 
@@ -84,7 +87,7 @@ export class NoteIndex {
     return new Map([...tags].sort(([a], [b]) => a.localeCompare(b, undefined, { sensitivity: 'base' })))
   }
 
-  withTag(tag: string): NoteMeta[] {
+  withTag(tag: string): Readonly<NoteMeta>[] {
     return this.all().filter((meta) => meta.tags.includes(tag))
   }
 

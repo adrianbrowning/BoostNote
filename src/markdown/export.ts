@@ -50,7 +50,7 @@ async function renderNotePage(
  * pre-rendered, no scripts. Also the input of PDF export and printing.
  */
 export async function noteToHtml(vault: Vault, id: string, options: ExportOptions = {}): Promise<string> {
-  const note = vault.index.get(id) ?? (await vault.readNote(id))
+  const note = (await vault.findNote(id)) ?? (await vault.readNote(id))
   return renderNotePage(vault, note, { ...options, linkNotes: false })
 }
 
@@ -72,8 +72,7 @@ export async function exportFolderHtml(
   options: ExportOptions = {},
 ): Promise<{ contents: string; pages: number }> {
   const prefix = folder === '' ? '' : `${folder}/`
-  const notes = vault.index
-    .all()
+  const notes = (await vault.notes())
     .filter((note) => note.id.startsWith(prefix))
     .sort((a, b) => a.id.localeCompare(b.id))
   await mkdir(targetDir, { recursive: true })

@@ -309,7 +309,7 @@ async function run(command: string, context: Context, vault: Vault): Promise<Out
       }
       const tags = values.tag as string[] | undefined
       if (tags && tags.length > 1) throw new CommandError('USAGE', 'list takes one --tag')
-      const notes = listNotes(vault, {
+      const notes = await listNotes(vault, {
         folder: values.folder as string | undefined,
         recursive: values.recursive === true,
         tag: tags?.[0],
@@ -320,7 +320,7 @@ async function run(command: string, context: Context, vault: Vault): Promise<Out
       return { data: notes, text: notes.length === 0 ? 'No notes.' : notes.map(noteLine).join('\n') }
     }
     case 'search': {
-      const hits = searchNotes(vault, args.join(' '), optionalNumber(values.limit))
+      const hits = await searchNotes(vault, args.join(' '), optionalNumber(values.limit))
       const text = hits
         .map((hit) => `${hit.id} — ${hit.title}  (score ${hit.score})${hit.excerpt ? `\n    ${hit.excerpt}` : ''}`)
         .join('\n')
@@ -395,11 +395,11 @@ async function run(command: string, context: Context, vault: Vault): Promise<Out
       return { data: result, text: `Restored ${result.kind} ${result.id}` }
     }
     case 'tags': {
-      const tags = listTags(vault)
+      const tags = await listTags(vault)
       return { data: tags, text: tags.length === 0 ? 'No tags.' : tags.map((t) => `#${t.tag}  ${t.count}`).join('\n') }
     }
     case 'folders': {
-      const tree = folderTree(vault)
+      const tree = await folderTree(vault)
       return { data: tree, text: treeText(tree) }
     }
     case 'tasks': {

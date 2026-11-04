@@ -156,7 +156,7 @@ describe('properties panel saves', () => {
     expect(raw).not.toContain('rating')
     expect(raw).toContain('due: 2026-11-01\n')
     expect(raw.endsWith('---\n# Body\n')).toBe(true)
-    expect(vault.index.get('note.md')?.tags).toEqual(['alpha', 'beta'])
+    expect((await vault.findNote('note.md'))?.tags).toEqual(['alpha', 'beta'])
   })
 
   it('edits a tag in place, keeping every other byte', async () => {
