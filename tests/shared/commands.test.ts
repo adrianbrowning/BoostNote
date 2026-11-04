@@ -1,6 +1,14 @@
 import { describe, expect, it } from 'vitest'
 
-import { COMMANDS, commandLabel, type MenuEvent } from '../../src/shared/commands.ts'
+import {
+  COMMANDS,
+  type CommandRow,
+  commandAccelerators,
+  commandLabel,
+  commandRow,
+  type MenuCommand,
+  type MenuEvent,
+} from '../../src/shared/commands.ts'
 
 describe('command table', () => {
   it('has one row per application command', () => {
@@ -58,8 +66,7 @@ describe('command table', () => {
       find: 'CmdOrCtrl+F',
       print: 'CmdOrCtrl+P',
     })
-    const selectTab = COMMANDS.find((command) => command.id === 'select-tab')
-    expect(selectTab && 'tabAccelerators' in selectTab ? selectTab.tabAccelerators : []).toEqual([
+    expect(commandAccelerators(commandRow('select-tab'))).toEqual([
       'CmdOrCtrl+1',
       'CmdOrCtrl+2',
       'CmdOrCtrl+3',
@@ -70,6 +77,37 @@ describe('command table', () => {
       'CmdOrCtrl+8',
       'CmdOrCtrl+9',
     ])
+  })
+
+  it('labels each Select Tab item next to its accelerator', () => {
+    expect(commandRow('select-tab').tabAccelerators).toEqual([
+      { label: 'Tab 1', accelerator: 'CmdOrCtrl+1' },
+      { label: 'Tab 2', accelerator: 'CmdOrCtrl+2' },
+      { label: 'Tab 3', accelerator: 'CmdOrCtrl+3' },
+      { label: 'Tab 4', accelerator: 'CmdOrCtrl+4' },
+      { label: 'Tab 5', accelerator: 'CmdOrCtrl+5' },
+      { label: 'Tab 6', accelerator: 'CmdOrCtrl+6' },
+      { label: 'Tab 7', accelerator: 'CmdOrCtrl+7' },
+      { label: 'Tab 8', accelerator: 'CmdOrCtrl+8' },
+      { label: 'Last Tab', accelerator: 'CmdOrCtrl+9' },
+    ])
+  })
+
+  it('gives a row either its own accelerator or tab items, never both', () => {
+    const rows: CommandRow[] = [
+      { id: 'a', label: 'A', accelerator: 'CmdOrCtrl+A', needsVault: false },
+      { id: 'b', label: 'B', tabAccelerators: [{ label: 'B 1', accelerator: 'CmdOrCtrl+1' }], needsVault: false },
+    ]
+    expect(rows.flatMap(commandAccelerators)).toEqual(['CmdOrCtrl+A', 'CmdOrCtrl+1'])
+    // @ts-expect-error a row with tab items has no accelerator of its own
+    const both: CommandRow = {
+      id: 'c',
+      label: 'C',
+      accelerator: 'CmdOrCtrl+C',
+      tabAccelerators: [],
+      needsVault: false,
+    }
+    expect(both.id).toBe('c')
   })
 
   it('marks the commands that need an open vault', () => {
@@ -100,6 +138,21 @@ describe('command table', () => {
     expect(label('reveal-note', 'win32')).toBe('Show in Explorer')
     expect(label('reveal-note', 'linux')).toBe('Show in Folder')
     expect(label('new-note', 'win32')).toBe('New Note')
+  })
+})
+
+describe('commandRow', () => {
+  it('finds the row for a command', () => {
+    expect(commandRow('new-note')).toEqual({
+      id: 'new-note',
+      label: 'New Note',
+      accelerator: 'CmdOrCtrl+N',
+      needsVault: true,
+    })
+  })
+
+  it('throws on an unknown command', () => {
+    expect(() => commandRow('check-updates' as MenuCommand)).toThrow('Unknown command: check-updates')
   })
 })
 

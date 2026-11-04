@@ -1,13 +1,6 @@
 import { app, Menu, type MenuItemConstructorOptions, shell } from 'electron'
 
-import {
-  COMMANDS,
-  type CommandRow,
-  commandAccelerators,
-  commandLabel,
-  type MenuCommand,
-  type MenuEvent,
-} from '../shared/commands.ts'
+import { type CommandRow, commandLabel, commandRow, type MenuCommand, type MenuEvent } from '../shared/commands.ts'
 
 const REPOSITORY_URL = 'https://github.com/adrianbrowning/BoostNote'
 
@@ -60,9 +53,10 @@ export function buildMenuTemplate({
     label: platform === 'win32' ? 'Command Line Tool…' : 'Install Command Line Tool…',
     click: installCommandLineTool,
   }
-  // Ids are the commands, so tests (and anything else) can find an item: `Menu.getApplicationMenu().getMenuItemById(command)`.
+  // Item ids are the command ids, and the Select Tab items are `select-tab-1` … `select-tab-9`, so
+  // tests (and anything else) can find an item: `Menu.getApplicationMenu().getMenuItemById(id)`.
   const item = (id: Exclude<MenuCommand, 'select-tab'>): MenuItemConstructorOptions => {
-    const { label, accelerator } = COMMANDS.find((command) => command.id === id) as CommandRow
+    const { label, accelerator }: CommandRow = commandRow(id)
     return {
       id,
       label: commandLabel(label, platform),
@@ -70,19 +64,16 @@ export function buildMenuTemplate({
       click: () => send({ type: 'menu', command: id }),
     }
   }
-  const selectTabRow = COMMANDS.find((command) => command.id === 'select-tab') as CommandRow
+  const selectTabRow = commandRow('select-tab')
   const selectTab: MenuItemConstructorOptions = {
     label: commandLabel(selectTabRow.label, platform),
-    // Cmd/Ctrl+1–8 pick a tab, the last accelerator picks the last tab (`index` -1).
-    submenu: commandAccelerators(selectTabRow).map((accelerator, index, all) => {
-      const last = index === all.length - 1
-      return {
-        id: `select-tab-${index + 1}`,
-        label: last ? 'Last Tab' : `Tab ${index + 1}`,
-        accelerator,
-        click: () => send({ type: 'menu', command: 'select-tab', index: last ? -1 : index }),
-      }
-    }),
+    // Cmd/Ctrl+1–8 pick a tab, the last item picks the last tab (`index` -1).
+    submenu: selectTabRow.tabAccelerators.map(({ label, accelerator }, index, all) => ({
+      id: `select-tab-${index + 1}`,
+      label,
+      accelerator,
+      click: () => send({ type: 'menu', command: 'select-tab', index: index === all.length - 1 ? -1 : index }),
+    })),
   }
   const preferences = item('preferences')
 
