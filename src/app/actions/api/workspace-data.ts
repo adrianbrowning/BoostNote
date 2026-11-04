@@ -1,13 +1,12 @@
 import * as path from 'node:path'
 
 import type { MigrationReport } from '../../../migrate/index.ts'
-import type { FolderNode, Note, ReadonlyNoteMeta, Vault } from '../../../vault/index.ts'
+import { type FolderNode, type Note, type ReadonlyNoteMeta, toJsonValue, type Vault } from '../../../vault/index.ts'
 import { HttpError } from '../../http.ts'
 import type { AppServices } from '../../services.ts'
 import type {
   FolderSummary,
   ImportSummary,
-  JsonValue,
   NoteDocument,
   NoteSummary,
   WorkspaceData,
@@ -15,11 +14,6 @@ import type {
 
 function summary({ id, folder, title, tags, starred, created, updated, excerpt }: ReadonlyNoteMeta): NoteSummary {
   return { id, folder, title, tags: [...tags], starred, created, updated, excerpt }
-}
-
-/** `value` as the client sees it. The vault parses YAML with the core schema, so this is lossless except for `.nan`/`.inf`. */
-export function toJsonValue(value: unknown): JsonValue {
-  return JSON.parse(JSON.stringify(value) ?? 'null') as JsonValue
 }
 
 export function toNoteDocument(note: Note): NoteDocument {

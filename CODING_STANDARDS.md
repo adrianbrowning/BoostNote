@@ -16,7 +16,8 @@ Rules a reviewer checks on a diff. Mechanical rules live in Biome, `tsc` and the
   `Vault` methods (atomic, traversal-checked, `#track`ed); a direct `fs` write into the vault is a
   finding.
 - **Saves are conditional.** Writes that replace a note the user or an agent may have edited pass the
-  hash they are based on (`baseHash`), and a `CHANGED` result becomes a conflict, not an overwrite.
+  hash they are based on (`baseHash`), and a `{ status: 'conflict' }` result from `Vault.writeNote` becomes a
+  conflict (409 / `CONFLICT`), not an overwrite.
 
 ## UI (Remix 3)
 

@@ -8,7 +8,6 @@ export const VAULT_ERROR_STATUS: Record<VaultErrorCode, number> = {
   NOT_FOUND: 404,
   EXISTS: 409,
   NOT_A_VAULT: 400,
-  CHANGED: 409,
   TOO_LARGE: 413,
 }
 
@@ -65,10 +64,13 @@ export async function readJsonObject(request: Request): Promise<Record<string, u
   } catch {
     throw new HttpError(400, 'BAD_REQUEST', 'Expected a JSON body')
   }
-  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
-    throw new HttpError(400, 'BAD_REQUEST', 'Expected a JSON object')
-  }
-  return value as Record<string, unknown>
+  if (!isJsonObject(value)) throw new HttpError(400, 'BAD_REQUEST', 'Expected a JSON object')
+  return value
+}
+
+/** A JSON object: not `null`, not an array. */
+export function isJsonObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
 /** A string field of a JSON body or a search param. Folder ids may be `''` (the vault root) when `allowEmpty`. */

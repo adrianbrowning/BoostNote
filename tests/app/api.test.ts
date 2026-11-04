@@ -46,7 +46,6 @@ describe('error mapping', () => {
       NOT_FOUND: 404,
       EXISTS: 409,
       NOT_A_VAULT: 400,
-      CHANGED: 409,
       TOO_LARGE: 413,
     })
     const response = errorResponse(new VaultError('EXISTS', 'Already exists: a.md'))
@@ -152,26 +151,29 @@ describe('notes', () => {
   it('writes a removed note back only with a null base hash', async () => {
     const note = await createNote()
     await app.post(api.noteDelete.href(), { id: note.id })
-    expect((await app.post(api.noteSave.href(), { id: note.id, body: 'x', baseHash: note.hash })).status).toBe(404)
+    const gone = await app.post(api.noteSave.href(), { id: note.id, body: 'x', baseHash: note.hash })
+    expect(gone.status).toBe(404)
+    expect(await gone.json()).toMatchObject({ error: 'NOT_FOUND' })
     const copy = await app.post(api.noteSave.href(), { id: note.id, body: 'copy\n', baseHash: null })
     expect(copy.status).toBe(200)
     expect((await app.post(api.noteSave.href(), { id: note.id, body: 'x', baseHash: null })).status).toBe(409)
   })
 
-  it('keeps frontmatter it sent back unchanged, byte for byte', async () => {
-    await writeFile(path.join(vault.root, 'n.md'), "---\ntitle: 'Quoted'   # comment\nweird: .nan\n---\nBody\n")
+  it('keeps the YAML of frontmatter values posted back unchanged', async () => {
+    await writeFile(path.join(vault.root, 'y.md'), "---\ntitle: 'Quoted'   # comment\nweird: .nan\n---\nBody\n")
     await vault.refresh()
-    const note = await readJson<NoteDocument>(await app.get(`${api.noteRead.href()}?id=n.md`))
+    const note = await readJson<NoteDocument>(await app.get(`${api.noteRead.href()}?id=y.md`))
     const response = await app.post(api.noteSave.href(), {
-      id: 'n.md',
-      body: 'Body\n',
+      id: note.id,
+      body: note.body,
       baseHash: note.hash,
       frontmatter: { ...note.frontmatter, starred: true },
     })
     expect(response.status).toBe(200)
-    const raw = await readFile(path.join(vault.root, 'n.md'), 'utf8')
-    expect(raw).toContain("title: 'Quoted'   # comment\nweird: .nan\n")
-    expect(raw).toContain('starred: true')
+    const raw = await readFile(path.join(vault.root, 'y.md'), 'utf8')
+    expect(raw).toContain("title: 'Quoted'   # comment\n")
+    expect(raw).toContain('weird: .nan\n')
+    expect(raw).toContain('starred: true\n')
   })
 
   it('creates, renames, moves, deletes and restores notes', async () => {

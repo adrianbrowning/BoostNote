@@ -1,19 +1,11 @@
 import { stat } from 'node:fs/promises'
 import * as path from 'node:path'
-import { isDeepStrictEqual } from 'node:util'
 import { createController } from 'remix/router'
 
 import { renderMarkdown } from '../../../markdown/index.ts'
 import { migrateStorage } from '../../../migrate/index.ts'
-import {
-  type LinkMove,
-  type Note,
-  parseNoteText,
-  type TitleRename,
-  type Vault,
-  VaultError,
-} from '../../../vault/index.ts'
-import { errorResponse, HttpError, json, readJsonObject, requireString } from '../../http.ts'
+import { type LinkMove, parseNoteText, type TitleRename, toJsonValue, type Vault } from '../../../vault/index.ts'
+import { errorResponse, HttpError, isJsonObject, json, readJsonObject, requireString } from '../../http.ts'
 import { routes } from '../../routes.ts'
 import type { AppServices } from '../../services.ts'
 import type {
@@ -25,7 +17,7 @@ import type {
 } from '../public/workspace/types.ts'
 import { exportFolder, exportNote } from './export.ts'
 import { parseUiPatch, preferencesState, savePreferences } from './preferences.ts'
-import { importSummary, toJsonValue, toNoteDocument, workspaceData } from './workspace-data.ts'
+import { importSummary, toNoteDocument, workspaceData } from './workspace-data.ts'
 
 /** Largest asset the editor may upload (pasted screenshots, dropped images). */
 export const MAX_ASSET_BYTES = 50 * 1024 * 1024
@@ -112,14 +104,6 @@ function guarded<Context>(action: (context: Context) => Promise<Response>): (con
  * re-fetches `/api/workspace` for lists, because the vault's own writes never come back as events.
  */
 export function createApiController(services: AppServices) {
-  // Saves are checked against `baseHash` and written one at a time, so two saves can't interleave.
-  let saveQueue: Promise<unknown> = Promise.resolve()
-  const serializeSave = <T>(task: () => Promise<T>): Promise<T> => {
-    const run = saveQueue.then(task, task)
-    saveQueue = run.catch(() => undefined)
-    return run
-  }
-
   return createController(routes.api, {
     actions: {
       /** `?vault=<root>`: that open vault's lists; without it, the active vault's (the page's first render). */
@@ -180,54 +164,22 @@ export function createApiController(services: AppServices) {
         // `null`: the note must not exist (saving a copy of a note that was removed on disk).
         const baseHash = body.baseHash === null ? null : requireString(body.baseHash, 'baseHash')
         const frontmatter = body.frontmatter
-        if (
-          frontmatter !== undefined &&
-          (typeof frontmatter !== 'object' || frontmatter === null || Array.isArray(frontmatter))
-        ) {
+        if (frontmatter !== undefined && !isJsonObject(frontmatter)) {
           throw new HttpError(400, 'BAD_REQUEST', 'Missing or invalid "frontmatter"')
         }
-        const conflict = (current: Note) => {
-          const conflictBody: SaveConflictBody = {
-            error: 'CONFLICT',
-            message: 'The note changed on disk since it was loaded',
-            note: toNoteDocument(current),
-          }
-          return json(conflictBody, { status: 409 })
-        }
-        return serializeSave(async () => {
-          let current: Note | undefined
-          try {
-            current = await vault.readNote(id)
-          } catch (error) {
-            if (baseHash !== null || !(error instanceof VaultError && error.code === 'NOT_FOUND')) throw error
-          }
-          if (current && current.hash !== baseHash) return conflict(current)
-          // Values the client got as JSON and sent back unchanged keep their original YAML value
-          // (JSON can't represent everything YAML can, e.g. `.nan`), so only real edits are written.
-          const previous = current?.frontmatter ?? {}
-          const next =
-            frontmatter === undefined
-              ? undefined
-              : Object.fromEntries(
-                  Object.entries(frontmatter).map(([key, value]) => {
-                    const original = previous[key]
-                    const unchanged = key in previous && isDeepStrictEqual(toJsonValue(original), value)
-                    return [key, unchanged ? original : value]
-                  }),
-                )
-          try {
-            const note = await vault.writeNote(id, {
-              body: text,
-              baseHash,
-              ...(next === undefined ? {} : { frontmatter: next }),
-            })
-            return json(toNoteDocument(note))
-          } catch (error) {
-            // Another program wrote the file while this save was in flight; theirs is on disk.
-            if (error instanceof VaultError && error.code === 'CHANGED') return conflict(await vault.readNote(id))
-            throw error
-          }
+        const result = await vault.writeNote(id, {
+          body: text,
+          baseHash,
+          ...(frontmatter === undefined ? {} : { frontmatter }),
         })
+        if (result.status === 'saved') return json(toNoteDocument(result.note))
+        if (result.current === null) throw new HttpError(404, 'NOT_FOUND', `Note not found: ${id}`)
+        const conflictBody: SaveConflictBody = {
+          error: 'CONFLICT',
+          message: 'The note changed on disk since it was loaded',
+          note: toNoteDocument(result.current),
+        }
+        return json(conflictBody, { status: 409 })
       }),
 
       noteRename: guarded(async ({ request }: { request: Request }) => {

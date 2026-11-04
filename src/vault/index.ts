@@ -4,7 +4,7 @@
  */
 export type { FolderConfig, TrashEntry, TrashKind, VaultConfig } from './config.ts'
 export { VaultError, type VaultErrorCode } from './errors.ts'
-export { type Frontmatter, type NoteText, parseNoteText, serializeNoteText } from './frontmatter.ts'
+export { type Frontmatter, type NoteText, parseNoteText, serializeNoteText, toJsonValue } from './frontmatter.ts'
 export {
   DEFAULT_IMPORT_LIMITS,
   type ImportFilesReport,
@@ -33,4 +33,5 @@ export {
   type VaultEvent,
   type VaultEventType,
   type WriteNoteInput,
+  type WriteNoteResult,
 } from './vault.ts'
