@@ -1,12 +1,12 @@
-import type { Note, NoteMeta } from './note.ts'
+import type { Note, ReadonlyNoteMeta } from './note.ts'
 import { toMeta } from './note.ts'
 
-export interface SearchHit extends NoteMeta {
-  score: number
+export interface SearchHit extends ReadonlyNoteMeta {
+  readonly score: number
 }
 
 interface Entry {
-  meta: NoteMeta
+  meta: ReadonlyNoteMeta
   title: string
   tags: string[]
   body: string
@@ -52,7 +52,7 @@ export class NoteIndex {
     this.#entries.delete(id)
   }
 
-  get(id: string): Readonly<NoteMeta> | undefined {
+  get(id: string): ReadonlyNoteMeta | undefined {
     return this.#entries.get(id)?.meta
   }
 
@@ -61,17 +61,8 @@ export class NoteIndex {
   }
 
   /** All notes, sorted by id. */
-  all(): Readonly<NoteMeta>[] {
+  all(): ReadonlyNoteMeta[] {
     return [...this.#entries.values()].map((entry) => entry.meta).sort((a, b) => a.id.localeCompare(b.id))
-  }
-
-  /** Notes directly inside `folder`, sorted by id. */
-  inFolder(folder: string): Readonly<NoteMeta>[] {
-    return this.all().filter((meta) => meta.folder === folder)
-  }
-
-  starred(): Readonly<NoteMeta>[] {
-    return this.all().filter((meta) => meta.starred)
   }
 
   /** Tag → ids of the notes carrying it; tags sorted case-insensitively. */
@@ -85,10 +76,6 @@ export class NoteIndex {
       }
     }
     return new Map([...tags].sort(([a], [b]) => a.localeCompare(b, undefined, { sensitivity: 'base' })))
-  }
-
-  withTag(tag: string): Readonly<NoteMeta>[] {
-    return this.all().filter((meta) => meta.tags.includes(tag))
   }
 
   /**
@@ -124,7 +111,7 @@ export class NoteIndex {
         }
         total += score
       }
-      if (total > 0) hits.push({ ...entry.meta, score: total })
+      if (total > 0) hits.push(Object.freeze({ ...entry.meta, score: total }))
     }
     return hits.sort((a, b) => b.score - a.score || b.updated.localeCompare(a.updated)).slice(0, limit)
   }

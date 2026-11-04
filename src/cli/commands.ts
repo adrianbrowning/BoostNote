@@ -13,6 +13,8 @@ import {
   type LinkUpdateReport,
   type Note,
   type NoteMeta,
+  type ReadonlyNoteMeta,
+  type TagCount,
   type Vault,
   VaultError,
 } from '../vault/index.ts'
@@ -100,11 +102,6 @@ export interface TrashResult {
   trashId: string
   originalPath: string
   deletedAt: string
-}
-
-export interface TagCount {
-  tag: string
-  count: number
 }
 
 export interface RestoreResult {
@@ -202,7 +199,7 @@ export async function resolveNoteId(vault: Vault, input: string): Promise<string
 
 // ── Operations ───────────────────────────────────────────────────────────────────────────────
 
-export async function listNotes(vault: Vault, options: ListOptions = {}): Promise<Readonly<NoteMeta>[]> {
+export async function listNotes(vault: Vault, options: ListOptions = {}): Promise<ReadonlyNoteMeta[]> {
   const folder = options.folder === undefined ? undefined : normalizeFolder(options.folder)
   if (folder !== undefined && folder !== '' && !vault.folders.includes(folder)) {
     throw new CommandError('NOT_FOUND', `Folder not found: ${folder}`)

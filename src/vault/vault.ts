@@ -18,7 +18,7 @@ import { copyFileAtomic, exists, writeFileAtomic } from './files.ts'
 import { type Frontmatter, parseNoteText, serializeNoteText } from './frontmatter.ts'
 import { type ImportFilesReport, type ImportOptions, planImport } from './import-files.ts'
 import { type LinkMove, rebaseNoteLinks, rewriteMovedLinks } from './links.ts'
-import { findH1, hashText, type Note, type NoteMeta, toNote } from './note.ts'
+import { findH1, hashText, type Note, type ReadonlyNoteMeta, toNote } from './note.ts'
 import {
   ASSETS_SUFFIX,
   assetFileName,
@@ -63,7 +63,12 @@ export interface FolderNode {
   name: string
   color?: string
   folders: FolderNode[]
-  notes: Readonly<NoteMeta>[]
+  notes: ReadonlyNoteMeta[]
+}
+
+export interface TagCount {
+  tag: string
+  count: number
 }
 
 export interface TrashItem extends TrashEntry {
@@ -240,7 +245,7 @@ export class Vault {
   // ── Reading ────────────────────────────────────────────────────────────────────────────────
 
   /** The indexed note `id`, or `undefined`. */
-  async findNote(id: string): Promise<Readonly<NoteMeta> | undefined> {
+  async findNote(id: string): Promise<ReadonlyNoteMeta | undefined> {
     return this.#index.get(id)
   }
 
@@ -249,12 +254,12 @@ export class Vault {
   }
 
   /** All notes, sorted by id. */
-  async notes(): Promise<readonly Readonly<NoteMeta>[]> {
+  async notes(): Promise<readonly ReadonlyNoteMeta[]> {
     return this.#index.all()
   }
 
   /** Every tag with the number of notes carrying it; sorted case-insensitively. */
-  async tags(): Promise<{ tag: string; count: number }[]> {
+  async tags(): Promise<TagCount[]> {
     return [...this.#index.tags()].map(([tag, ids]) => ({ tag, count: ids.length }))
   }
 
@@ -271,7 +276,7 @@ export class Vault {
       const parent = noteFolder(id)
       children.set(parent, [...(children.get(parent) ?? []), id])
     }
-    const notes = new Map<string, Readonly<NoteMeta>[]>()
+    const notes = new Map<string, ReadonlyNoteMeta[]>()
     for (const meta of this.#index.all()) notes.set(meta.folder, [...(notes.get(meta.folder) ?? []), meta])
     const rank = (id: string) => {
       const index = order.indexOf(id)
