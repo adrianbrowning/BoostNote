@@ -154,6 +154,14 @@ export const LINK_CASES: readonly LinkCase[] = [
     moved: '../.boostnote/x.md',
   },
   {
+    kind: 'hidden segment before ..',
+    href: '.trash/../ch3.md',
+    relative: true,
+    note: undefined,
+    html: undefined,
+    moved: '../Guides/ch3.md',
+  },
+  {
     kind: 'scheme',
     href: 'https://example.com/a.md',
     relative: false,
