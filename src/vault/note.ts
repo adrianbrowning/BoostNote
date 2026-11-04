@@ -1,28 +1,11 @@
 import { createHash } from 'node:crypto'
-import { noteDisplayName, parentOf } from '../shared/vault-ids.ts'
+import { type NoteMeta, noteDisplayName, parentOf } from '../shared/vault-ids.ts'
 import type { Frontmatter, NoteText } from './frontmatter.ts'
-
-/** What the index and lists know about a note. */
-export interface NoteMeta {
-  /** POSIX path relative to the vault root, e.g. `work/todo.md`. */
-  id: string
-  /** Folder id (`''` for the vault root). */
-  folder: string
-  title: string
-  tags: string[]
-  starred: boolean
-  /** ISO-8601; frontmatter `created`, else the file's birth time. */
-  created: string
-  /** ISO-8601; frontmatter `updated`, else the file's modification time. */
-  updated: string
-  excerpt: string
-}
 
 /** `NoteMeta` as the vault's queries return it: frozen at runtime, so read-only to the compiler. */
 export interface ReadonlyNoteMeta extends Readonly<Omit<NoteMeta, 'tags'>> {
   readonly tags: readonly string[]
 }
-
 /** A note as read from disk. */
 export interface Note extends NoteMeta {
   frontmatter: Frontmatter
@@ -190,9 +173,4 @@ export function toNote(id: string, raw: string, text: NoteText, stats: { birthti
     raw,
     hash: hashText(raw),
   }
-}
-
-export function toMeta(note: Note): NoteMeta {
-  const { id, folder, title, tags, starred, created, updated, excerpt } = note
-  return { id, folder, title, tags, starred, created, updated, excerpt }
 }

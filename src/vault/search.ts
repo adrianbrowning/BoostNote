@@ -1,5 +1,5 @@
+import { toMeta } from '../shared/vault-ids.ts'
 import type { Note, ReadonlyNoteMeta } from './note.ts'
-import { toMeta } from './note.ts'
 
 export interface SearchHit extends ReadonlyNoteMeta {
   readonly score: number

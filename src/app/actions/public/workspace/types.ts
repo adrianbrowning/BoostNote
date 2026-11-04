@@ -14,6 +14,7 @@ import type {
 import type { UpdateInfo } from '../../../../main/updates.ts'
 import type { OpenRequest } from '../../../../main/vault-session.ts'
 import type { MenuCommand, MenuEvent } from '../../../../shared/commands.ts'
+import type { NoteMeta } from '../../../../shared/vault-ids.ts'
 import type {
   ImportFilesReport,
   LinkMove,
@@ -55,17 +56,8 @@ export interface PreferencesState {
 
 export type JsonValue = string | number | boolean | null | JsonValue[] | { [key: string]: JsonValue }
 
-/** What lists show about a note (the vault index's `NoteMeta`). */
-export interface NoteSummary {
-  id: string
-  folder: string
-  title: string
-  tags: string[]
-  starred: boolean
-  created: string
-  updated: string
-  excerpt: string
-}
+/** What lists show about a note: the vault index's `NoteMeta`. */
+export type NoteSummary = NoteMeta
 
 /** A note as the editor needs it: frontmatter and body kept apart, `hash` for optimistic concurrency. */
 export interface NoteDocument extends NoteSummary {

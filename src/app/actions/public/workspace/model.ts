@@ -1,6 +1,6 @@
 import { TypedEventTarget } from 'remix/component'
 
-import { lastSegment, noteStem, parentOf } from '../../../../shared/vault-ids.ts'
+import { lastSegment, noteStem, parentOf, toMeta } from '../../../../shared/vault-ids.ts'
 import { ApiError, client, setPageVault } from './api.ts'
 import type { DropTicket } from './drop-import.ts'
 import { NoteSession } from './note-session.ts'
@@ -1172,16 +1172,7 @@ export class WorkspaceModel extends TypedEventTarget<{
   }
 
   #putSummary(note: NoteSummary): void {
-    const summary: NoteSummary = {
-      id: note.id,
-      folder: note.folder,
-      title: note.title,
-      tags: note.tags,
-      starred: note.starred,
-      created: note.created,
-      updated: note.updated,
-      excerpt: note.excerpt,
-    }
+    const summary = toMeta(note)
     const index = this.data.notes.findIndex((item) => item.id === note.id)
     if (index === -1) this.data.notes.push(summary)
     else this.data.notes[index] = summary

@@ -10,6 +10,7 @@ import {
   parentOf,
   resolveNoteLink,
   safeDecode,
+  toMeta,
 } from '../../src/shared/vault-ids.ts'
 import { FROM, LINK_CASES } from './link-cases.ts'
 
@@ -128,5 +129,34 @@ describe('resolveNoteLink', () => {
   it('resolves from a note at the vault root', () => {
     expect(resolveNoteLink('index.md', 'Guides/ch3.md')).toBe('Guides/ch3.md')
     expect(resolveNoteLink('index.md', '../ch3.md')).toBeUndefined()
+  })
+})
+
+describe('toMeta', () => {
+  it('keeps every NoteMeta field and drops frontmatter, body, raw and hash', () => {
+    const note = {
+      id: 'work/todo.md',
+      folder: 'work',
+      title: 'Todo',
+      tags: ['a', 'b'],
+      starred: true,
+      created: '2026-01-01T00:00:00.000Z',
+      updated: '2026-02-01T00:00:00.000Z',
+      excerpt: 'Buy milk',
+      frontmatter: { title: 'Todo' },
+      body: '# Todo\n\nBuy milk\n',
+      raw: '---\ntitle: Todo\n---\n# Todo\n\nBuy milk\n',
+      hash: 'abc123',
+    }
+    expect(toMeta(note)).toStrictEqual({
+      id: 'work/todo.md',
+      folder: 'work',
+      title: 'Todo',
+      tags: ['a', 'b'],
+      starred: true,
+      created: '2026-01-01T00:00:00.000Z',
+      updated: '2026-02-01T00:00:00.000Z',
+      excerpt: 'Buy milk',
+    })
   })
 })
