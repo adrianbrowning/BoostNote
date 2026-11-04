@@ -4,6 +4,8 @@ import * as path from 'node:path'
 import { test as base, type ElectronApplication, _electron as electron, type Page } from '@playwright/test'
 
 const projectRoot = path.resolve(import.meta.dirname, '../..')
+/** Main-process preload: on macOS test windows never take the OS keyboard focus (see the file). */
+const backgroundWindows = path.join(import.meta.dirname, 'background-windows.cjs')
 
 export interface AppHandle {
   electronApp: ElectronApplication
@@ -40,9 +42,10 @@ export interface LaunchOptions {
 
 /**
  * Launches the app from source on a temp profile (`--user-data-dir`) whose settings reopen a temp
- * vault, with the global hotkey off so tests never fight a running Boostnote for it. `openFiles` are
- * passed on the command line, like a file association does on Windows/Linux. The temp vault is a
- * copy (`vaultCopyOf`), so a real vault is never opened.
+ * vault, with the global hotkey off so tests never fight a running Boostnote for it. On macOS its
+ * window opens in the background and never takes the keyboard, so keys typed into other apps
+ * meanwhile cannot reach a test. `openFiles` are passed on the command line, like a file association
+ * does on Windows/Linux. The temp vault is a copy (`vaultCopyOf`), so a real vault is never opened.
  */
 export async function launchApp(files: VaultFiles, options: LaunchOptions = {}): Promise<AppHandle> {
   const { openFiles = {}, vaultCopyOf } = options
@@ -61,6 +64,8 @@ export async function launchApp(files: VaultFiles, options: LaunchOptions = {}):
   )
   const electronApp = await electron.launch({
     args: [
+      '-r',
+      backgroundWindows,
       projectRoot,
       `--user-data-dir=${userDataDir}`,
       ...Object.keys(openFiles).map((rel) => path.join(root, 'loose', ...rel.split('/'))),
@@ -69,6 +74,10 @@ export async function launchApp(files: VaultFiles, options: LaunchOptions = {}):
     env: { ...process.env, NODE_ENV: 'development', HOME: path.join(root, 'home') },
   })
   const page = await electronApp.firstWindow()
+  // Playwright emulates focus for browser pages but not for Electron's, whose focus follows the OS
+  // window; on macOS the test window never gets that (background-windows.cjs), so the page emulates it.
+  const cdp = await electronApp.context().newCDPSession(page)
+  await cdp.send('Emulation.setFocusEmulationEnabled', { enabled: true })
   await page.waitForLoadState('domcontentloaded')
   // Menu commands arrive over SSE: wait until the workspace is listening.
   await page.locator('[data-connection="connected"]').waitFor()
