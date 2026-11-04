@@ -5,6 +5,7 @@ import * as path from 'node:path'
 import { isNodeError, VaultError } from './errors.ts'
 import { parseNoteText } from './frontmatter.ts'
 import { rewriteRelativeLinks } from './links.ts'
+import { lowerCaseEntries } from './names.ts'
 import {
   ASSETS_SUFFIX,
   assetFileName,
@@ -402,13 +403,4 @@ async function resolveLink(target: string, root: string): Promise<{ real: string
   if (!isInside(root, real)) return 'outside the dropped files'
   if (!(await stat(real)).isFile()) return 'not a file'
   return { real }
-}
-
-async function lowerCaseEntries(dir: string): Promise<Set<string>> {
-  try {
-    return new Set((await readdir(dir)).map((name) => name.toLowerCase()))
-  } catch (error) {
-    if (isNodeError(error, 'ENOENT')) return new Set()
-    throw error
-  }
 }
