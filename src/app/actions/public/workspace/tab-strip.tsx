@@ -1,6 +1,7 @@
 import type { Handle } from 'remix/component'
 import { css, on } from 'remix/component'
 
+import { noteStem } from '../../../../shared/vault-ids.ts'
 import type { WorkspaceModel } from './model.ts'
 import { iconButton } from './styles.ts'
 
@@ -55,8 +56,7 @@ export function TabStrip(handle: Handle<{ model: WorkspaceModel }>) {
             const title =
               tab.kind === 'reader'
                 ? tab.name
-                : (model.data.notes.find((note) => note.id === tab.path)?.title ??
-                  tab.path.slice(tab.path.lastIndexOf('/') + 1))
+                : (model.data.notes.find((note) => note.id === tab.path)?.title ?? noteStem(tab.path))
             const active = tab.key === model.tabs.activeKey
             return (
               <div

@@ -64,6 +64,20 @@ test('external edits reload the open note', async ({ app }) => {
   await expect(editor(page)).toContainText('Changed on disk.', { timeout: 15_000 })
 })
 
+test('a tab whose note is deleted on disk shows the note stem; the path line keeps the file name', async ({ app }) => {
+  const { page, vault } = app
+  await writeFiles(vault, { 'work/gone.md': '---\ntitle: Gone away\n---\n# Gone\n' })
+  await expect(page.locator('[data-note="work/gone.md"]')).toBeAttached({ timeout: 15_000 })
+  await page.locator('[data-note="work/gone.md"]').click()
+  await expect(page.locator('[data-note-title]')).toHaveText('Gone away')
+  await expect(page.locator('[role="tab"][data-tab="work/gone.md"]')).toHaveText(/^Gone away×$/)
+  await rm(path.join(vault, 'work/gone.md'))
+  await expect(page.locator('[data-note="work/gone.md"]')).toBeHidden({ timeout: 15_000 })
+  const tab = page.locator('[role="tab"][data-tab="work/gone.md"]')
+  await expect(tab).toHaveText(/^gone×$/)
+  await expect(page.locator('[title="work/gone.md"]:not([role="tab"])')).toHaveText(/· gone\.md$/)
+})
+
 test('tabs are restored after a reload', async ({ app }) => {
   const { page } = app
   await page.locator('[data-note="diagram.md"]').click()

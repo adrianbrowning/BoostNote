@@ -2,6 +2,7 @@ import type { Dirent } from 'node:fs'
 import { readdir, readFile, realpath, stat } from 'node:fs/promises'
 import * as path from 'node:path'
 
+import { joinId, noteStem, parentOf } from '../shared/vault-ids.ts'
 import { isNodeError, VaultError } from './errors.ts'
 import { parseNoteText } from './frontmatter.ts'
 import { rewriteRelativeLinks } from './links.ts'
@@ -12,9 +13,7 @@ import {
   folderSegments,
   isHiddenName,
   isInside,
-  joinId,
   noteFileName,
-  noteFolder,
   noteSegments,
   sanitizeFileName,
   uniqueName,
@@ -355,8 +354,8 @@ export async function planImport(options: {
       usedOthers.add(target.asset)
       targets.set(relPath, { asset: name })
     }
-    const stem = path.posix.basename(note.id, '.md')
-    const dirId = noteFolder(note.id)
+    const stem = noteStem(note.id)
+    const dirId = parentOf(note.id)
     let links = 0
     const nextBody = rewriteRelativeLinks(body, (relPath) => {
       const target = targets.get(relPath)

@@ -53,21 +53,6 @@ export function noteSegments(id: string): string[] {
   return segments
 }
 
-/** Folder id of a note id (`work/todo.md` → `work`, `todo.md` → `''`). */
-export function noteFolder(id: string): string {
-  const index = id.lastIndexOf('/')
-  return index === -1 ? '' : id.slice(0, index)
-}
-
-/** File name without `.md` (`work/todo.md` → `todo`). */
-export function noteStem(id: string): string {
-  return path.posix.basename(id, '.md')
-}
-
-export function joinId(folder: string, name: string): string {
-  return folder === '' ? name : `${folder}/${name}`
-}
-
 export function isInside(parent: string, child: string): boolean {
   const relative = path.relative(parent, child)
   return relative === '' || (!relative.startsWith('..') && !path.isAbsolute(relative))
@@ -167,12 +152,4 @@ export function uniqueName(base: string, taken: (candidate: string) => boolean, 
 /** Percent-encodes the characters that would break a CommonMark link destination (or start its fragment). */
 export function encodeLinkPath(relPath: string): string {
   return relPath.replace(/[ #%()<>]/g, (char) => `%${char.charCodeAt(0).toString(16).toUpperCase().padStart(2, '0')}`)
-}
-
-export function safeDecode(value: string): string {
-  try {
-    return decodeURIComponent(value)
-  } catch {
-    return value
-  }
 }

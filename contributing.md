@@ -51,6 +51,7 @@ it describes. Reviews follow [CODING_STANDARDS.md](CODING_STANDARDS.md).
 src/main/      Electron main: lifecycle, window, menus, boost:// protocol, SSE hub, settings, export windows
 src/app/       Remix app: routes, router, controllers (actions/), server UI (ui/), browser code in **/public/
 src/vault/     storage core (plain Node, no Electron)
+src/shared/    browser-safe rules shared by main and the renderer (vault ids, note names; no node: imports)
 src/editor/    CodeMirror 6 live-preview editor (browser-only, framework-agnostic)
 src/markdown/  Markdown → standalone HTML for export, PDF and printing
 src/migrate/   legacy CSON storage importer + CLI
@@ -64,6 +65,9 @@ Things that are easy to get wrong:
   `AppServices` (`src/app/services.ts`), which tests replace with fakes.
 - Browser modules must be reachable through `remix.json` (`allowFiles`, `allowPackages`); packages
   that only ship CommonJS cannot be served (mermaid is vendored, see `src/app/vendor.ts`).
+- Rules both main and the browser need (vault ids, note stems and display names) live once in
+  `src/shared/`, which Biome keeps free of `node:` imports; import them from there rather than
+  copying them into `src/vault` or the renderer.
 - Never top-level `await app.whenReady()` in the main-process import graph: Electron emits `ready`
   only after the entry module has evaluated.
 - Every app keyboard shortcut is a native menu accelerator defined in the shared command table

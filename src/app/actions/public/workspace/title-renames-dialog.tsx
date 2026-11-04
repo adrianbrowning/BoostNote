@@ -1,13 +1,11 @@
 import type { Handle } from 'remix/component'
 import { css, on } from 'remix/component'
 
+import { noteStem, parentOf } from '../../../../shared/vault-ids.ts'
 import { client } from './api.ts'
 import type { WorkspaceModel } from './model.ts'
-import { parentOf } from './paths.ts'
 import { button, muted, primaryButton } from './styles.ts'
 import type { TitleRename, TitleRenamePlan, TitleRenameReport } from './types.ts'
-
-const fileName = (id: string) => id.slice(id.lastIndexOf('/') + 1).replace(/\.md$/, '')
 
 const LEFT_ALONE: [string, string] = [
   'note is named differently and is left alone',
@@ -74,7 +72,7 @@ export function TitleRenamesDialog(handle: Handle<{ model: WorkspaceModel }>) {
             <ul mix={itemsStyle}>
               {items.map((rename) => (
                 <li key={rename.from} data-title-rename={rename.from}>
-                  <span mix={oldNameStyle}>{fileName(rename.from)}</span> → <strong>{fileName(rename.to)}</strong>
+                  <span mix={oldNameStyle}>{noteStem(rename.from)}</span> → <strong>{noteStem(rename.to)}</strong>
                 </li>
               ))}
             </ul>

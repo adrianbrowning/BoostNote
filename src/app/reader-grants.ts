@@ -3,8 +3,9 @@ import { constants } from 'node:fs'
 import { type FileHandle, lstat, open, realpath } from 'node:fs/promises'
 import * as path from 'node:path'
 
+import { safeDecode } from '../shared/vault-ids.ts'
 import type { ImportOptions } from '../vault/index.ts'
-import { isInside, safeDecode } from '../vault/paths.ts'
+import { isInside } from '../vault/paths.ts'
 
 /** What `importOnce` hands its import for `Vault.importFiles`. */
 type ReaderImport = Required<Pick<ImportOptions, 'read' | 'refuseAsset'>>

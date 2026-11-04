@@ -1,7 +1,8 @@
 import * as path from 'node:path'
 
+import { safeDecode } from '../shared/vault-ids.ts'
 import { VaultError } from './errors.ts'
-import { ASSETS_SUFFIX, encodeLinkPath, folderSegments, noteSegments, safeDecode } from './paths.ts'
+import { ASSETS_SUFFIX, encodeLinkPath, folderSegments, noteSegments } from './paths.ts'
 
 /**
  * A note or folder that was renamed or moved, by id. A note move also covers its `<stem>.assets/`

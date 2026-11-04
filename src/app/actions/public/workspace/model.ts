@@ -1,9 +1,10 @@
 import { TypedEventTarget } from 'remix/component'
 
+import { lastSegment, noteStem, parentOf } from '../../../../shared/vault-ids.ts'
 import { ApiError, client, setPageVault } from './api.ts'
 import type { DropTicket } from './drop-import.ts'
 import { NoteSession } from './note-session.ts'
-import { baseName, folderChain, parentOf } from './paths.ts'
+import { folderChain } from './paths.ts'
 import { type ReaderTab, type Tab, Tabs } from './tabs.ts'
 import type {
   FolderSummary,
@@ -231,7 +232,7 @@ export class WorkspaceModel extends TypedEventTarget<{
 
   folderName(id: string): string {
     if (id === '') return this.data.vault?.name ?? ''
-    return id.slice(id.lastIndexOf('/') + 1)
+    return lastSegment(id)
   }
 
   get selectionTitle(): string {
@@ -594,7 +595,7 @@ export class WorkspaceModel extends TypedEventTarget<{
   async renameNote(id: string): Promise<void> {
     const note = this.data.notes.find((item) => item.id === id)
     if (!note) return
-    const stem = id.slice(id.lastIndexOf('/') + 1).replace(/\.md$/, '')
+    const stem = noteStem(id)
     const name = await this.prompt({ title: 'Rename note', label: 'File name', value: stem, confirm: 'Rename' })
     if (name === null || name.trim() === '' || name.trim() === stem) return
     await this.attempt(() => this.#renameFile(id, name.trim()))
@@ -617,7 +618,7 @@ export class WorkspaceModel extends TypedEventTarget<{
         return ok ? null : 'Could not update the note'
       }
       if (next === '') return 'A note needs a name'
-      if (next === note.id.slice(note.id.lastIndexOf('/') + 1).replace(/\.md$/, '')) return null
+      if (next === noteStem(note.id)) return null
       await this.#renameFile(note.id, next)
       return null
     } catch (error) {
@@ -680,7 +681,7 @@ export class WorkspaceModel extends TypedEventTarget<{
     await this.attempt(async () => {
       const plan = await client.planLinkUpdates([move])
       if (plan.total === 0) return
-      const name = move.from.slice(move.from.lastIndexOf('/') + 1).replace(/\.md$/, '')
+      const name = noteStem(move.from)
       const links = plan.total === 1 ? '1 link' : `${plan.total} links`
       const notes = plan.notes.length === 1 ? '1 note' : `${plan.notes.length} notes`
       const { promise, resolve } = Promise.withResolvers<boolean>()
@@ -857,15 +858,15 @@ export class WorkspaceModel extends TypedEventTarget<{
    */
   async #reportImport(report: ImportFilesReport, folder: string, open?: (id: string) => Promise<void>): Promise<void> {
     const details = [
-      ...report.skipped.map((skip) => `Skipped ${baseName(skip.source)}: ${skip.reason}`),
-      ...report.unresolved.map((link) => `${baseName(link.id)}: link “${link.link}” left as is (${link.reason})`),
+      ...report.skipped.map((skip) => `Skipped ${lastSegment(skip.source)}: ${skip.reason}`),
+      ...report.unresolved.map((link) => `${lastSegment(link.id)}: link “${link.link}” left as is (${link.reason})`),
     ]
     const imported = report.notes.length
     if (imported === 0) {
       const only = report.skipped.length === 1 ? report.skipped[0] : undefined
       this.notify(
         'info',
-        only ? `Nothing imported: ${baseName(only.source)} is ${only.reason}` : 'Nothing imported',
+        only ? `Nothing imported: ${lastSegment(only.source)} is ${only.reason}` : 'Nothing imported',
         details,
       )
       return

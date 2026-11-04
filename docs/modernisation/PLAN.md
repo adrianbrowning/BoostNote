@@ -86,6 +86,7 @@ Consequences:
 │     ├─ GET /vault-assets/*  files a note links to (images), via vault.assetPath()        │
 │     └─ /api/*         the workspace's JSON API (see "Workspace (phase 4)")              │
 │   src/vault (phase 2)  plain Node storage core, used by router controllers               │
+│   src/shared           browser-safe vault-id/name rules, used by vault and renderer      │
 └──────────────────────────────────────────────────────────────────────────────────────────┘
                  ▲  boost://app/... (HTML, JS, CSS, fetch, forms)   │  SSE: event: menu …
                  │                                                  ▼
@@ -483,7 +484,7 @@ Linux installers on their own runners (`release` job) and attaches them to a dra
 
 The file name **is** the note's name (as in Obsidian/Hubble); the first `# H1` is just content.
 
-- **Displayed name** (`noteTitle`, `src/vault/note.ts`): frontmatter `title` when it is a non-empty
+- **Displayed name** (`noteDisplayName`, `src/shared/vault-ids.ts`; the vault re-exports it as `noteTitle`): frontmatter `title` when it is a non-empty
   string, else the file name stem. Used by the index (and its search title field), the note list,
   editor header, tabs, trash list and exports (document `<title>`, folder index pages).
 - **One sanitiser** (`noteFileName` / `sanitizeFileName`, `src/vault/paths.ts`) for new notes,
@@ -738,6 +739,11 @@ styles and CSP, the asset server, controlled inputs, testing) are in
 
 `src/vault` (public entry `src/vault/index.ts`) is plain Node, no Electron. Things consumers need to know:
 
+- **Shared rules:** vault-id and note-name rules that the renderer needs too (`parentOf`,
+  `lastSegment`, `noteStem`, `joinId`, `noteDisplayName`, `safeDecode`) live in
+  `src/shared/vault-ids.ts`, beside `src/vault`. It has no `node:` imports (a Biome
+  `noNodejsModules` override on `src/shared/**` enforces it) and `remix.json` `allowFiles` serves it
+  to the page. The Markdown extension is lowercase `.md` only: `noteStem('B.MD')` is `B.MD`.
 - **Entry point:** `openVault(root, { watch: true })` returns a `Vault`: `tree()`, `index` (titles, tags,
   starred, `search()`), `readNote`/`writeNote`/`editNote` (read-edit-save for adapters)/`createNote`/`renameNote`/`moveNote`/`deleteNote`,
   `listTrash`/`restore`/`emptyTrash`, folder CRUD + colours/order, `saveAsset`/`assetPath`,

@@ -2,6 +2,7 @@ import { mkdir, stat, writeFile } from 'node:fs/promises'
 import * as path from 'node:path'
 
 import { exportFolderHtml, exportNoteMarkdown, noteToHtml } from '../../../markdown/index.ts'
+import { lastSegment, noteStem } from '../../../shared/vault-ids.ts'
 import type { Vault } from '../../../vault/index.ts'
 import { HttpError, json, readJsonObject, requireString } from '../../http.ts'
 import type { AppServices } from '../../services.ts'
@@ -39,7 +40,7 @@ export async function exportNote(services: AppServices, vault: Vault, request: R
   }
 
   const filter = SAVE_FILTERS[format]
-  const stem = path.posix.basename(id).replace(/\.md$/i, '')
+  const stem = noteStem(id)
   const target = await services.exports.saveFile({
     title: `Export as ${filter.name}`,
     defaultPath: `${stem}.${filter.extension}`,
@@ -71,7 +72,7 @@ export async function exportFolder(services: AppServices, vault: Vault, request:
     createDirectory: true,
   })
   if (parent === undefined) return json({ path: null } satisfies ExportResult)
-  const name = folder === '' ? path.basename(vault.root) : path.posix.basename(folder)
+  const name = folder === '' ? path.basename(vault.root) : lastSegment(folder)
   const target = await freePath(parent, `${name} (HTML)`)
   await mkdir(target)
   const { contents } = await exportFolderHtml(vault, folder, target, { renderMermaid: services.exports.renderMermaid })
