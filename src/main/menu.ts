@@ -1,13 +1,21 @@
 import { app, Menu, type MenuItemConstructorOptions, shell } from 'electron'
 
-import { COMMANDS, type CommandRow, commandAccelerators, commandLabel, type MenuCommand } from '../shared/commands.ts'
+import {
+  COMMANDS,
+  type CommandRow,
+  commandAccelerators,
+  commandLabel,
+  type MenuCommand,
+  type MenuEvent,
+} from '../shared/commands.ts'
 
 const REPOSITORY_URL = 'https://github.com/adrianbrowning/BoostNote'
 
 export interface MenuTemplateOptions {
   platform: NodeJS.Platform
   appName: string
-  send: (command: MenuCommand, index?: number) => void
+  /** Forwards a command to the renderer (main.ts broadcasts it as an SSE `menu` event). */
+  send: (event: MenuEvent) => void
   checkForUpdates: () => void
   installCommandLineTool: () => void
 }
@@ -55,7 +63,12 @@ export function buildMenuTemplate({
   // Ids are the commands, so tests (and anything else) can find an item: `Menu.getApplicationMenu().getMenuItemById(command)`.
   const item = (id: Exclude<MenuCommand, 'select-tab'>): MenuItemConstructorOptions => {
     const { label, accelerator } = COMMANDS.find((command) => command.id === id) as CommandRow
-    return { id, label: commandLabel(label, platform), ...(accelerator ? { accelerator } : {}), click: () => send(id) }
+    return {
+      id,
+      label: commandLabel(label, platform),
+      ...(accelerator ? { accelerator } : {}),
+      click: () => send({ type: 'menu', command: id }),
+    }
   }
   const selectTabRow = COMMANDS.find((command) => command.id === 'select-tab') as CommandRow
   const selectTab: MenuItemConstructorOptions = {
@@ -67,7 +80,7 @@ export function buildMenuTemplate({
         id: `select-tab-${index + 1}`,
         label: last ? 'Last Tab' : `Tab ${index + 1}`,
         accelerator,
-        click: () => send('select-tab', last ? -1 : index),
+        click: () => send({ type: 'menu', command: 'select-tab', index: last ? -1 : index }),
       }
     }),
   }

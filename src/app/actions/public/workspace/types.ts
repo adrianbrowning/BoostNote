@@ -3,7 +3,7 @@
  * both the browser modules and the main-process controllers import them.
  */
 
-import type { MenuEvent, VaultChangeEvent } from '../../../../main/events.ts'
+import type { VaultChangeEvent } from '../../../../main/events.ts'
 import type {
   OutsideFilePreference,
   PaneLayout,
@@ -13,7 +13,7 @@ import type {
 } from '../../../../main/settings.ts'
 import type { UpdateInfo } from '../../../../main/updates.ts'
 import type { OpenRequest } from '../../../../main/vault-session.ts'
-import type { MenuCommand } from '../../../../shared/commands.ts'
+import type { MenuCommand, MenuEvent } from '../../../../shared/commands.ts'
 import type {
   ImportFilesReport,
   LinkMove,

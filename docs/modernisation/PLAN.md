@@ -311,9 +311,14 @@ Print ⌘P, Reveal ⌥⌘R, Close Tab ⌘W, Reopen Closed Tab ⇧⌘T), Edit (ro
 Find… ⌘F → the editor's search panel), View (Toggle Sidebar ⇧⌘E, Toggle Note List ⇧⌘J, Toggle
 Properties ⇧⌘P, Back ⌘[, Forward ⌘], reload/devtools, zoom roles, full screen), Window (Next/Previous
 Tab Ctrl+Tab / Ctrl+⇧Tab, Select Tab ⌘1…⌘9), Help (GitHub, these notes, Report an Issue). Items reach
-the renderer as SSE `menu` events (`{ command, index? }`); each item's `id` is its command (Select Tab
-items are `select-tab-1` … `select-tab-9`), so `Menu.getApplicationMenu().getMenuItemById(id)` finds
-it (the e2e tests click items that way). The renderer binds none of these keys
+the renderer as SSE `menu` events: `MenuEvent` (also in `src/shared/commands.ts`) is
+`{ type: 'menu', command }`, and only `select-tab` carries `index` (0–7, `-1` for the last tab), so
+main cannot send one without it. The workspace runs them through `runMenuCommand`
+(`src/app/actions/public/workspace/menu-commands.ts`): one handler per command (a row without one
+fails `tsc`), and a command whose row says `needsVault` does nothing until a vault is open. Each
+item's `id` is its command (Select Tab items are `select-tab-1` … `select-tab-9`), so
+`Menu.getApplicationMenu().getMenuItemById(id)` finds it (the e2e tests click items that way). The
+renderer binds none of these keys
 itself; a capture-phase `keydown` listener only stops their propagation (without `preventDefault`)
 so CodeMirror's own bindings (Mod-[ / Mod-] indent, Mod-F) don't act as well. Each shortcut thus fires
 exactly once, through the menu. Mouse back/forward buttons and Cmd/Ctrl/middle-click are handled in

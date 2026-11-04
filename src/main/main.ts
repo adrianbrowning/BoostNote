@@ -210,7 +210,7 @@ if (!app.requestSingleInstanceLock()) {
   void app.whenReady().then(async () => {
     handleBoostProtocol(router)
     installMenu(
-      (command, index) => eventHub.broadcast({ type: 'menu', command, ...(index === undefined ? {} : { index }) }),
+      (event) => eventHub.broadcast(event),
       () => void checkForUpdatesNow(),
       () => void installCommandLineTool(),
     )
