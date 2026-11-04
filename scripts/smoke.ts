@@ -2,6 +2,7 @@
 // [--shot <png>]`. The copy and a temp profile live in a temp folder that is kept for inspection;
 // the source folder is only read. `--steps` is a module whose default export gets the launched
 // app (`AppHandle` from tests/e2e/fixtures.ts: page, electronApp, vault, clickMenu, …).
+// A small committed sample vault lives in tests/fixtures/sample-vault.
 import { mkdir } from 'node:fs/promises'
 import * as path from 'node:path'
 import { pathToFileURL } from 'node:url'
@@ -18,7 +19,10 @@ const { values } = parseArgs({
 })
 const source = values['vault-copy']
 if (!source) {
-  console.error('Usage: pnpm smoke --vault-copy <dir> [--steps <file.ts>] [--shot <file.png>]')
+  console.error(
+    'Usage: pnpm smoke --vault-copy <dir> [--steps <file.ts>] [--shot <file.png>]\n' +
+      'Sample vault: pnpm smoke --vault-copy tests/fixtures/sample-vault',
+  )
   process.exit(2)
 }
 
