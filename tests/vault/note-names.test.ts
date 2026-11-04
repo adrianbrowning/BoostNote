@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os'
 import * as path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 
-import { noteFileName, noteTitle, openVault, type Vault } from '../../src/vault/index.ts'
+import { noteFileName, openVault, type Vault } from '../../src/vault/index.ts'
 
 let root: string
 let vault: Vault
@@ -73,11 +73,6 @@ describe('noteFileName', () => {
 
 describe('note titles', () => {
   it('uses the frontmatter title, else the file name, never the first H1', async () => {
-    expect(noteTitle('1-1/Craig.md', {})).toBe('Craig')
-    expect(noteTitle('a.md', { title: '  Named  ' })).toBe('Named')
-    expect(noteTitle('a.md', { title: '' })).toBe('a')
-    expect(noteTitle('a.md', { title: 3 })).toBe('a')
-
     await put('1-1/Craig.md', '# 2026-09-18\n\nNotes\n')
     vault = await openVault(root)
     expect((await vault.findNote('1-1/Craig.md'))?.title).toBe('Craig')

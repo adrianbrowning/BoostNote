@@ -4,4 +4,4 @@
  */
 export { htmlDocument, katexStylesheet } from './document.ts'
 export { type ExportOptions, exportFolderHtml, exportNoteMarkdown, noteToHtml } from './export.ts'
-export { isRelativeUrl, noteLinkToHtml, type RenderedMarkdown, type RenderOptions, renderMarkdown } from './render.ts'
+export { noteLinkToHtml, type RenderedMarkdown, type RenderOptions, renderMarkdown } from './render.ts'

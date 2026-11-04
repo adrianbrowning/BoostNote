@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto'
 import { realpath } from 'node:fs/promises'
 import * as path from 'node:path'
 
+import { isNoteFileName } from '../shared/vault-ids.ts'
 import { isNodeError, VaultError } from './errors.ts'
 
 /** Directory (relative to the vault root) that holds deleted notes and folders. */
@@ -47,7 +48,7 @@ export function folderSegments(folder: string): string[] {
 export function noteSegments(id: string): string[] {
   const segments = splitRelative(id, 'note id')
   const last = segments.at(-1)
-  if (!last?.endsWith('.md') || last.length === 3) {
+  if (last === undefined || !isNoteFileName(last)) {
     throw new VaultError('INVALID_PATH', `Invalid note id: ${JSON.stringify(id)}`)
   }
   return segments
@@ -149,7 +150,14 @@ export function uniqueName(base: string, taken: (candidate: string) => boolean, 
   }
 }
 
-/** Percent-encodes the characters that would break a CommonMark link destination (or start its fragment). */
+/** Percent-encodes the characters that would break a CommonMark link destination (or start its query or fragment). */
 export function encodeLinkPath(relPath: string): string {
-  return relPath.replace(/[ #%()<>]/g, (char) => `%${char.charCodeAt(0).toString(16).toUpperCase().padStart(2, '0')}`)
+  return relPath.replace(/[ #%()<>?]/g, percentEncode)
 }
+
+/** Like `encodeLinkPath` for an angle-bracket destination (`<my note.md>`), where spaces may stay literal. */
+export function encodeBracketedLinkPath(relPath: string): string {
+  return relPath.replace(/[#%<>?]/g, percentEncode)
+}
+
+const percentEncode = (char: string) => `%${char.charCodeAt(0).toString(16).toUpperCase().padStart(2, '0')}`
