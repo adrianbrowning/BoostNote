@@ -306,6 +306,13 @@ export class Vault {
     }
   }
 
+  /** Absolute path of an existing note's file (validated, no symlink escapes); NOT_FOUND when missing. */
+  async notePath(id: string): Promise<string> {
+    const file = await resolveInside(this.root, noteSegments(id))
+    if (!(await isFile(file))) throw new VaultError('NOT_FOUND', `Note not found: ${id}`)
+    return file
+  }
+
   // ── Notes ──────────────────────────────────────────────────────────────────────────────────
 
   /**

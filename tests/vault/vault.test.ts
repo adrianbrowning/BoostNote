@@ -265,4 +265,20 @@ describe('vault path safety', () => {
       await rm(outside, { recursive: true, force: true })
     }
   })
+
+  it('resolves the absolute path of an existing note, refusing escapes and missing notes', async () => {
+    const outside = await mkdtemp(path.join(tmpdir(), 'vault-outside-'))
+    try {
+      await put('a/n.md', 'x')
+      await writeFile(path.join(outside, 'secret.md'), 'secret')
+      await symlink(outside, path.join(root, 'link'))
+      vault = await openVault(root)
+      expect(await vault.notePath('a/n.md')).toBe(path.join(vault.root, 'a', 'n.md'))
+      await expect(vault.notePath('../x.md')).rejects.toMatchObject({ code: 'INVALID_PATH' })
+      await expect(vault.notePath('link/secret.md')).rejects.toMatchObject({ code: 'INVALID_PATH' })
+      await expect(vault.notePath('a/missing.md')).rejects.toMatchObject({ code: 'NOT_FOUND' })
+    } finally {
+      await rm(outside, { recursive: true, force: true })
+    }
+  })
 })

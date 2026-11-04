@@ -254,9 +254,7 @@ export function createApiController(services: AppServices) {
         const vault = requireVault(services, request)
         const body = await readJsonObject(request)
         const id = requireString(body.id, 'id')
-        // Validates the id (no traversal) and that the note exists.
-        await vault.readNote(id)
-        services.showItemInFolder(path.join(vault.root, ...id.split('/')))
+        services.showItemInFolder(await vault.notePath(id))
         return json({ ok: true })
       }),
 
