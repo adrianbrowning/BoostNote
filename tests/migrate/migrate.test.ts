@@ -188,7 +188,7 @@ describe('migrateStorage', () => {
     expect((await vault.findNote('Unknown 1/Orphan.md'))?.title).toBe('Orphan')
     const trash = await vault.listTrash()
     expect(trash.map((item) => item.title)).toEqual(['Old idea'])
-    expect(await vault.restore('Personal/Old idea.md')).toBe('Personal/Old idea.md')
+    expect(await vault.restore('Personal/Old idea.md')).toEqual({ id: 'Personal/Old idea.md', kind: 'note' })
     expect(await vault.assetPath('Personal/Old idea.md', './Old%20idea.assets/x.png')).toBe(
       path.join(vault.root, 'Personal', 'Old idea.assets', 'x.png'),
     )
