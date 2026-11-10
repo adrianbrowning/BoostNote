@@ -162,8 +162,13 @@ test('css() numbers reach the page as valid CSS: line clamp, flex, z-index and f
   // An invalid serialised value falls back to the default (under remix 3.1 the clamp computed `none`).
   const excerpt = page.locator('[data-note="second.md"]').getByText('Plain text.')
   expect(await computed(excerpt, '-webkit-line-clamp')).toBe('2')
-  expect(await computed(page.getByRole('listbox', { name: /^Notes in / }), 'flex-grow')).toBe('1')
-  expect(await computed(page.locator('[data-editor]'), 'flex-grow')).toBe('1')
+  // `flex: 1` computes basis 0%; remix 3.1 serialised it as `flex: 1px` (grow 1, basis 1px).
+  const notes = page.getByRole('listbox', { name: /^Notes in / })
+  const editor = page.locator('[data-editor]')
+  expect(await computed(notes, 'flex-grow')).toBe('1')
+  expect(await computed(notes, 'flex-basis')).toBe('0%')
+  expect(await computed(editor, 'flex-grow')).toBe('1')
+  expect(await computed(editor, 'flex-basis')).toBe('0%')
   expect(await computed(page.locator('[data-note-title]'), 'font-weight')).toBe('600')
   await page.locator('[data-note="second.md"]').click({ button: 'right' })
   const scrim = page.getByRole('menu').locator('..')

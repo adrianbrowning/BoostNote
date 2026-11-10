@@ -30,8 +30,8 @@ before using an API. These are the things about Remix 3 in this app that are eas
 - **Generated class names are not an interface.** Never select, assert on or script against
   `rmxc-*` names; check styling through computed styles in the Electron e2e tests (`tests/e2e`).
   Remix 3.2 fixed `css()` number serialisation: under 3.1 `WebkitLineClamp: 2` computed `none` in the
-  app, so the note-list excerpt was not clamped; the e2e test pins it and the unitless flex,
-  z-index and font-weight values.
+  app, so the note-list excerpt was not clamped, and `flex: 1` was emitted as `flex: 1px` (flex-basis
+  `1px` instead of `0%`); the e2e test pins both and the unitless z-index and font-weight values.
 - **CSP nonce plumbing:** `contentSecurityPolicy()` stores a per-request nonce under a context key;
   `Document` reads it with `getContext()` (needs `asyncContext()` first in the middleware list) and
   passes it to `<ImportMap nonce>`. The client runtime copies that nonce onto import maps it adds for
