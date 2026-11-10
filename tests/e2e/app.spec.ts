@@ -1,6 +1,6 @@
 import { readFile, realpath, rm, writeFile } from 'node:fs/promises'
 import * as path from 'node:path'
-import type { Locator, Page } from '@playwright/test'
+import type { Page } from '@playwright/test'
 
 import { createLegacyStorage } from '../migrate/fixture.ts'
 import { expect, launchApp, quitWithoutDialog, test, writeFiles } from './fixtures.ts'
@@ -155,24 +155,21 @@ test('shows task progress and updates it when a checkbox is ticked', async ({ ap
 
 test('css() numbers reach the page as valid CSS: line clamp, flex, z-index and font weight', async ({ app }) => {
   const { page } = app
-  const computed = (locator: Locator, property: string) =>
-    locator.evaluate((node, name) => getComputedStyle(node).getPropertyValue(name), property)
   await page.locator('[data-note="second.md"]').click()
   await expect(page.locator('[data-note-title]')).toHaveText('second')
   // An invalid serialised value falls back to the default (under remix 3.1 the clamp computed `none`).
   const excerpt = page.locator('[data-note="second.md"]').getByText('Plain text.')
-  expect(await computed(excerpt, '-webkit-line-clamp')).toBe('2')
+  await expect(excerpt).toHaveCSS('-webkit-line-clamp', '2')
   // `flex: 1` computes basis 0%; remix 3.1 serialised it as `flex: 1px` (grow 1, basis 1px).
   const notes = page.getByRole('listbox', { name: /^Notes in / })
   const editor = page.locator('[data-editor]')
-  expect(await computed(notes, 'flex-grow')).toBe('1')
-  expect(await computed(notes, 'flex-basis')).toBe('0%')
-  expect(await computed(editor, 'flex-grow')).toBe('1')
-  expect(await computed(editor, 'flex-basis')).toBe('0%')
-  expect(await computed(page.locator('[data-note-title]'), 'font-weight')).toBe('600')
+  await expect(notes).toHaveCSS('flex-grow', '1')
+  await expect(notes).toHaveCSS('flex-basis', '0%')
+  await expect(editor).toHaveCSS('flex-grow', '1')
+  await expect(editor).toHaveCSS('flex-basis', '0%')
+  await expect(page.locator('[data-note-title]')).toHaveCSS('font-weight', '600')
   await page.locator('[data-note="second.md"]').click({ button: 'right' })
-  const scrim = page.getByRole('menu').locator('..')
-  expect(await computed(scrim, 'z-index')).toBe('50')
+  await expect(page.locator('[data-scrim="menu"]')).toHaveCSS('z-index', '50')
   await page.keyboard.press('Escape')
 })
 
