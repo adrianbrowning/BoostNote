@@ -14,7 +14,7 @@
   "private": true,
   "packageManager": "pnpm@10.34.5",
   "engines": {
-    "node": ">=24"
+    "node": ">=24.3.0"
   },
   "main": "src/main/index.js",
   "bin": {
@@ -58,7 +58,7 @@
     "markdown-it": "^15.0.3",
     "markdown-it-footnote": "^4.0.0",
     "mermaid": "^12.2.0",
-    "remix": "3.1.0",
+    "remix": "3.2.0",
     "sanitize-html": "^2.18.1",
     "turndown": "^7.2.4",
     "turndown-plugin-gfm": "^1.0.2",

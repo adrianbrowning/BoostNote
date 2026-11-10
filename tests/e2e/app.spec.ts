@@ -1,6 +1,6 @@
 import { readFile, realpath, rm, writeFile } from 'node:fs/promises'
 import * as path from 'node:path'
-import type { Page } from '@playwright/test'
+import type { Locator, Page } from '@playwright/test'
 
 import { createLegacyStorage } from '../migrate/fixture.ts'
 import { expect, launchApp, quitWithoutDialog, test, writeFiles } from './fixtures.ts'
@@ -151,6 +151,24 @@ test('shows task progress and updates it when a checkbox is ticked', async ({ ap
   // No tasks, no bar.
   await page.locator('[data-note="second.md"]').click()
   await expect(bar).toBeHidden()
+})
+
+test('css() numbers reach the page as valid CSS: line clamp, flex, z-index and font weight', async ({ app }) => {
+  const { page } = app
+  const computed = (locator: Locator, property: string) =>
+    locator.evaluate((node, name) => getComputedStyle(node).getPropertyValue(name), property)
+  await page.locator('[data-note="second.md"]').click()
+  await expect(page.locator('[data-note-title]')).toHaveText('second')
+  // An invalid serialised value falls back to the default (under remix 3.1 the clamp computed `none`).
+  const excerpt = page.locator('[data-note="second.md"]').getByText('Plain text.')
+  expect(await computed(excerpt, '-webkit-line-clamp')).toBe('2')
+  expect(await computed(page.getByRole('listbox', { name: /^Notes in / }), 'flex-grow')).toBe('1')
+  expect(await computed(page.locator('[data-editor]'), 'flex-grow')).toBe('1')
+  expect(await computed(page.locator('[data-note-title]'), 'font-weight')).toBe('600')
+  await page.locator('[data-note="second.md"]').click({ button: 'right' })
+  const scrim = page.getByRole('menu').locator('..')
+  expect(await computed(scrim, 'z-index')).toBe('50')
+  await page.keyboard.press('Escape')
 })
 
 test('Cmd-click on a `note.md/#anchor` link opens the note', async ({ app }) => {
