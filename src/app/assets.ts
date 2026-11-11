@@ -8,6 +8,10 @@ import { vendorSpecifiers } from './vendor.ts'
 export const rootDir = path.resolve(import.meta.dirname, '../..')
 
 const isDevelopment = process.env.NODE_ENV === 'development'
+// `pnpm dev` recompiles browser sources as they change. The e2e tests never change them and set
+// `BOOSTNOTE_ASSET_WATCH=0`: the watcher holds a file watcher per source and dependency file
+// (thousands), and with them every quit took seconds instead of about 0.2 s.
+const watch = isDevelopment && process.env.BOOSTNOTE_ASSET_WATCH !== '0'
 
 const config = await loadConfig(rootDir)
 if (config.assets === undefined) throw new Error(`Missing "assets" in ${rootDir}/remix.json`)
@@ -18,7 +22,7 @@ export const assets = createAssetServer({
   sourceMaps: isDevelopment ? 'external' : undefined,
   minify: !isDevelopment,
   // Recompile browser sources as they change during `pnpm dev`; packaged sources never change.
-  watch: isDevelopment,
+  watch,
   fingerprint: !isDevelopment,
   // Served by `/vendor/*` and resolved through `vendorImportMap` (see vendor.ts).
   scripts: { external: vendorSpecifiers },

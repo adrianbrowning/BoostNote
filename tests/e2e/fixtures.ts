@@ -71,7 +71,9 @@ export async function launchApp(files: VaultFiles, options: LaunchOptions = {}):
       ...Object.keys(openFiles).map((rel) => path.join(root, 'loose', ...rel.split('/'))),
     ],
     cwd: projectRoot,
-    env: { ...process.env, NODE_ENV: 'development', HOME: path.join(root, 'home') },
+    // No asset watcher: tests never change browser sources, and its thousands of file watchers
+    // made every quit take over a second (see src/app/assets.ts).
+    env: { ...process.env, NODE_ENV: 'development', HOME: path.join(root, 'home'), BOOSTNOTE_ASSET_WATCH: '0' },
   })
   const page = await electronApp.firstWindow()
   // Playwright emulates focus for browser pages but not for Electron's, whose focus follows the OS
