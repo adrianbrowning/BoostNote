@@ -133,7 +133,7 @@ test.describe('vault and reader asset documents', () => {
     await electronApp.evaluate(async ({ BrowserWindow }, target) => {
       const window = new BrowserWindow({
         show: false,
-        webPreferences: { contextIsolation: true, sandbox: true, nodeIntegration: false },
+        webPreferences: { contextIsolation: true, sandbox: true, nodeIntegration: false, webSecurity: true },
       })
       await window.loadURL(target)
     }, url)
