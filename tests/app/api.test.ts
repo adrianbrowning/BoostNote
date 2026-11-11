@@ -359,6 +359,20 @@ describe('assets', () => {
     expect(await response.text()).toBe('<p>hi</p>')
   })
 
+  it('serves an .svg vault asset under its sandbox policy only, revalidated', async () => {
+    await mkdir(path.join(vault.root, 'note.assets'), { recursive: true })
+    await writeFile(path.join(vault.root, 'note.assets', 'pic.svg'), '<svg xmlns="http://www.w3.org/2000/svg"/>')
+
+    const response = await app.get(`${routes.vaultAssets.href({ path: 'note.md' })}?src=./note.assets/pic.svg`)
+    expect(response.status).toBe(200)
+    expect(response.headers.get('Content-Type')).toMatch(/^image\/svg\+xml/)
+    const policies = (response.headers.get('Content-Security-Policy') ?? '').split(/,\s*/)
+    expect(policies).toHaveLength(1)
+    expect(policies[0]).toContain('sandbox')
+    expect(policies[0]).not.toContain("'nonce-")
+    expect(response.headers.get('Cache-Control')).toBe('no-cache')
+  })
+
   it('rejects asset paths that leave the vault', async () => {
     const outside = path.join(app.dir, 'secret.txt')
     await writeFile(outside, 'TOP-SECRET-CONTENT')
