@@ -25,6 +25,7 @@ export function ContextMenuView(handle: Handle<{ model: WorkspaceModel }>) {
         ]}
       >
         <div
+          key={`${left},${top}`}
           role="menu"
           mix={[
             menuStyle,
