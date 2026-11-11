@@ -471,6 +471,10 @@ a `.md` passed on argv and via `open-file`. `pnpm test` stays unit-only (Vitest 
 Tests run in parallel, also within a file (`fullyParallel`; 4 workers locally, 2 in CI): each test
 owns its app, temp vault, profile and HOME. Two tests must never write the same path (each
 `/tmp/boost-phase6` artifact belongs to one test).
+The app runs with `BOOSTNOTE_ASSET_WATCH=0`, which turns off the development asset watcher
+(`src/app/assets.ts`): it holds a file watcher for every browser source and dependency file (about
+2,500), and with them a quit took about 3.5 s (median, Playwright close to process exit); without
+them it takes about 0.2 s.
 
 ### Packaging and release
 
