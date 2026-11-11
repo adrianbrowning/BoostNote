@@ -1,6 +1,8 @@
 import type { Handle } from 'remix/component'
-import { css, on, unsafeHTML } from 'remix/component'
+import { css, on, ref, unsafeHTML } from 'remix/component'
 
+import type { EditorTheme } from '../../../../editor/index.ts'
+import { mermaidNodes, renderMermaid } from '../../../../editor/render/mermaid.ts'
 import { client } from './api.ts'
 import type { WorkspaceModel } from './model.ts'
 import { button } from './styles.ts'
@@ -14,6 +16,7 @@ import type { ReaderTab } from './tabs.ts'
  * becomes the note's tab) and a Close button that closes the tab and so revokes its ticket. The
  * HTML was rendered and sanitised by `src/markdown/render.ts` in main. http(s) links open in the
  * browser as in notes; every other link (relative `.md` files, anchors into other files) is inert.
+ * Mermaid code blocks become diagrams in the page, rendered as in the editor (`renderDiagrams`).
  */
 export function ReaderPane(handle: Handle<{ model: WorkspaceModel; tab: ReaderTab }>) {
   const onClick = (event: MouseEvent) => {
@@ -24,11 +27,14 @@ export function ReaderPane(handle: Handle<{ model: WorkspaceModel; tab: ReaderTa
     const href = link.getAttribute('href') ?? ''
     if (/^https?:\/\//i.test(href)) void handle.props.model.attempt(() => client.openExternal(href))
   }
+  let article: HTMLElement | undefined
 
   return () => {
     const { model, tab } = handle.props
     const reader = model.reader?.ticket === tab.ticket ? model.reader.document : null
     const noVault = model.data.vault === null
+    // A render that changes the HTML puts its code blocks back, so every render upgrades them.
+    if (reader) handle.queueTask(() => article && renderDiagrams(article))
     return (
       <section mix={paneStyle} aria-label={`${tab.name} (read only)`} data-reader>
         <div role="note" mix={bannerStyle} data-reader-banner>
@@ -60,13 +66,38 @@ export function ReaderPane(handle: Handle<{ model: WorkspaceModel; tab: ReaderTa
         </div>
         {reader ? (
           <article
-            mix={[articleStyle, on<HTMLElement, 'click'>('click', onClick)]}
+            mix={[
+              articleStyle,
+              on<HTMLElement, 'click'>('click', onClick),
+              ref((node) => {
+                if (node instanceof HTMLElement) article = node
+              }),
+            ]}
             innerHTML={unsafeHTML(reader.html)}
             data-reader-body
           />
         ) : null}
       </section>
     )
+  }
+}
+
+/**
+ * Replaces the mermaid code blocks of the reader's HTML (`src/markdown/render.ts` leaves them as
+ * code) with their diagrams, in the page's colour scheme. A diagram that fails keeps its code block.
+ */
+function renderDiagrams(article: HTMLElement): void {
+  const theme: EditorTheme = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'
+  for (const code of article.querySelectorAll('pre > code.language-mermaid')) {
+    const block = code.parentElement
+    if (!block) continue
+    void renderMermaid(code.textContent ?? '', theme).then((result) => {
+      if (!block.isConnected || !('svg' in result)) return
+      const diagram = document.createElement('div')
+      diagram.className = 'mermaid-diagram'
+      diagram.append(mermaidNodes(result.svg))
+      block.replaceWith(diagram)
+    })
   }
 }
 
@@ -102,4 +133,6 @@ const articleStyle = css({
   '& th, & td': { padding: '4px 10px', border: '1px solid var(--border)' },
   '& .task-list-item': { listStyle: 'none' },
   '& .math-block': { overflowX: 'auto' },
+  '& .mermaid-diagram': { textAlign: 'center' },
+  '& .mermaid-diagram svg': { maxWidth: '100%', height: 'auto' },
 })

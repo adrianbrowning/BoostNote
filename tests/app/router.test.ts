@@ -53,7 +53,8 @@ describe('router', () => {
         [
           "default-src 'none'",
           `script-src 'self' 'nonce-${nonce}'`,
-          "style-src 'self' 'unsafe-inline'",
+          `style-src-elem 'self' 'nonce-${nonce}'`,
+          "style-src-attr 'unsafe-inline'",
           "img-src 'self' data: blob:",
           "font-src 'self' data:",
           "connect-src 'self'",
