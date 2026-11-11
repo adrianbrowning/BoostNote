@@ -1,9 +1,9 @@
 import type { Handle, RemixNode } from 'remix/component'
 import { ImportMap } from 'remix/component/server'
 import { getContext } from 'remix/middleware/async-context'
+import { getCspNonce } from 'remix/middleware/csp'
 
 import { baseStylesHref, scriptEntry } from '../assets.ts'
-import { CspNonce } from '../middleware/content-security-policy.ts'
 import { vendorImportMap } from '../vendor.ts'
 
 export interface DocumentProps {
@@ -17,8 +17,8 @@ export function Document(handle: Handle<DocumentProps>) {
   return () => {
     const { children, head, title = 'Boostnote' } = handle.props
     const { href, importMap, preloads } = scriptEntry
-    // The runtime copies this nonce onto import maps it adds for later client entries.
-    const nonce = getContext().get(CspNonce)
+    // `render()` stamps the nonce on the import map and its own tags; these authored ones need it here.
+    const nonce = getCspNonce(getContext())
 
     return (
       <html lang="en">
@@ -29,14 +29,11 @@ export function Document(handle: Handle<DocumentProps>) {
           <title>{title}</title>
           <link rel="stylesheet" href={baseStylesHref} />
           {head}
-          <ImportMap
-            value={{ ...importMap, imports: { ...importMap.imports, ...vendorImportMap.imports } }}
-            nonce={nonce}
-          />
+          <ImportMap value={{ ...importMap, imports: { ...importMap.imports, ...vendorImportMap.imports } }} />
           {preloads.map((preloadHref) => (
-            <link key={preloadHref} rel="modulepreload" href={preloadHref} />
+            <link key={preloadHref} rel="modulepreload" href={preloadHref} nonce={nonce} />
           ))}
-          <script type="module" src={href}></script>
+          <script type="module" src={href} nonce={nonce}></script>
         </head>
         <body>{children}</body>
       </html>

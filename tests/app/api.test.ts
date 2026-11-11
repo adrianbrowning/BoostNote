@@ -340,7 +340,23 @@ describe('assets', () => {
     expect(response.status).toBe(200)
     expect(response.headers.get('Content-Type')).toBe('image/png')
     expect(response.headers.get('Content-Security-Policy')).toContain('sandbox')
+    expect(response.headers.get('Cache-Control')).toBe('no-cache')
     expect(new Uint8Array(await response.arrayBuffer())).toEqual(png)
+  })
+
+  it('serves an .html vault asset under its sandbox policy and the app policy, uncached', async () => {
+    await mkdir(path.join(vault.root, 'note.assets'), { recursive: true })
+    await writeFile(path.join(vault.root, 'note.assets', 'page.html'), '<p>hi</p>')
+
+    const response = await app.get(`${routes.vaultAssets.href({ path: 'note.md' })}?src=./note.assets/page.html`)
+    expect(response.status).toBe(200)
+    expect(response.headers.get('Content-Type')).toMatch(/^text\/html/)
+    const policies = (response.headers.get('Content-Security-Policy') ?? '').split(/,\s*/)
+    expect(policies).toHaveLength(2)
+    expect(policies).toContainEqual(expect.stringContaining('sandbox'))
+    expect(policies).toContainEqual(expect.stringMatching(/script-src 'self' 'nonce-/))
+    expect(response.headers.get('Cache-Control')).toBe('no-store')
+    expect(await response.text()).toBe('<p>hi</p>')
   })
 
   it('rejects asset paths that leave the vault', async () => {

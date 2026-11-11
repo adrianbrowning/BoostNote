@@ -1,8 +1,8 @@
 import { ImportMap } from 'remix/component/server'
 import { getContext } from 'remix/middleware/async-context'
+import { getCspNonce } from 'remix/middleware/csp'
 
 import { mermaidRendererEntry } from '../assets.ts'
-import { CspNonce } from '../middleware/content-security-policy.ts'
 import { vendorImportMap } from '../vendor.ts'
 
 /**
@@ -12,19 +12,18 @@ import { vendorImportMap } from '../vendor.ts'
 export function MermaidRendererPage() {
   return () => {
     const { href, importMap, preloads } = mermaidRendererEntry
+    // `render()` stamps the nonce on the import map; these authored tags need it here.
+    const nonce = getCspNonce(getContext())
     return (
       <html lang="en">
         <head>
           <meta charSet="utf-8" />
           <title>Mermaid renderer</title>
-          <ImportMap
-            value={{ ...importMap, imports: { ...importMap.imports, ...vendorImportMap.imports } }}
-            nonce={getContext().get(CspNonce)}
-          />
+          <ImportMap value={{ ...importMap, imports: { ...importMap.imports, ...vendorImportMap.imports } }} />
           {preloads.map((preloadHref) => (
-            <link key={preloadHref} rel="modulepreload" href={preloadHref} />
+            <link key={preloadHref} rel="modulepreload" href={preloadHref} nonce={nonce} />
           ))}
-          <script type="module" src={href}></script>
+          <script type="module" src={href} nonce={nonce}></script>
         </head>
         <body></body>
       </html>
