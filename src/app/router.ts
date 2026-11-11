@@ -12,7 +12,8 @@ import type { AppServices } from './services.ts'
 /**
  * The app policy, appended to every HTML response. Scripts must come from the app origin or carry
  * the request nonce, which `render()` stamps on generated import maps, module preloads and `css()`
- * style tags. Styles still allow inline.
+ * style tags. style-src keeps 'unsafe-inline' because authored style attributes and inline
+ * Mermaid/KaTeX styles carry no nonce.
  */
 const appCsp = csp({
   policy: ({ nonce }) => ({
@@ -35,10 +36,14 @@ const appCsp = csp({
  */
 const noStoreNonceResponses: Middleware = async (_context, next) => {
   const response = await next()
-  if (response.headers.get('Content-Security-Policy')?.includes("'nonce-")) {
-    response.headers.set('Cache-Control', 'no-store')
-  }
-  return response
+  if (!response.headers.get('Content-Security-Policy')?.includes("'nonce-")) return response
+  const headers = new Headers(response.headers)
+  headers.set('Cache-Control', 'no-store')
+  return new Response(response.body, {
+    status: response.status,
+    statusText: response.statusText,
+    headers,
+  })
 }
 
 // `asyncContext()` lets server components read request values (the CSP nonce) via `getContext()`.
