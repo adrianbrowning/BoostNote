@@ -468,6 +468,9 @@ renders mermaid SVG and KaTeX (fully rendered while unfocused); typing is saved 
 write live-reloads; tabs survive a reload; importing the legacy fixture storage through the dialog;
 HTML export contains mermaid `<svg>` and KaTeX markup (and is screenshotted in a window); PDF export;
 a `.md` passed on argv and via `open-file`. `pnpm test` stays unit-only (Vitest excludes `tests/e2e`).
+Tests run in parallel, also within a file (`fullyParallel`; 4 workers locally, 2 in CI): each test
+owns its app, temp vault, profile and HOME. Two tests must never write the same path (each
+`/tmp/boost-phase6` artifact belongs to one test).
 
 ### Packaging and release
 
