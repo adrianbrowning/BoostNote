@@ -28,8 +28,11 @@ export function ContextMenuView(handle: Handle<{ model: WorkspaceModel }>) {
           role="menu"
           mix={[
             menuStyle,
-            css({ left: `${left}px`, top: `${top}px`, width: `${MENU_WIDTH}px` }),
-            ref((node) => node.querySelector<HTMLElement>('[role^="menuitem"]')?.focus()),
+            ref((node) => {
+              node.style.setProperty('left', `${left}px`)
+              node.style.setProperty('top', `${top}px`)
+              node.querySelector<HTMLElement>('[role^="menuitem"]')?.focus()
+            }),
             on('keydown', (event) => {
               if (event.key === 'Escape') model.closeMenu()
             }),
@@ -282,6 +285,7 @@ const scrimStyle = css({ position: 'fixed', inset: 0, zIndex: 50 })
 const dimStyle = css({ display: 'grid', placeItems: 'center', background: 'var(--bg-overlay)' })
 
 const menuStyle = css({
+  width: `${MENU_WIDTH}px`,
   position: 'fixed',
   display: 'grid',
   padding: '4px',

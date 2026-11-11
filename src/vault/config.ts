@@ -55,7 +55,7 @@ export function isFolderColor(color: string): boolean {
   return FOLDER_COLOR.test(color)
 }
 
-/** Drops a stored colour that is not a hex colour, as if the folder had none: it ends up in CSS. */
+/** Drops a stored colour that is not a hex colour, as if the folder had none: the value is interpolated into a page-wide css() rule, so anything looser lets a vault's config.json inject CSS. */
 const FolderConfigSchema = object(
   { color: optional(string()).transform((color) => (color !== undefined && isFolderColor(color) ? color : undefined)) },
   { unknownKeys: 'passthrough' },

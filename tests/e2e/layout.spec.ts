@@ -43,6 +43,16 @@ test('pane widths and editor settings come from settings.json', async ({ app }) 
   await expect(page.locator('[data-editor] .cm-scroller')).toHaveCSS('font-family', 'Georgia')
 })
 
+test.describe('a zero line width', () => {
+  test.use({ ui: { lineWidth: 0 } })
+
+  test('lets the editor fill the pane', async ({ app }) => {
+    const { page } = app
+    await page.locator('[data-note="tasks.md"]').click()
+    await expect(page.locator('[data-editor] .cm-content')).toHaveCSS('max-width', 'none')
+  })
+})
+
 test('dragging a resizer resizes the pane, persists the width and survives collapsing and a reload', async ({
   app,
 }) => {
