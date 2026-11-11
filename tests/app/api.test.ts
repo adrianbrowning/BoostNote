@@ -924,6 +924,8 @@ describe('import', () => {
       }),
     )
     expect((await app.post(api.importRun.href(), { source, target })).status).toBe(200)
+    const config = JSON.parse(await readFile(path.join(target, '.boostnote', 'config.json'), 'utf8'))
+    expect(config.folders).toEqual({ Good: { color: '#E10051' } })
 
     const opened = await readJson<{ workspace: WorkspaceData }>(await app.post(api.vaultOpen.href(), { path: target }))
     expect(opened.workspace.tree?.folders).toEqual([
