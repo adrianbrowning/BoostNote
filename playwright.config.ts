@@ -4,12 +4,17 @@ import { defineConfig } from '@playwright/test'
 // Screenshots of the smoke run land here (referenced by the phase 6 notes).
 mkdirSync('/tmp/boost-phase6', { recursive: true })
 
-/** End-to-end smoke tests: the real Electron app from source (`_electron`), one at a time. */
+/**
+ * End-to-end smoke tests: the real Electron app from source (`_electron`). Every test launches its
+ * own app on its own temp vault, profile and HOME, so tests run in parallel, also within a file.
+ * CI runners are small (each worker is a full Electron app), hence fewer workers there.
+ */
 export default defineConfig({
   testDir: 'tests/e2e',
   testMatch: '**/*.spec.ts',
-  workers: 1,
-  fullyParallel: false,
+  globalSetup: './tests/e2e/global-setup.ts',
+  workers: process.env.CI ? 2 : 4,
+  fullyParallel: true,
   timeout: 90_000,
   expect: { timeout: 10_000 },
   retries: process.env.CI ? 1 : 0,
