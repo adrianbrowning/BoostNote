@@ -323,7 +323,7 @@ export function EditorPane(handle: Handle<{ model: WorkspaceModel }>) {
             title={`${progress.completed} of ${progress.total} tasks done`}
             data-task-progress={progress.percent}
           >
-            <div mix={progressFillStyle} style={{ width: `${progress.percent}%` }} />
+            <div mix={[progressFillStyle, css({ width: `${progress.percent}%` })]} data-task-progress-fill />
             <span mix={progressTextStyle}>
               {progress.completed}/{progress.total} · {progress.percent}%
             </span>

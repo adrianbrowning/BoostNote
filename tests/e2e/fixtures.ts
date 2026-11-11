@@ -38,6 +38,8 @@ export interface LaunchOptions {
   openFiles?: VaultFiles
   /** Copies this folder into the temp vault (before `files` are written); the folder is only read. */
   vaultCopyOf?: string
+  /** Preferences merged into the profile's `settings.json` `ui` section. */
+  ui?: Record<string, unknown>
 }
 
 /**
@@ -48,7 +50,7 @@ export interface LaunchOptions {
  * does on Windows/Linux. The temp vault is a copy (`vaultCopyOf`), so a real vault is never opened.
  */
 export async function launchApp(files: VaultFiles, options: LaunchOptions = {}): Promise<AppHandle> {
-  const { openFiles = {}, vaultCopyOf } = options
+  const { openFiles = {}, vaultCopyOf, ui = {} } = options
   const root = await mkdtemp(path.join(tmpdir(), 'boostnote-e2e-'))
   const vault = path.join(root, 'vault')
   const userDataDir = path.join(root, 'profile')
@@ -60,7 +62,7 @@ export async function launchApp(files: VaultFiles, options: LaunchOptions = {}):
   await mkdir(path.join(root, 'home'), { recursive: true })
   await writeFile(
     path.join(userDataDir, 'settings.json'),
-    JSON.stringify({ vaults: [vault], lastVault: vault, ui: { globalHotkey: '' } }),
+    JSON.stringify({ vaults: [vault], lastVault: vault, ui: { globalHotkey: '', ...ui } }),
   )
   const electronApp = await electron.launch({
     args: [
@@ -121,10 +123,11 @@ export async function quitWithoutDialog(electronApp: ElectronApplication): Promi
 }
 
 /** `app`: a launched app per test, closed and its temp folder removed afterwards. */
-export const test = base.extend<{ files: VaultFiles; app: AppHandle }>({
+export const test = base.extend<{ files: VaultFiles; ui: Record<string, unknown>; app: AppHandle }>({
   files: [{}, { option: true }],
-  app: async ({ files }, use) => {
-    const handle = await launchApp(files)
+  ui: [{}, { option: true }],
+  app: async ({ files, ui }, use) => {
+    const handle = await launchApp(files, { ui })
     await use(handle)
     await quitWithoutDialog(handle.electronApp)
     await rm(handle.dir, { recursive: true, force: true })

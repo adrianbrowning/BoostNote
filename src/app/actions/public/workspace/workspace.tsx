@@ -141,6 +141,8 @@ export const Workspace = clientEntry(
         () => {
           drag.abort()
           if (width !== start) model.setPanes({ [pane]: width })
+          // The drag's inline width wins over the layout class: drop it once the class holds the width.
+          void handle.update().then(() => layout?.style.removeProperty(`--${pane}`))
         },
         { signal: drag.signal },
       )
@@ -150,8 +152,11 @@ export const Workspace = clientEntry(
       <hr
         aria-orientation="vertical"
         aria-label={pane === 'sidebarWidth' ? 'Resize sidebar' : 'Resize note list'}
-        mix={[resizerStyle, on<HTMLElement, 'pointerdown'>('pointerdown', startResize(pane))]}
-        style={`grid-area: ${pane === 'sidebarWidth' ? 'sidebar' : 'list'}-resizer`}
+        mix={[
+          resizerStyle,
+          pane === 'sidebarWidth' ? sidebarResizerArea : listResizerArea,
+          on<HTMLElement, 'pointerdown'>('pointerdown', startResize(pane)),
+        ]}
       />
     )
 
@@ -208,25 +213,25 @@ export const Workspace = clientEntry(
       const { panes, editorFont, fontSize, lineWidth } = model.preferences
       const sidebar = !panes.sidebarCollapsed
       const list = !panes.listCollapsed
-      const variables = [
-        `--sidebarWidth: ${sidebar ? panes.sidebarWidth : 0}px`,
-        `--sidebar-resizer: ${sidebar ? 4 : 0}px`,
-        `--listWidth: ${list ? panes.listWidth : 0}px`,
-        `--list-resizer: ${list ? 4 : 0}px`,
-        `--editor-font-size: ${fontSize}px`,
-        `--editor-max-width: ${lineWidth === 0 ? 'none' : `${lineWidth}px`}`,
-        ...(editorFont ? [`--editor-font: ${editorFont}`] : []),
-      ].join('; ')
+      const variables = css({
+        '--sidebarWidth': `${sidebar ? panes.sidebarWidth : 0}px`,
+        '--sidebar-resizer': `${sidebar ? 4 : 0}px`,
+        '--listWidth': `${list ? panes.listWidth : 0}px`,
+        '--list-resizer': `${list ? 4 : 0}px`,
+        '--editor-font-size': `${fontSize}px`,
+        '--editor-max-width': lineWidth === 0 ? 'none' : `${lineWidth}px`,
+        ...(editorFont ? { '--editor-font': editorFont } : {}),
+      })
       return (
         <div
           mix={[
             layoutStyle,
+            variables,
             ref((node) => {
               if (node instanceof HTMLElement) layout = node
             }),
           ]}
           data-vault={vault ? 'open' : 'none'}
-          style={variables}
         >
           {vault ? (
             <>
@@ -301,6 +306,10 @@ const resizerStyle = css({
   touchAction: 'none',
   '&:hover': { background: 'var(--accent)', backgroundClip: 'content-box', padding: 0 },
 })
+
+const sidebarResizerArea = css({ gridArea: 'sidebar-resizer' })
+
+const listResizerArea = css({ gridArea: 'list-resizer' })
 
 const welcomeStyle = css({ gridArea: 'editor', overflow: 'auto' })
 

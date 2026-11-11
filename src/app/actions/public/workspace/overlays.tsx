@@ -28,12 +28,12 @@ export function ContextMenuView(handle: Handle<{ model: WorkspaceModel }>) {
           role="menu"
           mix={[
             menuStyle,
+            css({ left: `${left}px`, top: `${top}px`, width: `${MENU_WIDTH}px` }),
             ref((node) => node.querySelector<HTMLElement>('[role^="menuitem"]')?.focus()),
             on('keydown', (event) => {
               if (event.key === 'Escape') model.closeMenu()
             }),
           ]}
-          style={`left: ${left}px; top: ${top}px; width: ${MENU_WIDTH}px`}
         >
           {menu.entries.map((entry, index) => {
             if (entry.kind === 'separator') return <hr key={`sep-${index}`} mix={separatorStyle} />
@@ -56,12 +56,12 @@ export function ContextMenuView(handle: Handle<{ model: WorkspaceModel }>) {
                       aria-label={`Colour ${color}`}
                       mix={[
                         swatchStyle,
+                        css({ background: color }),
                         on('click', () => {
                           model.closeMenu()
                           entry.pick(color)
                         }),
                       ]}
-                      style={`background: ${color}`}
                     />
                   ))}
                   <button
