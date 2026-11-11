@@ -165,9 +165,7 @@ test.describe('vault and reader asset documents', () => {
 
     for (const href of [vaultSvg, readerSvg]) {
       const asset = await openDocument(app, href)
-      expect(await asset.evaluate(() => getComputedStyle(document.querySelector('rect') as Element).fill)).toBe(
-        'rgb(255, 0, 0)',
-      )
+      await expect(asset.locator('rect')).toHaveCSS('fill', 'rgb(255, 0, 0)')
       expect(await cspViolations(asset)).toEqual([])
       await asset.close()
     }

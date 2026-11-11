@@ -62,6 +62,14 @@ before using an API. These are the things about Remix 3 in this app that are eas
   SVG (both checked against the page policy), so while `mermaid.render` runs
   `document.createElement` stamps style elements, and the nonce is stripped from the result again
   (cached, exported). `/export/mermaid` therefore has the app policy too, no route-specific one.
+  Trade-off: inserting a nonce'd element hides its `nonce` attribute, and DOMPurify's parse of the
+  serialised SVG needs it, so `withStampedStyles` sets the attribute again once mermaid has
+  inserted the `<style>` (removing that second stamp gives `style-src-elem` violations). While a
+  render runs, the page nonce (which also authorises scripts) is readable as an attribute of the
+  measuring SVG. Accepted: `default-src 'none'`, `img-src 'self' data: blob:` and
+  `connect-src 'self'` leave CSS attribute selectors no outside host to leak it to, inserted HTML
+  never runs a `<script>`, and the nonce is removed before the SVG is cached or exported. Verified
+  against Mermaid 12.2.0: re-check on a Mermaid upgrade, or drop it once Mermaid accepts a nonce.
   E2E: every app window records `securitypolicyviolation` from the start of its load
   (`tests/e2e/csp-violations.cjs`); `tests/e2e/csp.spec.ts` asserts none.
 - **Asset server:** `allowFiles`/`mounts` come from `remix.json` via `loadConfig` from `remix/cli`;
