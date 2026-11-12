@@ -23,7 +23,12 @@ describe('createQuitDisposal', () => {
     const { promise: closed, resolve: finishClose } = Promise.withResolvers<void>()
     const quit = vi.fn()
     const dispose = vi.fn()
-    const beforeQuit = createQuitDisposal({ server: { close: () => closed }, dispose, quit, timeoutMs: 1000 })
+    const beforeQuit = createQuitDisposal({
+      server: { close: () => closed },
+      dispose: [dispose],
+      quit,
+      timeoutMs: 1000,
+    })
 
     const event = quitEvent()
     const done = beforeQuit(event)
@@ -42,7 +47,7 @@ describe('createQuitDisposal', () => {
     const quit = vi.fn()
     const beforeQuit = createQuitDisposal({
       server: { close: () => new Promise<void>(() => {}) },
-      dispose: () => {},
+      dispose: [],
       quit,
       timeoutMs: 1000,
     })
@@ -61,7 +66,7 @@ describe('createQuitDisposal', () => {
     const error = vi.spyOn(console, 'error').mockImplementation(() => {})
     const beforeQuit = createQuitDisposal({
       server: { close: () => Promise.reject(new Error('boom')) },
-      dispose: () => {},
+      dispose: [],
       quit,
       timeoutMs: 1000,
     })
@@ -77,9 +82,11 @@ describe('createQuitDisposal', () => {
     const error = vi.spyOn(console, 'error').mockImplementation(() => {})
     const beforeQuit = createQuitDisposal({
       server: { close },
-      dispose: () => {
-        throw new Error('hub')
-      },
+      dispose: [
+        () => {
+          throw new Error('hub')
+        },
+      ],
       quit,
       timeoutMs: 1000,
     })
@@ -95,11 +102,33 @@ describe('createQuitDisposal', () => {
     expect(error).toHaveBeenCalledWith(expect.any(String), expect.objectContaining({ message: 'hub' }))
   })
 
+  it('runs every dispose step and logs each failure when one throws and another rejects', async () => {
+    const quit = vi.fn()
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const vaults = vi.fn(() => Promise.reject(new Error('vaults')))
+    const beforeQuit = createQuitDisposal({
+      server: { close: () => Promise.resolve() },
+      dispose: [
+        () => {
+          throw new Error('hub')
+        },
+        vaults,
+      ],
+      quit,
+      timeoutMs: 1000,
+    })
+    await beforeQuit(quitEvent())
+    expect(vaults).toHaveBeenCalledTimes(1)
+    expect(error).toHaveBeenCalledWith(expect.any(String), expect.objectContaining({ message: 'hub' }))
+    expect(error).toHaveBeenCalledWith(expect.any(String), expect.objectContaining({ message: 'vaults' }))
+    expect(quit).toHaveBeenCalledTimes(1)
+  })
+
   it('waits for a pending dispose up to the bound', async () => {
     const quit = vi.fn()
     const beforeQuit = createQuitDisposal({
       server: { close: () => Promise.resolve() },
-      dispose: () => new Promise<void>(() => {}),
+      dispose: [() => {}, () => new Promise<void>(() => {})],
       quit,
       timeoutMs: 1000,
     })
@@ -118,7 +147,7 @@ describe('createQuitDisposal', () => {
     const quit = vi.fn()
     const beforeQuit = createQuitDisposal({
       server: { close: () => Promise.resolve() },
-      dispose: () => disposed,
+      dispose: [() => disposed],
       quit,
       timeoutMs: 1000,
     })
@@ -143,7 +172,7 @@ describe('createQuitDisposal', () => {
       void beforeQuit(event)
     })
     const dispose = vi.fn()
-    const beforeQuit = createQuitDisposal({ server: { close }, dispose, quit, timeoutMs: 1000 })
+    const beforeQuit = createQuitDisposal({ server: { close }, dispose: [dispose], quit, timeoutMs: 1000 })
 
     const done = beforeQuit(quitEvent())
     const repeated = quitEvent()

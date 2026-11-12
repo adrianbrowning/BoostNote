@@ -192,15 +192,7 @@ if (!app.requestSingleInstanceLock()) {
   })
   const disposeAndQuit = createQuitDisposal({
     server: assets,
-    async dispose() {
-      // Started first so a throwing `eventHub.close()` cannot skip closing the vault watchers.
-      const vaultsClosed = vaults.dispose()
-      try {
-        eventHub.close()
-      } finally {
-        await vaultsClosed
-      }
-    },
+    dispose: [() => eventHub.close(), () => vaults.dispose()],
     quit: () => app.quit(),
   })
   app.on('before-quit', (event) => {

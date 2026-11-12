@@ -24,8 +24,11 @@ async function logFailure(message: string, teardown: () => void | Promise<void>)
 interface QuitDisposalOptions {
   /** The asset server; closing it stops its dev file watcher. */
   server: { close(): Promise<void> }
-  /** Teardown run once, when disposal starts; a returned promise is awaited alongside the server. */
-  dispose(): void | Promise<void>
+  /**
+   * Teardown steps run once, together, when disposal starts. Each is guarded on its own, so one that
+   * throws or rejects is logged and never skips another; returned promises are awaited with the server.
+   */
+  dispose: ReadonlyArray<() => void | Promise<void>>
   /** Quits for real (`app.quit()`); emits `before-quit` again, which then passes through. */
   quit(): void
   timeoutMs?: number
@@ -51,7 +54,7 @@ export function createQuitDisposal({
     state = 'running'
     await raceTimeout(
       Promise.all([
-        logFailure('Could not dispose before quitting', dispose),
+        ...dispose.map((step) => logFailure('Could not dispose before quitting', step)),
         logFailure('Could not close the asset server', () => server.close()),
       ]),
       timeoutMs,
