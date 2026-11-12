@@ -122,7 +122,7 @@ server to give the agent a memory vault of its own, with global and per-project 
 
 ## Development
 
-Requires Node.js 24+ and pnpm 10 (`corepack enable`).
+Requires Node.js 24.3 or newer and pnpm 10 (`corepack enable`).
 
 ```sh
 pnpm install

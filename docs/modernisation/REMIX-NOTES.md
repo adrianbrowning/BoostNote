@@ -40,18 +40,20 @@ before using an API. These are the things about Remix 3 in this app that are eas
   (`style.setProperty`): the context menu sets `left`/`top` in a ref, keyed by position so each
   placement remounts the element instead of adding a page-wide `css()` rule, and a pane drag sets
   the pane variable and removes it once the re-render's class holds the new width.
-- **CSP:** the router runs `asyncContext()`, `csp()` (`remix/middleware/csp`) and `render()`, in that
-  order (`router.ts` holds the policy). `csp()` makes a fresh nonce per request and appends the app
-  policy to every `text/html` response; `render()` stamps that nonce on the import map, the
+- **CSP:** the router runs `asyncContext()`, `noStoreNonceResponses`, `csp()` (`remix/middleware/csp`)
+  and `render()`, in that order (`router.ts` holds the policy). `csp()` makes a fresh nonce per
+  request and appends the app policy to every `text/html` response; `render()` stamps that nonce on
+  the import map, the
   module preloads and `<style data-rmx-style>` tags it generates, and the client runtime copies it
   onto import maps it adds for client entries discovered later (frames). Authored tags that
   `render()` does not stamp (the module preloads and entry script of `EntryHead`, shared by
   `Document` and `MermaidRendererPage`) read it with `getCspNonce(getContext())`, which needs
   `asyncContext()` first. `csp()` appends instead of replacing, so an HTML vault/reader asset
   response carries both its own sandbox
-  policy and the app policy, and the browser enforces both. `csp()` sets no cache headers, so a
-  middleware outside it (`noStoreNonceResponses`) sends `Cache-Control: no-store` on every response
-  whose policy carries a nonce (app pages and HTML assets); other responses keep their cache headers.
+  policy and the app policy, and the browser enforces both. `csp()` sets no cache headers, so
+  `noStoreNonceResponses` sends `Cache-Control: no-store` on every response whose policy carries a
+  nonce (app pages and HTML assets); other responses keep their cache headers. It must stay outside
+  (before) `csp()`: only there does it see the policy `csp()` added.
 - **Style elements need the nonce** (`style-src-elem 'self' 'nonce-…'`; style attributes stay
   allowed by `style-src-attr 'unsafe-inline'` for KaTeX, table-cell alignment and Mermaid). Client
   code that makes a `<style>` reads the page nonce with `pageCspNonce()`
@@ -75,7 +77,8 @@ before using an API. These are the things about Remix 3 in this app that are eas
   removed before the SVG is cached or exported. Verified against Mermaid 12.2.0: re-check on a
   Mermaid upgrade, or drop it once Mermaid accepts a nonce.
   E2E: every app window records `securitypolicyviolation` from the start of its load
-  (`tests/e2e/csp-violations.cjs`); `tests/e2e/csp.spec.ts` asserts none.
+  (session preload `tests/e2e/csp-violations-preload.cjs`, registered by
+  `tests/e2e/csp-violations.cjs`); `tests/e2e/csp.spec.ts` asserts none.
 - **Asset server:** `allowFiles`/`mounts` come from `remix.json` via `loadConfig` from `remix/cli`;
   `rootDir` must be passed explicitly (the packaged app's cwd is `/`). Package files are served from
   `/assets/npm/.pnpm/...` (the asset server understands pnpm's store). New browser-side packages

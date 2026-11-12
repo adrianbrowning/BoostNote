@@ -8,7 +8,7 @@ example `browser/main/lib/dataApi/`, `browser/lib/markdown.js`, `tests/fixtures/
 ## Decisions
 
 - **No bundler, task runner, Babel, Stylus, React or Redux.** The UI is [Remix 3](https://remix.run)
-  (`remix@3.1.0`): components are `function C(handle) { return () => <jsx/> }`, state lives in setup
+  (`remix@3.2.0`): components are `function C(handle) { return () => <jsx/> }`, state lives in setup
   scope, `handle.update()` re-renders, events use `mix={on('click', …)}`. Remix 3 is not React and
   shares no APIs with Remix 2 / React Router; the installed docs are in `node_modules/remix/INDEX.md`.
 - **The router runs in the Electron main process.** Main registers the privileged `boost://` scheme
@@ -77,7 +77,7 @@ Consequences:
 │                                                 ├─ events.ts   SSE hub ◀─┘ broadcast()   │
 │                                                 └─ protocol.ts boost:// ─┐               │
 │                                                                          ▼               │
-│   src/app/router.ts  (Remix router: asyncContext → CSP nonce → render middleware)        │
+│   src/app/router.ts  (Remix router: asyncContext → no-store → csp() → render)            │
 │     ├─ GET /          server-rendered document (src/app/ui/document.tsx)                 │
 │     ├─ GET /assets/*  remix/assets: compiles src/**/public/**, src/editor/**,            │
 │     │                 src/shared/**, packages                                            │
@@ -206,7 +206,7 @@ not open → 409 `NO_VAULT`.
 | Route | Purpose |
 | --- | --- |
 | `GET /` | Workspace document (SSR with the active vault's lists) |
-| `GET /vault-assets/<note id>?vault=&src=<link>` | File a note links to, resolved by `vault.assetPath` (no `..`, dot-dirs or symlink escapes); `Content-Type` from the extension, `nosniff`, `CSP: sandbox` |
+| `GET /vault-assets/<note id>?vault=&src=<link>` | File a note links to, resolved by `vault.assetPath` (no `..`, dot-dirs or symlink escapes); `Content-Type` from the extension, `nosniff`, `CSP: sandbox`. HTML assets (`text/html`) also carry the app policy appended by `csp()` and `Cache-Control: no-store`; SVG assets keep the sandbox policy only |
 | `GET /api/workspace[?vault=]` | `{ vault, open, recent, tree, notes, trash }` of that open vault (default: the active one); `open` lists every open vault |
 | `GET /api/search?q=` | `{ ids }`, best first (vault index) |
 | `POST /api/vaults/pick` · `open {path}` · `close {path}` · `forget {path}` | Folder dialog + open; open or switch to a vault (others stay open); close that vault; drop from Recent. Each answers with the workspace of the vault active afterwards |
@@ -483,7 +483,7 @@ write live-reloads; tabs survive a reload; importing the legacy fixture storage 
 HTML export contains mermaid `<svg>` and KaTeX markup (and is screenshotted in a window); PDF export;
 a `.md` passed on argv and via `open-file`; no CSP violation in the main window (startup, a Mermaid
 and KaTeX note, editing, the reader) or the hidden Mermaid renderer, recorded from the start of each
-window's load by a session preload (`tests/e2e/csp-violations.cjs`). `pnpm test` stays unit-only
+window's load by a session preload (`tests/e2e/csp-violations-preload.cjs`, registered by `tests/e2e/csp-violations.cjs`). `pnpm test` stays unit-only
 (Vitest excludes `tests/e2e`).
 Tests run in parallel, also within a file (`fullyParallel`; 4 workers locally, 2 in CI): each test
 owns its app, temp vault, profile and HOME. Two tests must never write the same path (each

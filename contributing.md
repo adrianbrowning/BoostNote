@@ -6,7 +6,7 @@ pull requests (there is a template for those too).
 
 ## Setup
 
-- Node.js 24 or newer and pnpm 10 (`corepack enable` picks the version pinned in `package.json`).
+- Node.js 24.3 or newer and pnpm 10 (`corepack enable` picks the version pinned in `package.json`).
 - `pnpm install` downloads Electron 45 and the native compiler bindings for your platform.
 - `pnpm dev` runs the app from source.
 
