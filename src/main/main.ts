@@ -191,8 +191,11 @@ if (!app.requestSingleInstanceLock()) {
     if (process.platform !== 'darwin') app.quit()
   })
   const disposeAndQuit = createQuitDisposal({
-    server: assets,
-    dispose: [() => eventHub.close(), () => vaults.dispose()],
+    teardown: [
+      { name: 'the event hub', run: () => eventHub.close() },
+      { name: 'the vaults', run: () => vaults.dispose() },
+      { name: 'the asset server', run: () => assets.close() },
+    ],
     quit: () => app.quit(),
   })
   app.on('before-quit', (event) => {

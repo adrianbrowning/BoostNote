@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, type Mock, vi } from 'vitest'
 
-import { createQuitDisposal } from '../../src/main/quit.ts'
+import { createQuitDisposal, raceTimeout, type TeardownStep } from '../../src/main/quit.ts'
 
 interface QuitEvent {
   preventDefault: Mock<() => void>
@@ -10,22 +10,38 @@ function quitEvent(): QuitEvent {
   return { preventDefault: vi.fn() }
 }
 
-describe('createQuitDisposal', () => {
-  beforeEach(() => {
-    vi.useFakeTimers()
-  })
-  afterEach(() => {
-    vi.useRealTimers()
-    vi.restoreAllMocks()
+function step(name: string, run: () => void | Promise<void>): TeardownStep {
+  return { name, run }
+}
+
+beforeEach(() => {
+  vi.useFakeTimers()
+})
+afterEach(() => {
+  vi.useRealTimers()
+  vi.restoreAllMocks()
+})
+
+describe('raceTimeout', () => {
+  it('settles with the promise value, even false, when the promise wins', async () => {
+    await expect(raceTimeout(Promise.resolve(false), 1000)).resolves.toBe(false)
   })
 
+  it("settles with 'timeout' and clears its timer when the timer wins", async () => {
+    const result = raceTimeout(new Promise(() => {}), 1000)
+    await vi.advanceTimersByTimeAsync(1000)
+    expect(await result).toBe('timeout')
+    expect(vi.getTimerCount()).toBe(0)
+  })
+})
+
+describe('createQuitDisposal', () => {
   it('holds the quit until the asset server has closed', async () => {
     const { promise: closed, resolve: finishClose } = Promise.withResolvers<void>()
     const quit = vi.fn()
     const dispose = vi.fn()
     const beforeQuit = createQuitDisposal({
-      server: { close: () => closed },
-      dispose: [dispose],
+      teardown: [step('the hub', dispose), step('the asset server', () => closed)],
       quit,
       timeoutMs: 1000,
     })
@@ -46,8 +62,7 @@ describe('createQuitDisposal', () => {
   it('quits after the bound when closing never settles', async () => {
     const quit = vi.fn()
     const beforeQuit = createQuitDisposal({
-      server: { close: () => new Promise<void>(() => {}) },
-      dispose: [],
+      teardown: [step('the asset server', () => new Promise<void>(() => {}))],
       quit,
       timeoutMs: 1000,
     })
@@ -61,31 +76,30 @@ describe('createQuitDisposal', () => {
     expect(quit).toHaveBeenCalledTimes(1)
   })
 
-  it('quits when closing fails', async () => {
+  it('quits when closing fails, logging the step by name', async () => {
     const quit = vi.fn()
     const error = vi.spyOn(console, 'error').mockImplementation(() => {})
     const beforeQuit = createQuitDisposal({
-      server: { close: () => Promise.reject(new Error('boom')) },
-      dispose: [],
+      teardown: [step('the asset server', () => Promise.reject(new Error('boom')))],
       quit,
       timeoutMs: 1000,
     })
     await beforeQuit(quitEvent())
     expect(quit).toHaveBeenCalledTimes(1)
-    expect(error).toHaveBeenCalledWith(expect.any(String), expect.objectContaining({ message: 'boom' }))
+    expect(error).toHaveBeenCalledWith('Could not close the asset server', expect.objectContaining({ message: 'boom' }))
   })
 
-  it('logs a throwing dispose and still closes the asset server and quits', async () => {
+  it('logs a throwing step and still closes the asset server and quits', async () => {
     const { promise: closed, resolve: finishClose } = Promise.withResolvers<void>()
     const quit = vi.fn()
     const close = vi.fn(() => closed)
     const error = vi.spyOn(console, 'error').mockImplementation(() => {})
     const beforeQuit = createQuitDisposal({
-      server: { close },
-      dispose: [
-        () => {
+      teardown: [
+        step('the hub', () => {
           throw new Error('hub')
-        },
+        }),
+        step('the asset server', close),
       ],
       quit,
       timeoutMs: 1000,
@@ -99,36 +113,39 @@ describe('createQuitDisposal', () => {
     finishClose()
     await done
     expect(quit).toHaveBeenCalledTimes(1)
-    expect(error).toHaveBeenCalledWith(expect.any(String), expect.objectContaining({ message: 'hub' }))
+    expect(error).toHaveBeenCalledWith('Could not close the hub', expect.objectContaining({ message: 'hub' }))
   })
 
-  it('runs every dispose step and logs each failure when one throws and another rejects', async () => {
+  it('runs every step and logs each failure when one throws and another rejects', async () => {
     const quit = vi.fn()
     const error = vi.spyOn(console, 'error').mockImplementation(() => {})
     const vaults = vi.fn(() => Promise.reject(new Error('vaults')))
     const beforeQuit = createQuitDisposal({
-      server: { close: () => Promise.resolve() },
-      dispose: [
-        () => {
+      teardown: [
+        step('the hub', () => {
           throw new Error('hub')
-        },
-        vaults,
+        }),
+        step('the vaults', vaults),
+        step('the asset server', () => Promise.resolve()),
       ],
       quit,
       timeoutMs: 1000,
     })
     await beforeQuit(quitEvent())
     expect(vaults).toHaveBeenCalledTimes(1)
-    expect(error).toHaveBeenCalledWith(expect.any(String), expect.objectContaining({ message: 'hub' }))
-    expect(error).toHaveBeenCalledWith(expect.any(String), expect.objectContaining({ message: 'vaults' }))
+    expect(error).toHaveBeenCalledWith('Could not close the hub', expect.objectContaining({ message: 'hub' }))
+    expect(error).toHaveBeenCalledWith('Could not close the vaults', expect.objectContaining({ message: 'vaults' }))
     expect(quit).toHaveBeenCalledTimes(1)
   })
 
-  it('waits for a pending dispose up to the bound', async () => {
+  it('waits for a pending step up to the bound', async () => {
     const quit = vi.fn()
     const beforeQuit = createQuitDisposal({
-      server: { close: () => Promise.resolve() },
-      dispose: [() => {}, () => new Promise<void>(() => {})],
+      teardown: [
+        step('the hub', () => {}),
+        step('the vaults', () => new Promise<void>(() => {})),
+        step('the asset server', () => Promise.resolve()),
+      ],
       quit,
       timeoutMs: 1000,
     })
@@ -142,12 +159,11 @@ describe('createQuitDisposal', () => {
     expect(quit).toHaveBeenCalledTimes(1)
   })
 
-  it('quits once a pending dispose settles', async () => {
+  it('quits once a pending step settles', async () => {
     const { promise: disposed, resolve: finishDispose } = Promise.withResolvers<void>()
     const quit = vi.fn()
     const beforeQuit = createQuitDisposal({
-      server: { close: () => Promise.resolve() },
-      dispose: [() => disposed],
+      teardown: [step('the vaults', () => disposed), step('the asset server', () => Promise.resolve())],
       quit,
       timeoutMs: 1000,
     })
@@ -172,7 +188,11 @@ describe('createQuitDisposal', () => {
       void beforeQuit(event)
     })
     const dispose = vi.fn()
-    const beforeQuit = createQuitDisposal({ server: { close }, dispose: [dispose], quit, timeoutMs: 1000 })
+    const beforeQuit = createQuitDisposal({
+      teardown: [step('the hub', dispose), step('the asset server', close)],
+      quit,
+      timeoutMs: 1000,
+    })
 
     const done = beforeQuit(quitEvent())
     const repeated = quitEvent()

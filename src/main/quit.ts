@@ -1,5 +1,5 @@
-/** How long quitting waits for the asset server (its dev file watcher) and the vaults to close. */
-export const ASSET_CLOSE_TIMEOUT_MS = 2000
+/** How long quitting waits for every teardown step (asset server dev watcher, event hub, vaults) to settle. */
+export const QUIT_TEARDOWN_TIMEOUT_MS = 2000
 
 /** Settles with `promise`, or with `'timeout'` after `ms`; the timer is always cleared. */
 export async function raceTimeout<T>(promise: Promise<T>, ms: number): Promise<T | 'timeout'> {
@@ -21,14 +21,18 @@ async function logFailure(message: string, teardown: () => void | Promise<void>)
   }
 }
 
+/** One named quit-time teardown step; a failure is logged as `Could not close ${name}`. */
+export interface TeardownStep {
+  name: string
+  run(): void | Promise<void>
+}
+
 interface QuitDisposalOptions {
-  /** The asset server; closing it stops its dev file watcher. */
-  server: { close(): Promise<void> }
   /**
    * Teardown steps run once, together, when disposal starts. Each is guarded on its own, so one that
-   * throws or rejects is logged and never skips another; returned promises are awaited with the server.
+   * throws or rejects is logged and never skips another; returned promises are awaited together.
    */
-  dispose: ReadonlyArray<() => void | Promise<void>>
+  teardown: ReadonlyArray<TeardownStep>
   /** Quits for real (`app.quit()`); emits `before-quit` again, which then passes through. */
   quit(): void
   timeoutMs?: number
@@ -36,15 +40,13 @@ interface QuitDisposalOptions {
 
 /**
  * The `before-quit` handler once leaving is confirmed: the first quit is held (`preventDefault`)
- * while `dispose` and the asset server close, bounded by `timeoutMs` so a teardown that throws,
- * fails or never settles still quits; repeated quits meanwhile are held too, and the final `quit()`
- * passes through.
+ * while `teardown` runs, bounded by `timeoutMs` so a step that throws, fails or never settles still
+ * quits; repeated quits meanwhile are held too, and the final `quit()` passes through.
  */
 export function createQuitDisposal({
-  server,
-  dispose,
+  teardown,
   quit,
-  timeoutMs = ASSET_CLOSE_TIMEOUT_MS,
+  timeoutMs = QUIT_TEARDOWN_TIMEOUT_MS,
 }: QuitDisposalOptions): (event: { preventDefault(): void }) => Promise<void> {
   let state: 'pending' | 'running' | 'done' = 'pending'
   return async (event) => {
@@ -53,10 +55,7 @@ export function createQuitDisposal({
     if (state === 'running') return
     state = 'running'
     await raceTimeout(
-      Promise.all([
-        ...dispose.map((step) => logFailure('Could not dispose before quitting', step)),
-        logFailure('Could not close the asset server', () => server.close()),
-      ]),
+      Promise.all(teardown.map(({ name, run }) => logFailure(`Could not close ${name}`, run))),
       timeoutMs,
     )
     state = 'done'
