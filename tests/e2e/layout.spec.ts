@@ -130,6 +130,48 @@ test('a second drag that starts before the first settles keeps its own width', a
   expect((await box(sidebar)).width).toBe(330)
 })
 
+test('a note-list drag that starts before a sidebar drag settles leaves no sidebar width behind', async ({ app }) => {
+  const { page } = app
+  const notes = page.getByRole('region', { name: 'Notes' })
+  const sidebarResizer = page.getByRole('separator', { name: 'Resize sidebar' })
+  const listResizer = page.getByRole('separator', { name: 'Resize note list' })
+  const sidebarBox = await box(sidebarResizer)
+  const listBox = await box(listResizer)
+  const y = sidebarBox.y + 100
+  // One synchronous burst, so the list pointerdown lands before the sidebar drag's update settles.
+  await page.evaluate(
+    ({ sx, lx, y }) => {
+      const fire = (target: EventTarget, type: string, clientX: number) =>
+        target.dispatchEvent(new PointerEvent(type, { bubbles: true, cancelable: true, clientX, clientY: y }))
+      const sidebar = document.querySelector('[aria-label="Resize sidebar"]')
+      const list = document.querySelector('[aria-label="Resize note list"]')
+      if (!sidebar || !list) throw new Error('resizers are not rendered')
+      fire(sidebar, 'pointerdown', sx)
+      fire(window, 'pointermove', sx + 20)
+      fire(window, 'pointerup', sx + 20)
+      fire(list, 'pointerdown', lx)
+      fire(window, 'pointermove', lx + 20)
+    },
+    { sx: sidebarBox.x + 2, lx: listBox.x + 2, y },
+  )
+  const settings = async () => JSON.parse(await readFile(path.join(app.userDataDir, 'settings.json'), 'utf8'))
+  await expect.poll(async () => (await settings()).ui?.panes?.sidebarWidth).toBe(270)
+  await page.evaluate(async () => {
+    for (let frame = 0; frame < 2; frame++) {
+      const { promise, resolve } = Promise.withResolvers<number>()
+      requestAnimationFrame(resolve)
+      await promise
+    }
+    window.dispatchEvent(new PointerEvent('pointerup', { bubbles: true }))
+  })
+  await expect.poll(async () => (await settings()).ui?.panes?.listWidth).toBe(300)
+
+  // The sidebar drag's inline width must be gone, so a collapsed sidebar takes no width.
+  await app.clickMenu('toggle-sidebar')
+  await expect(page.getByRole('navigation', { name: 'Vault' })).toBeHidden()
+  await expect.poll(async () => (await box(notes)).x).toBe(0)
+})
+
 test('the context menu opens at the pointer, 200px wide', async ({ app }) => {
   const { page } = app
   const row = await box(page.locator('[data-note="tasks.md"]'))
