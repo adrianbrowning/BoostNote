@@ -16,6 +16,7 @@ describe('createQuitDisposal', () => {
   })
   afterEach(() => {
     vi.useRealTimers()
+    vi.restoreAllMocks()
   })
 
   it('holds the quit until the asset server has closed', async () => {
@@ -66,8 +67,69 @@ describe('createQuitDisposal', () => {
     })
     await beforeQuit(quitEvent())
     expect(quit).toHaveBeenCalledTimes(1)
-    expect(error).toHaveBeenCalled()
-    error.mockRestore()
+    expect(error).toHaveBeenCalledWith(expect.any(String), expect.objectContaining({ message: 'boom' }))
+  })
+
+  it('logs a throwing dispose and still closes the asset server and quits', async () => {
+    const { promise: closed, resolve: finishClose } = Promise.withResolvers<void>()
+    const quit = vi.fn()
+    const close = vi.fn(() => closed)
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const beforeQuit = createQuitDisposal({
+      server: { close },
+      dispose: () => {
+        throw new Error('hub')
+      },
+      quit,
+      timeoutMs: 1000,
+    })
+
+    const done = beforeQuit(quitEvent())
+    await vi.advanceTimersByTimeAsync(500)
+    expect(close).toHaveBeenCalledTimes(1)
+    expect(quit).not.toHaveBeenCalled()
+
+    finishClose()
+    await done
+    expect(quit).toHaveBeenCalledTimes(1)
+    expect(error).toHaveBeenCalledWith(expect.any(String), expect.objectContaining({ message: 'hub' }))
+  })
+
+  it('waits for a pending dispose up to the bound', async () => {
+    const quit = vi.fn()
+    const beforeQuit = createQuitDisposal({
+      server: { close: () => Promise.resolve() },
+      dispose: () => new Promise<void>(() => {}),
+      quit,
+      timeoutMs: 1000,
+    })
+    const done = beforeQuit(quitEvent())
+
+    await vi.advanceTimersByTimeAsync(999)
+    expect(quit).not.toHaveBeenCalled()
+
+    await vi.advanceTimersByTimeAsync(1)
+    await done
+    expect(quit).toHaveBeenCalledTimes(1)
+  })
+
+  it('quits once a pending dispose settles', async () => {
+    const { promise: disposed, resolve: finishDispose } = Promise.withResolvers<void>()
+    const quit = vi.fn()
+    const beforeQuit = createQuitDisposal({
+      server: { close: () => Promise.resolve() },
+      dispose: () => disposed,
+      quit,
+      timeoutMs: 1000,
+    })
+    const done = beforeQuit(quitEvent())
+
+    await vi.advanceTimersByTimeAsync(500)
+    expect(quit).not.toHaveBeenCalled()
+
+    finishDispose()
+    await done
+    expect(quit).toHaveBeenCalledTimes(1)
   })
 
   it('holds repeated quits while closing, then lets the final quit through', async () => {
@@ -80,13 +142,15 @@ describe('createQuitDisposal', () => {
       finalEvents.push(event)
       void beforeQuit(event)
     })
-    const beforeQuit = createQuitDisposal({ server: { close }, dispose: () => {}, quit, timeoutMs: 1000 })
+    const dispose = vi.fn()
+    const beforeQuit = createQuitDisposal({ server: { close }, dispose, quit, timeoutMs: 1000 })
 
     const done = beforeQuit(quitEvent())
     const repeated = quitEvent()
     await beforeQuit(repeated)
     expect(repeated.preventDefault).toHaveBeenCalled()
     expect(close).toHaveBeenCalledTimes(1)
+    expect(dispose).toHaveBeenCalledTimes(1)
 
     finishClose()
     await done
@@ -94,5 +158,6 @@ describe('createQuitDisposal', () => {
     expect(finalEvents).toHaveLength(1)
     expect(finalEvents[0]?.preventDefault).not.toHaveBeenCalled()
     expect(close).toHaveBeenCalledTimes(1)
+    expect(dispose).toHaveBeenCalledTimes(1)
   })
 })

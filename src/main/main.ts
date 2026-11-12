@@ -20,7 +20,7 @@ import { createExportServices } from './export.ts'
 import { installMenu } from './menu.ts'
 import { createPreferenceServices } from './preferences.ts'
 import { handleBoostProtocol, registerBoostScheme } from './protocol.ts'
-import { createQuitDisposal } from './quit.ts'
+import { createQuitDisposal, raceTimeout } from './quit.ts'
 import { SettingsStore } from './settings.ts'
 import { checkForUpdate, createUpdater } from './updates.ts'
 import { VaultSession } from './vault-session.ts'
@@ -148,15 +148,12 @@ function toggleMainWindow(): void {
 async function confirmLeave(): Promise<boolean> {
   const window = liveWindow()
   if (!window) return true
-  const { promise: timeout, resolve } = Promise.withResolvers<'timeout'>()
-  const timer = setTimeout(() => resolve('timeout'), FLUSH_TIMEOUT_MS)
-  const clean = await Promise.race([
+  const clean = await raceTimeout(
     window.webContents
       .executeJavaScript('window.boostFlushPendingSave ? window.boostFlushPendingSave() : true', true)
       .catch(() => true),
-    timeout,
-  ])
-  clearTimeout(timer)
+    FLUSH_TIMEOUT_MS,
+  )
   if (clean !== false) return true
   const { response } = await dialog.showMessageBox(window, {
     type: 'warning',
@@ -195,9 +192,14 @@ if (!app.requestSingleInstanceLock()) {
   })
   const disposeAndQuit = createQuitDisposal({
     server: assets,
-    dispose() {
-      eventHub.close()
-      void vaults.dispose()
+    async dispose() {
+      // Started first so a throwing `eventHub.close()` cannot skip closing the vault watchers.
+      const vaultsClosed = vaults.dispose()
+      try {
+        eventHub.close()
+      } finally {
+        await vaultsClosed
+      }
     },
     quit: () => app.quit(),
   })
