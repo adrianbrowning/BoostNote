@@ -104,7 +104,7 @@ export function isAccelerator(value: string): boolean {
 /** Validity of each preference value (also used to validate `POST /api/preferences`). */
 export const UI_FIELDS: { [K in keyof Omit<UiPreferences, 'panes'>]: (value: unknown) => boolean } = {
   theme: (value) => value === 'system' || value === 'light' || value === 'dark',
-  editorFont: (value) => typeof value === 'string' && value.length <= 200 && !/[;{}<>]/.test(value),
+  editorFont: (value) => typeof value === 'string' && value.length <= 200 && !/[;{}<>\\]|\/\*/.test(value),
   fontSize: intIn(10, 32),
   lineWidth: (value) => value === 0 || intIn(400, 2000)(value),
   spellcheck: isBoolean,

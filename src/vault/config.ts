@@ -48,7 +48,7 @@ export function trashIndexFile(root: string): string {
   return path.join(root, TRASH_DIR, '.index.json')
 }
 
-const FOLDER_COLOR = /^#[0-9a-f]{3,8}$/i
+const FOLDER_COLOR = /^#(?:[0-9a-f]{3,4}|[0-9a-f]{6}|[0-9a-f]{8})$/i
 
 /** Whether `color` is a hex colour (`#rgb` … `#rrggbbaa`), the only folder colours the app accepts. */
 export function isFolderColor(color: string): boolean {

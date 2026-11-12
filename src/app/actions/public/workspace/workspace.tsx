@@ -120,8 +120,11 @@ export const Workspace = clientEntry(
       )
     })
 
+    // Each pointerdown starts a new drag; only the latest may drop the inline width it set.
+    let activeDrag = 0
     const startResize = (pane: Pane) => (event: PointerEvent) => {
       event.preventDefault()
+      const id = ++activeDrag
       const startX = event.clientX
       const start = model.preferences.panes[pane]
       const [min, max] = PANE_LIMITS[pane]
@@ -141,8 +144,11 @@ export const Workspace = clientEntry(
         () => {
           drag.abort()
           if (width !== start) model.setPanes({ [pane]: width })
-          // The drag's inline width wins over the layout class: drop it once the class holds the width.
-          void handle.update().then(() => layout?.style.removeProperty(`--${pane}`))
+          // The drag's inline width wins over the layout class: drop it once the class holds the width,
+          // unless a newer drag has set its own since.
+          void handle.update().then(() => {
+            if (id === activeDrag) layout?.style.removeProperty(`--${pane}`)
+          })
         },
         { signal: drag.signal },
       )
