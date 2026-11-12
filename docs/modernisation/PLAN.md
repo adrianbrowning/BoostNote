@@ -146,7 +146,9 @@ returns `{ view, setDoc(doc, { preserveSelection }), setTheme, focus, destroy }`
   Mod-B/I/E/Shift-X toggle `**`/`*`/`` ` ``/`~~`, Mod-K links, Enter continues lists/tasks/quotes and
   ends the list on an empty item, Tab/Shift-Tab nest list items by the sibling's marker width,
   `( [ { "` auto-close, `` ` * _ ~ `` wrap a selection, Mod-F search. Pasted/dropped images go
-  through `saveAsset`; pasted HTML becomes GFM markdown (turndown + turndown-plugin-gfm).
+  through `saveAsset`; a pasted lone `http(s)` URL becomes `![](url)` with the cursor in the alt
+  text (a selection becomes the alt text; code, links and images keep the URL as typed); pasted HTML
+  becomes GFM markdown (turndown + turndown-plugin-gfm).
 - **Themes.** Colours are CSS variables scoped to `.cm-editor` (values match `base.css`); hosts tune
   `--editor-font`, `--editor-font-size`, `--editor-line-height`, `--editor-max-width`, `--editor-padding`.
 - **`setDoc`** without options resets the state (selection, history); with `preserveSelection` it
