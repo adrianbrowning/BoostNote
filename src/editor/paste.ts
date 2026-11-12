@@ -51,11 +51,13 @@ export function htmlToMarkdown(html: string): string {
   return turndown.turndown(html).trim()
 }
 
-/** `![name](path)` for an inserted asset; paths with spaces or parentheses use the `<…>` destination form. */
+/** A link destination; paths with spaces, parentheses or angle brackets use the `<…>` form. */
+const destination = (path: string) => (/[\s()<>]/.test(path) ? `<${path.replace(/[<>]/g, encodeURIComponent)}>` : path)
+
+/** `![name](path)` for an inserted asset. */
 export function imageMarkdown(fileName: string, path: string): string {
   const alt = fileName.replace(/\.[^.]+$/, '').replace(/[[\]\\]/g, '')
-  const destination = /[\s()<>]/.test(path) ? `<${path.replace(/[<>]/g, encodeURIComponent)}>` : path
-  return `![${alt}](${destination})`
+  return `![${alt}](${destination(path)})`
 }
 
 const addPending = StateEffect.define<{ id: number; pos: number }>()
@@ -112,8 +114,19 @@ const imageFiles = (list: FileList | null | undefined) =>
   [...(list ?? [])].filter((file) => file.type.startsWith('image/'))
 
 const CODE_NODES = /^(?:FencedCode|CodeBlock|InlineCode|CodeText|BlockMath|InlineMath)$/
+/** Where a pasted URL stays as typed: code, and inside a link or image (its text or destination). */
+const PLAIN_URL_NODES = /^(?:Link|Image|Autolink|URL)$/
 
-/** Paste/drop: image files go through `saveAsset`; rich HTML becomes markdown (plain text inside code). */
+/** The innermost syntax node names around `pos`, innermost first. */
+function nodeNamesAt(view: EditorView, pos: number): string[] {
+  const names: string[] = []
+  for (let node: SyntaxNode | null = syntaxTree(view.state).resolveInner(pos, -1); node; node = node.parent) {
+    names.push(node.name)
+  }
+  return names
+}
+
+/** Paste/drop: image files go through `saveAsset`; a lone URL becomes `![](url)`; rich HTML becomes markdown (plain text inside code). */
 export const pasteAndDrop = [
   pendingImages,
   EditorView.domEventHandlers({
@@ -128,16 +141,27 @@ export const pasteAndDrop = [
         void insertImages(view, images, from)
         return true
       }
+      const { from, to } = view.state.selection.main
+      const names = nodeNamesAt(view, from)
+      if (names.some((name) => CODE_NODES.test(name))) return false
+      const url = data.getData('text/plain').trim()
+      if (/^https?:\/\/\S+$/i.test(url) && !names.some((name) => PLAIN_URL_NODES.test(name))) {
+        event.preventDefault()
+        const alt = view.state.sliceDoc(from, to).replace(/[[\]\\]/g, '\\$&')
+        const markdown = `![${alt}](${destination(url)})`
+        // No alt text yet: leave the cursor between the brackets to type it.
+        const cursor = from + (alt ? markdown.length : 2)
+        view.dispatch({
+          changes: { from, to, insert: markdown },
+          selection: { anchor: cursor },
+          userEvent: 'input.paste',
+          scrollIntoView: true,
+        })
+        return true
+      }
       const html = data.getData('text/html')
       // Code editors put highlighted HTML on the clipboard; their plain text is what the user wants.
       if (!html || data.types.includes('vscode-editor-data')) return false
-      for (
-        let node: SyntaxNode | null = syntaxTree(view.state).resolveInner(view.state.selection.main.head, -1);
-        node;
-        node = node.parent
-      ) {
-        if (CODE_NODES.test(node.name)) return false
-      }
       const markdown = htmlToMarkdown(html)
       if (!markdown) return false
       event.preventDefault()

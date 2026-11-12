@@ -36,6 +36,16 @@ function mount(doc: string, overrides: Partial<Parameters<typeof createLivePrevi
   return { editor, parent, onChange }
 }
 
+/** Dispatches a paste of `text` (and optional HTML); jsdom has no default paste, so the fallback inserts it. */
+function pasteText(editor: LivePreviewEditor, text: string, html?: string) {
+  const data = new DataTransfer()
+  data.setData('text/plain', text)
+  if (html) data.setData('text/html', html)
+  const event = new ClipboardEvent('paste', { clipboardData: data, cancelable: true })
+  editor.view.contentDOM.dispatchEvent(event)
+  if (!event.defaultPrevented) editor.view.dispatch(editor.view.state.replaceSelection(text))
+}
+
 afterEach(() => {
   editor?.destroy()
   editor = undefined
@@ -143,6 +153,39 @@ describe('createLivePreviewEditor', () => {
     data.setData('text/plain', 'Hello world')
     editor.view.contentDOM.dispatchEvent(new ClipboardEvent('paste', { clipboardData: data, cancelable: true }))
     expect(editor.view.state.doc.toString()).toBe('Hello **world**')
+  })
+
+  it('pastes a URL as image markdown with the cursor in the alt text', () => {
+    const { editor } = mount('see ')
+    editor.view.dispatch({ selection: { anchor: 4 } })
+    pasteText(editor, 'https://example.com/cat.png')
+    expect(editor.view.state.doc.toString()).toBe('see ![](https://example.com/cat.png)')
+    expect(editor.view.state.selection.main.head).toBe(6)
+  })
+
+  it('uses the selected text as alt text when a URL is pasted over it', () => {
+    const { editor } = mount('a [cat] here')
+    editor.view.dispatch({ selection: { anchor: 2, head: 7 } })
+    pasteText(editor, ' https://example.com/a_(b)\n', '<a href="https://example.com/a_(b)">x</a>')
+    const expected = 'a ![\\[cat\\]](<https://example.com/a_(b)>) here'
+    expect(editor.view.state.doc.toString()).toBe(expected)
+    expect(editor.view.state.selection.main.head).toBe(expected.length - ' here'.length)
+  })
+
+  it('keeps a pasted URL plain in a link destination, in code and next to other text', () => {
+    const { editor } = mount('`x`\n\n[a]()')
+    // From the end of the doc backwards, so each paste leaves the earlier positions in place.
+    for (const [anchor, text] of [
+      [9, 'https://example.com'],
+      [2, 'https://example.com'],
+      [0, 'see https://example.com'],
+    ] as const) {
+      editor.view.dispatch({ selection: { anchor } })
+      pasteText(editor, text)
+    }
+    expect(editor.view.state.doc.toString()).toBe(
+      'see https://example.com`xhttps://example.com`\n\n[a](https://example.com)',
+    )
   })
 
   it('removes its DOM on destroy', () => {
