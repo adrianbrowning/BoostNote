@@ -87,7 +87,7 @@ test('the main window reports no CSP violations: startup, a Mermaid and KaTeX no
 
 declare global {
   interface Window {
-    /** Set by the style-scope test: a style made outside Mermaid's container during a render. */
+    /** Set by the style-scope test: a style made outside Mermaid's container during a render; `wrapped` is true when the createElement wrap set its nonce property. */
     styleProbe?: { wrapped: boolean; nonceAttribute: string | null }
   }
 }
@@ -104,8 +104,8 @@ test('a style created outside Mermaid’s container while a diagram renders keep
       const added = records.flatMap((record) => [...record.addedNodes])
       if (!added.some((node) => node instanceof HTMLElement && node.id.startsWith('dboost-mermaid-'))) return
       observer.disconnect()
-      const wrapped = Object.hasOwn(document, 'createElement')
       const style = document.createElement('style')
+      const wrapped = style.nonce !== ''
       document.head.append(style)
       setTimeout(() => {
         window.styleProbe = { wrapped, nonceAttribute: style.getAttribute('nonce') }

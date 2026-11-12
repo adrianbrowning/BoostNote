@@ -58,7 +58,7 @@ export function renderMermaid(source: string, theme: EditorTheme): Promise<Merma
       return { error: error instanceof Error ? error.message : String(error) }
     } finally {
       // mermaid leaves its measuring container behind when rendering fails.
-      for (const stray of document.querySelectorAll(`#${id}, #d${id}`)) stray.remove()
+      for (const stray of document.querySelectorAll(measuringContainer(id))) stray.remove()
     }
   })
   queue = result
@@ -70,6 +70,9 @@ export function renderMermaid(source: string, theme: EditorTheme): Promise<Merma
   })
   return result
 }
+
+/** Mermaid's measuring container (`#d<id>`) and the SVG inside it (`#<id>`). */
+const measuringContainer = (id: string) => `#d${id}, #${id}`
 
 /**
  * `mermaid.render` lays the diagram out in a temporary SVG in the page and inserts its `<style>`
@@ -87,7 +90,7 @@ export function renderMermaid(source: string, theme: EditorTheme): Promise<Merma
  */
 async function withStampedStyles<T>(id: string, render: () => Promise<T>): Promise<T> {
   const nonce = pageCspNonce()
-  const container = `#d${id}, #${id}`
+  const container = measuringContainer(id)
   const createElement = document.createElement
   document.createElement = function (this: Document, ...args: Parameters<Document['createElement']>) {
     const element = createElement.apply(this, args)
