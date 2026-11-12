@@ -75,8 +75,9 @@ export function renderMermaid(source: string, theme: EditorTheme): Promise<Merma
  * `mermaid.render` lays the diagram out in a temporary SVG in the page and inserts its `<style>`
  * there; mermaid takes no nonce, so the page policy (`style-src-elem`) would block it and the
  * layout would be measured unstyled. While `render` runs, style elements made with
- * `document.createElement` get the page nonce, and only those Mermaid inserts into its measuring
- * container (`#d<id>` around the SVG `#<id>`) keep it as a readable attribute. Renders run one at a
+ * `document.createElement` get the page nonce as a property (which the policy checks on
+ * insertion, and which adds no attribute), and only those Mermaid inserts into its measuring
+ * container (`#d<id>` around the SVG `#<id>`) also get it as an attribute. Renders run one at a
  * time (the queue above).
  *
  * Verified against Mermaid 12.2.0, and relies on its internals: it creates the `<style>` with
@@ -91,13 +92,13 @@ async function withStampedStyles<T>(id: string, render: () => Promise<T>): Promi
   document.createElement = function (this: Document, ...args: Parameters<Document['createElement']>) {
     const element = createElement.apply(this, args)
     if (element instanceof HTMLStyleElement) {
-      element.setAttribute('nonce', nonce)
-      // Inserting the element hides the attribute (the property keeps it), but mermaid then
-      // serialises the SVG and DOMPurify parses that string under the page policy too: set it
-      // again once mermaid has inserted the element (synchronously, right after creating it).
-      // Without this the page reports style-src-elem violations. Only Mermaid's own styles get it
-      // back: one made elsewhere meanwhile (CodeMirror's, say) keeps its nonce hidden. The nonce is
-      // then readable as an attribute while the render runs; REMIX-NOTES says why that is accepted.
+      element.nonce = nonce
+      // The property lets mermaid insert the element, but mermaid then serialises the SVG and
+      // DOMPurify parses that string under the page policy too, which needs the attribute: set it
+      // once mermaid has inserted the element (synchronously, right after creating it). Without
+      // this the page reports style-src-elem violations. Only Mermaid's own styles get it: one
+      // made elsewhere meanwhile (CodeMirror's, say) has no nonce attribute. The nonce is then
+      // readable as an attribute while the render runs; REMIX-NOTES says why that is accepted.
       queueMicrotask(() => {
         if (element.closest(container)) element.setAttribute('nonce', nonce)
       })

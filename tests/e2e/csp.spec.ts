@@ -98,8 +98,7 @@ test('a style created outside Mermaid’s container while a diagram renders keep
   const { page } = app
   // When Mermaid appends its measuring container (`#d<id>`) the render is running, so the
   // createElement wrap is active: a style made then, outside the container (as CodeMirror's
-  // StyleModule might), must not get the nonce back as a readable attribute once the wrap's
-  // microtasks have run (inserting it hid the attribute set on creation).
+  // StyleModule might), must have no nonce attribute once the wrap's microtasks have run.
   await page.evaluate(() => {
     const observer = new MutationObserver((records) => {
       const added = records.flatMap((record) => [...record.addedNodes])
@@ -118,7 +117,7 @@ test('a style created outside Mermaid’s container while a diagram renders keep
 
   await page.locator('[data-note="diagram.md"]').click()
   await expect(page.locator('[data-editor] .cm-lp-mermaid svg')).toBeVisible({ timeout: 20_000 })
-  await expect.poll(() => page.evaluate(() => window.styleProbe)).toEqual({ wrapped: true, nonceAttribute: '' })
+  await expect.poll(() => page.evaluate(() => window.styleProbe)).toEqual({ wrapped: true, nonceAttribute: null })
   expect(await cspViolations(page)).toEqual([])
 })
 
