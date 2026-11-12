@@ -10,6 +10,7 @@ import {
   type OpenDialogOptions,
   shell,
 } from 'electron'
+import { assets } from '../app/assets.ts'
 import { DropGrants } from '../app/drop-grants.ts'
 import { createAppRouter } from '../app/router.ts'
 import { type CliTarget, defaultShimDirs, installShim, loginShellPath, windowsCommands } from '../cli/install.ts'
@@ -19,6 +20,7 @@ import { createExportServices } from './export.ts'
 import { installMenu } from './menu.ts'
 import { createPreferenceServices } from './preferences.ts'
 import { handleBoostProtocol, registerBoostScheme } from './protocol.ts'
+import { createQuitDisposal } from './quit.ts'
 import { SettingsStore } from './settings.ts'
 import { checkForUpdate, createUpdater } from './updates.ts'
 import { VaultSession } from './vault-session.ts'
@@ -191,10 +193,17 @@ if (!app.requestSingleInstanceLock()) {
   app.on('window-all-closed', () => {
     if (process.platform !== 'darwin') app.quit()
   })
-  app.on('before-quit', (event) => {
-    if (leaving) {
+  const disposeAndQuit = createQuitDisposal({
+    server: assets,
+    dispose() {
       eventHub.close()
       void vaults.dispose()
+    },
+    quit: () => app.quit(),
+  })
+  app.on('before-quit', (event) => {
+    if (leaving) {
+      void disposeAndQuit(event)
       return
     }
     event.preventDefault()
