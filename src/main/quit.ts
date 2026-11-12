@@ -1,8 +1,8 @@
-/** How long quitting waits for the asset server (dev watcher, HMR channel) to close. */
+/** How long quitting waits for the asset server (its dev file watcher) to close. */
 export const ASSET_CLOSE_TIMEOUT_MS = 2000
 
 interface QuitDisposalOptions {
-  /** The asset server; closing it stops the dev watcher and the HMR channel. */
+  /** The asset server; closing it stops its dev file watcher. */
   server: { close(): Promise<void> }
   /** Synchronous teardown run once, when disposal starts. */
   dispose(): void
