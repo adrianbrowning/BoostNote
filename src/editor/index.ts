@@ -21,7 +21,7 @@ import { pageCspNonce } from './render/csp-nonce.ts'
 import { slashCommandMenu } from './slash.ts'
 import { editorStyles, themeExtension } from './theme.ts'
 
-export type { EditorTheme } from './config.ts'
+export { DARK_SCHEME, type EditorTheme, pageTheme } from './config.ts'
 
 export interface LivePreviewEditorOptions extends EditorHost {
   parent: HTMLElement

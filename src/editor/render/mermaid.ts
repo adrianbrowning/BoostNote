@@ -49,9 +49,10 @@ export function renderMermaid(source: string, theme: EditorTheme): Promise<Merma
         theme: theme === 'dark' ? 'dark' : 'default',
         suppressErrorRendering: true,
       })
-      const { svg } = await withStampedStyles(() => mermaid.render(id, source))
-      // Without the nonce `withStampedStyles` gave its `<style>`: the result is cached and exported
-      // to files, where a stale page nonce means nothing; `mermaidNodes` stamps the current one.
+      const { svg } = await withStampedStyles(id, () => mermaid.render(id, source))
+      // Strip the nonce `withStampedStyles` put on the `<style>`: the result is cached and exported
+      // to files, where a page nonce means nothing; `mermaidNodes` stamps the current page's nonce on
+      // insertion.
       return { svg: parseSvg(svg, null).innerHTML }
     } catch (error) {
       return { error: error instanceof Error ? error.message : String(error) }
@@ -74,15 +75,18 @@ export function renderMermaid(source: string, theme: EditorTheme): Promise<Merma
  * `mermaid.render` lays the diagram out in a temporary SVG in the page and inserts its `<style>`
  * there; mermaid takes no nonce, so the page policy (`style-src-elem`) would block it and the
  * layout would be measured unstyled. While `render` runs, style elements made with
- * `document.createElement` get the page nonce. Renders run one at a time (the queue above).
+ * `document.createElement` get the page nonce, and only those Mermaid inserts into its measuring
+ * container (`#d<id>` around the SVG `#<id>`) keep it as a readable attribute. Renders run one at a
+ * time (the queue above).
  *
  * Verified against Mermaid 12.2.0, and relies on its internals: it creates the `<style>` with
  * `document.createElement`, inserts it into the measuring SVG synchronously right after, then
  * serialises that SVG and has DOMPurify parse the string. Re-check this on a Mermaid upgrade
  * (`tests/e2e/csp.spec.ts` guards it), and drop the patch once Mermaid accepts a nonce.
  */
-async function withStampedStyles<T>(render: () => Promise<T>): Promise<T> {
+async function withStampedStyles<T>(id: string, render: () => Promise<T>): Promise<T> {
   const nonce = pageCspNonce()
+  const container = `#d${id}, #${id}`
   const createElement = document.createElement
   document.createElement = function (this: Document, ...args: Parameters<Document['createElement']>) {
     const element = createElement.apply(this, args)
@@ -91,9 +95,12 @@ async function withStampedStyles<T>(render: () => Promise<T>): Promise<T> {
       // Inserting the element hides the attribute (the property keeps it), but mermaid then
       // serialises the SVG and DOMPurify parses that string under the page policy too: set it
       // again once mermaid has inserted the element (synchronously, right after creating it).
-      // Without this the page reports style-src-elem violations. The nonce is then readable as an
-      // attribute while the render runs; REMIX-NOTES says why that is accepted.
-      queueMicrotask(() => element.setAttribute('nonce', nonce))
+      // Without this the page reports style-src-elem violations. Only Mermaid's own styles get it
+      // back: one made elsewhere meanwhile (CodeMirror's, say) keeps its nonce hidden. The nonce is
+      // then readable as an attribute while the render runs; REMIX-NOTES says why that is accepted.
+      queueMicrotask(() => {
+        if (element.closest(container)) element.setAttribute('nonce', nonce)
+      })
     }
     return element
   } as Document['createElement']

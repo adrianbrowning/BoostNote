@@ -2,6 +2,14 @@ import { Facet } from '@codemirror/state'
 
 export type EditorTheme = 'light' | 'dark'
 
+/** Media query matching the OS dark colour scheme, which the page's theme follows. */
+export const DARK_SCHEME = '(prefers-color-scheme: dark)'
+
+/** The page's current colour scheme as an editor theme. */
+export function pageTheme(): EditorTheme {
+  return window.matchMedia(DARK_SCHEME).matches ? 'dark' : 'light'
+}
+
 /** Host callbacks the editor extensions call into. Provided once per editor. */
 export interface EditorHost {
   /** Maps a note-relative asset path (`./note.assets/x.png`) to a URL the renderer can load. */

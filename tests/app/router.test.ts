@@ -70,24 +70,26 @@ describe('router', () => {
       const tags = (pattern: RegExp) => html.match(pattern) ?? []
       const importMaps = tags(/<script[^>]*type="importmap"[^>]*>/g)
       expect(importMaps).toHaveLength(1)
+      // Every script element except data blocks (`application/json`), which CSP does not govern.
+      const scripts = tags(/<script\b[^>]*>/g).filter((tag) => !/\btype="application\/json"/.test(tag))
       const nonceBearing = [
-        ...importMaps,
+        ...scripts,
         ...tags(/<link[^>]*rel="modulepreload"[^>]*>/g),
-        ...tags(/<script type="module"[^>]*>/g),
         ...tags(/<style[^>]*data-rmx-style[^>]*>/g),
       ]
       for (const tag of nonceBearing) expect(tag).toContain(`nonce="${nonce}"`)
+      if (page === routes.home) {
+        const generated = [tags(/<link[^>]*data-rmx-module-preload[^>]*>/g), tags(/<style[^>]*data-rmx-style[^>]*>/g)]
+        for (const list of generated) {
+          expect(list).not.toHaveLength(0)
+          for (const tag of list) expect(tag).toContain(`nonce="${nonce}"`)
+        }
+      }
 
       const second = await app.get(page.href())
       expect(second.headers.get('Content-Security-Policy')).not.toContain(nonce)
     })
   }
-
-  it('stamps the nonce on the generated module preloads and css() style tags of /', async () => {
-    const html = await (await app.get('/')).text()
-    expect(html).toMatch(/<link[^>]*rel="modulepreload"[^>]*nonce="[^"]+"/)
-    expect(html).toMatch(/<style[^>]*data-rmx-style[^>]*nonce="[^"]+"/)
-  })
 
   it('serves the compiled client entries from the asset server', async () => {
     const page = await (await app.get('/')).text()

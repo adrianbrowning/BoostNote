@@ -1,7 +1,7 @@
 import type { Handle } from 'remix/component'
 import { css, on, ref, unsafeHTML } from 'remix/component'
 
-import type { EditorTheme } from '../../../../editor/index.ts'
+import { DARK_SCHEME, pageTheme } from '../../../../editor/index.ts'
 import { mermaidNodes, renderMermaid } from '../../../../editor/render/mermaid.ts'
 import { client } from './api.ts'
 import type { WorkspaceModel } from './model.ts'
@@ -84,8 +84,6 @@ export function ReaderPane(handle: Handle<{ model: WorkspaceModel; tab: ReaderTa
   }
 }
 
-const DARK_SCHEME = '(prefers-color-scheme: dark)'
-
 /**
  * Replaces the mermaid code blocks of the reader's HTML (`src/markdown/render.ts` leaves them as
  * code) with their diagrams, in the page's colour scheme, and renders again the diagrams drawn in
@@ -93,12 +91,13 @@ const DARK_SCHEME = '(prefers-color-scheme: dark)'
  * its earlier drawing.
  */
 function renderDiagrams(article: HTMLElement): void {
-  const theme: EditorTheme = window.matchMedia(DARK_SCHEME).matches ? 'dark' : 'light'
+  const theme = pageTheme()
   const draw = (source: string, target: Element, insert: (nodes: DocumentFragment) => void) =>
     void renderMermaid(source, theme).then((result) => {
       if (!target.isConnected || !('svg' in result)) return
-      // A render the scheme has changed since leaves the page to the one in the new scheme.
-      if (window.matchMedia(DARK_SCHEME).matches !== (theme === 'dark')) return
+      // The colour scheme changed while this rendered: drop it; the render started by the change
+      // draws the diagram in the new scheme.
+      if (pageTheme() !== theme) return
       insert(mermaidNodes(result.svg))
     })
   for (const code of article.querySelectorAll('pre > code.language-mermaid')) {
