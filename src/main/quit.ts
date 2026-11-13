@@ -1,4 +1,4 @@
-/** How long quitting waits for every teardown step (asset server dev watcher, event hub, vaults) to settle. */
+/** How long quitting waits for all teardown steps, together, to settle before it quits anyway. */
 export const QUIT_TEARDOWN_TIMEOUT_MS = 2000
 
 /** Settles with `promise`, or with `'timeout'` after `ms`; the timer is always cleared. */
@@ -12,7 +12,7 @@ export async function raceTimeout<T>(promise: Promise<T>, ms: number): Promise<T
   }
 }
 
-/** Runs `teardown`, logging (not propagating) a synchronous throw or a rejection. */
+// `await` inside `try`, not `teardown().catch()`: a step that throws synchronously must be logged too, or quit is never reached.
 async function logFailure(message: string, teardown: () => void | Promise<void>): Promise<void> {
   try {
     await teardown()

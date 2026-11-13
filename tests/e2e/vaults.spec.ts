@@ -1,8 +1,8 @@
-import { readFile, realpath } from 'node:fs/promises'
+import { realpath } from 'node:fs/promises'
 import * as path from 'node:path'
 import type { Page } from '@playwright/test'
 
-import { expect, test, writeFiles } from './fixtures.ts'
+import { expect, readSettings, test, writeFiles } from './fixtures.ts'
 
 test.use({ files: { 'in first.md': '# In first\n' } })
 
@@ -39,7 +39,7 @@ test('switches between open vaults from the vault menu, each keeping its tabs', 
   await expect(menu(page).getByRole('menuitem', { name: 'second' })).toBeVisible()
   await page.keyboard.press('Escape')
 
-  const settings = JSON.parse(await readFile(path.join(userDataDir, 'settings.json'), 'utf8'))
+  const settings = await readSettings({ userDataDir })
   const root = await realpath(vault)
   expect(settings).toMatchObject({ openVaults: [root], lastVault: root })
 })

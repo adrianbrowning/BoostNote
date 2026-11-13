@@ -1,14 +1,17 @@
-import { cp, mkdir, mkdtemp, realpath, rm, writeFile } from 'node:fs/promises'
+import { cp, mkdir, mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import * as path from 'node:path'
 import { test as base, type ElectronApplication, _electron as electron, type Page } from '@playwright/test'
 
-import type { UiPatch } from '../../src/main/settings.ts'
+import type { Settings, UiPatch, UiPreferences } from '../../src/main/settings.ts'
 
 const projectRoot = path.resolve(import.meta.dirname, '../..')
 /** Main-process preload: on macOS test windows never take the OS keyboard focus (see the file). */
 const backgroundWindows = path.join(import.meta.dirname, 'background-windows.cjs')
-/** Main-process preload: every window records its CSP violations from the start (see the file). */
+/**
+ * Main-process registrar (loaded with -r): adds the session preload `csp-violations-preload.cjs`,
+ * which records each window's CSP violations from the start.
+ */
 const cspViolationRecorder = path.join(import.meta.dirname, 'csp-violations.cjs')
 
 export interface AppHandle {
@@ -53,6 +56,17 @@ export async function openLooseFile(
     },
     path.join(dir, 'loose', ...rel.split('/')),
   )
+}
+
+/**
+ * The app's `settings.json` from its temp profile. launchApp seeds a partial `ui`, but the app
+ * rewrites the file with its sanitized settings (a full, normalized `ui`) when it restores the
+ * vaults at start-up, before its window opens, so by the time launchApp returns it is full.
+ */
+export async function readSettings({
+  userDataDir,
+}: Pick<AppHandle, 'userDataDir'>): Promise<Settings & { ui: UiPreferences }> {
+  return JSON.parse(await readFile(path.join(userDataDir, 'settings.json'), 'utf8'))
 }
 
 export interface LaunchOptions {
@@ -147,8 +161,9 @@ export async function quitWithoutDialog(electronApp: ElectronApplication): Promi
 }
 
 /**
- * The `securitypolicyviolation` events of `page` since its load began, recorded by a session
- * preload (`csp-violations.cjs`) that every window of the app gets, the hidden export windows too.
+ * The `securitypolicyviolation` events of `page` since its load began, recorded by the session
+ * preload (`csp-violations-preload.cjs`) that the main-process registrar (`csp-violations.cjs`)
+ * adds to every window of the app, the hidden export windows too.
  */
 export async function cspViolations(page: Page): Promise<string[]> {
   return page.evaluate(() => {
