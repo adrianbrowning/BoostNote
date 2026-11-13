@@ -23,7 +23,7 @@ describe('router', () => {
     const html = await response.text()
     expect(html).toMatch(/^<!DOCTYPE html>/)
     expect(html).toMatch(
-      /<script type="module" src="\/assets\/src\/app\/actions\/public\/entry\.@[^"]+\.ts"><\/script>/,
+      /<script type="module" src="\/assets\/src\/app\/actions\/public\/entry\.@[^"]+\.ts"[^>]*><\/script>/,
     )
     expect(html).toContain('type="importmap"')
     expect(html).toContain('No vault open')
@@ -43,17 +43,49 @@ describe('router', () => {
     expect(html).toContain('Quarterly plan')
   })
 
-  it('sends a nonce-based Content-Security-Policy that matches the import map', async () => {
-    const response = await app.get('/')
-    const policy = response.headers.get('Content-Security-Policy') ?? ''
-    const nonce = policy.match(/'nonce-([^']+)'/)?.[1]
-    expect(policy).toContain("default-src 'none'")
-    expect(policy).toContain("img-src 'self'")
-    expect(nonce).toBeTruthy()
-    expect(await response.text()).toContain(`type="importmap" nonce="${nonce}"`)
+  for (const page of [routes.home, routes.mermaidRenderer]) {
+    it(`sends ${page.href()} one policy whose fresh nonce is on every nonce-bearing tag`, async () => {
+      const response = await app.get(page.href())
+      const policy = response.headers.get('Content-Security-Policy') ?? ''
+      const nonce = policy.match(/'nonce-([^']+)'/)?.[1]
+      if (!nonce) throw new Error(`no nonce in ${policy}`)
+      expect(policy.split(/;\s*/).sort()).toEqual(
+        [
+          "default-src 'none'",
+          `script-src 'self' 'nonce-${nonce}'`,
+          "style-src 'self' 'unsafe-inline'",
+          "img-src 'self' data: blob:",
+          "font-src 'self' data:",
+          "connect-src 'self'",
+          "form-action 'self'",
+          "base-uri 'none'",
+          "object-src 'none'",
+          "frame-ancestors 'none'",
+        ].sort(),
+      )
+      expect(response.headers.get('Cache-Control')).toBe('no-store')
 
-    const second = await app.get('/')
-    expect(second.headers.get('Content-Security-Policy')).not.toContain(`'nonce-${nonce}'`)
+      const html = await response.text()
+      const tags = (pattern: RegExp) => html.match(pattern) ?? []
+      const importMaps = tags(/<script[^>]*type="importmap"[^>]*>/g)
+      expect(importMaps).toHaveLength(1)
+      const nonceBearing = [
+        ...importMaps,
+        ...tags(/<link[^>]*rel="modulepreload"[^>]*>/g),
+        ...tags(/<script type="module"[^>]*>/g),
+        ...tags(/<style[^>]*data-rmx-style[^>]*>/g),
+      ]
+      for (const tag of nonceBearing) expect(tag).toContain(`nonce="${nonce}"`)
+
+      const second = await app.get(page.href())
+      expect(second.headers.get('Content-Security-Policy')).not.toContain(nonce)
+    })
+  }
+
+  it('stamps the nonce on the generated module preloads and css() style tags of /', async () => {
+    const html = await (await app.get('/')).text()
+    expect(html).toMatch(/<link[^>]*rel="modulepreload"[^>]*nonce="[^"]+"/)
+    expect(html).toMatch(/<style[^>]*data-rmx-style[^>]*nonce="[^"]+"/)
   })
 
   it('serves the compiled client entries from the asset server', async () => {

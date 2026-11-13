@@ -32,13 +32,17 @@ before using an API. These are the things about Remix 3 in this app that are eas
   Remix 3.2 fixed `css()` number serialisation: under 3.1 `WebkitLineClamp: 2` computed `none` in the
   app, so the note-list excerpt was not clamped, and `flex: 1` was emitted as `flex: 1px` (flex-basis
   `1px` instead of `0%`); the e2e test pins both and the unitless z-index and font-weight values.
-- **CSP nonce plumbing:** `contentSecurityPolicy()` stores a per-request nonce under a context key;
-  `Document` reads it with `getContext()` (needs `asyncContext()` first in the middleware list) and
-  passes it to `<ImportMap nonce>`. The client runtime copies that nonce onto import maps it adds for
-  client entries discovered later (frames). Remix 3.2 ships `csp()` (`remix/middleware/csp`): it
-  makes the nonce, `getCspNonce(context)` reads it, and `render()` stamps it on generated import
-  maps, module preloads and `css()` style tags. Our own middleware does not feed `render()`, so
-  those generated tags carry no nonce yet; an explicit `<ImportMap nonce>` keeps its own value.
+- **CSP:** the router runs `asyncContext()`, `csp()` (`remix/middleware/csp`) and `render()`, in that
+  order (`router.ts` holds the policy). `csp()` makes a fresh nonce per request and appends the app
+  policy to every `text/html` response; `render()` stamps that nonce on the import map, the
+  module preloads and `<style data-rmx-style>` tags it generates, and the client runtime copies it
+  onto import maps it adds for client entries discovered later (frames). Authored tags that
+  `render()` does not stamp (`Document`'s and `MermaidRendererPage`'s own module preloads and entry
+  script) read it with `getCspNonce(getContext())`, which needs `asyncContext()` first. `csp()`
+  appends instead of replacing, so an HTML vault/reader asset response carries both its own sandbox
+  policy and the app policy, and the browser enforces both. `csp()` sets no cache headers, so a
+  middleware outside it (`noStoreNonceResponses`) sends `Cache-Control: no-store` on every response
+  whose policy carries a nonce (app pages and HTML assets); other responses keep their cache headers.
 - **Asset server:** `allowFiles`/`mounts` come from `remix.json` via `loadConfig` from `remix/cli`;
   `rootDir` must be passed explicitly (the packaged app's cwd is `/`). Package files are served from
   `/assets/npm/.pnpm/...` (the asset server understands pnpm's store). New browser-side packages
