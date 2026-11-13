@@ -6,7 +6,7 @@ import { button, iconButton, input, muted, paneHeading } from './styles.ts'
 import type { JsonValue } from './types.ts'
 
 /** Keys with their own editors (created/updated are maintained by the vault). */
-const RESERVED_KEYS: Record<string, true> = { tags: true, starred: true, created: true, updated: true }
+const RESERVED_KEYS: Record<string, true> = { tags: true, starred: true, pinned: true, created: true, updated: true }
 
 type Kind = 'text' | 'number' | 'boolean' | 'date' | 'list'
 
@@ -260,7 +260,19 @@ export function PropertiesPanel(handle: Handle<{ model: WorkspaceModel }>) {
             id="property-starred"
             type="checkbox"
             checked={note.starred}
-            mix={on('change', () => void model.toggleStar())}
+            mix={on('change', () => void model.toggleFlag('starred'))}
+          />
+        </div>
+
+        <div mix={[fieldStyle, inlineFieldStyle]}>
+          <label for="property-pinned" mix={labelStyle}>
+            Pinned
+          </label>
+          <input
+            id="property-pinned"
+            type="checkbox"
+            checked={note.pinned}
+            mix={on('change', () => void model.toggleFlag('pinned'))}
           />
         </div>
 

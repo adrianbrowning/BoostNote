@@ -12,6 +12,7 @@ import type {
   JsonValue,
   LinkMove,
   LinkUpdate,
+  NoteDocument,
   NoteSummary,
   PaneLayout,
   PreferencesState,
@@ -190,7 +191,7 @@ export class WorkspaceModel extends TypedEventTarget<{
     return this.session.note?.id ?? null
   }
 
-  /** The note list for the current selection, search and sort. */
+  /** The note list for the current selection, search and sort; pinned notes first, in that order. */
   get visibleNotes(): NoteSummary[] {
     const selection = this.selection
     let notes = this.data.notes.filter((note) => {
@@ -199,17 +200,19 @@ export class WorkspaceModel extends TypedEventTarget<{
       if (selection.kind === 'folder') return note.folder === selection.id
       return selection.kind === 'all'
     })
+    let order: (a: NoteSummary, b: NoteSummary) => number
     if (this.hits) {
       const rank = new Map(this.hits.map((id, index) => [id, index]))
       notes = notes.filter((note) => rank.has(note.id))
-      return notes.sort((a, b) => (rank.get(a.id) ?? 0) - (rank.get(b.id) ?? 0))
+      order = (a, b) => (rank.get(a.id) ?? 0) - (rank.get(b.id) ?? 0)
+    } else {
+      const sort = this.sort
+      order = (a, b) =>
+        sort === 'title'
+          ? a.title.localeCompare(b.title, undefined, { sensitivity: 'base' })
+          : b[sort].localeCompare(a[sort])
     }
-    const sort = this.sort
-    return notes.sort((a, b) =>
-      sort === 'title'
-        ? a.title.localeCompare(b.title, undefined, { sensitivity: 'base' })
-        : b[sort].localeCompare(a[sort]),
-    )
+    return notes.sort((a, b) => Number(b.pinned) - Number(a.pinned) || order(a, b))
   }
 
   /** Tags with their note counts, case-insensitively sorted. */
@@ -740,8 +743,10 @@ export class WorkspaceModel extends TypedEventTarget<{
   /** Actions of a note's context menu (note list and editor header). */
   noteMenu(id: string): MenuEntry[] {
     const reveal = /Mac/.test(navigator.platform) ? 'Reveal in Finder' : 'Show in Folder'
+    const pinned = this.data.notes.find((note) => note.id === id)?.pinned
     return [
       { kind: 'action', label: 'Open in New Tab', run: () => void this.openNote(id, { newTab: true }) },
+      { kind: 'action', label: pinned ? 'Unpin' : 'Pin', run: () => void this.toggleFlag('pinned', id) },
       { kind: 'separator' },
       { kind: 'action', label: 'Rename…', run: () => void this.renameNote(id) },
       { kind: 'action', label: 'Move to…', run: () => void this.chooseMoveTarget(id) },
@@ -882,13 +887,25 @@ export class WorkspaceModel extends TypedEventTarget<{
     )
   }
 
-  async toggleStar(): Promise<void> {
-    const note = this.session.note
-    if (!note) return
-    const { starred: _starred, ...rest } = note.frontmatter
-    if (!(await this.session.setFrontmatter(note.starred ? rest : { ...note.frontmatter, starred: true }))) {
-      this.notify('error', 'Could not update the note')
+  /**
+   * Sets or removes `starred: true` / `pinned: true` on a note (default: the open one). The open note
+   * goes through its session, so typing not yet saved is kept; another note is read and saved by hash.
+   */
+  async toggleFlag(key: 'starred' | 'pinned', id = this.openId): Promise<void> {
+    const flip = (note: NoteDocument) => {
+      const { [key]: _old, ...rest } = note.frontmatter
+      return note[key] ? rest : { ...note.frontmatter, [key]: true }
     }
+    const open = this.session.note
+    if (open && open.id === id) {
+      if (!(await this.session.setFrontmatter(flip(open)))) this.notify('error', 'Could not update the note')
+      return
+    }
+    if (!id) return
+    await this.attempt(async () => {
+      const note = await client.readNote(id)
+      this.#putSummary(await client.saveNote({ id, body: note.body, baseHash: note.hash, frontmatter: flip(note) }))
+    })
   }
 
   /** Properties panel: writes the open note's frontmatter (keys sent back unchanged keep their YAML bytes). */

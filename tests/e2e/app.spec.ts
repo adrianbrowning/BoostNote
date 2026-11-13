@@ -34,6 +34,10 @@ test.use({
 
 const editor = (page: Page) => page.locator('[data-editor] .cm-content')
 
+/** The note list's ids, top to bottom (a function, for `expect.poll`). */
+const noteOrder = (page: Page) => () =>
+  page.locator('[data-note]').evaluateAll((rows) => rows.map((row) => row.getAttribute('data-note')))
+
 test('opens the vault and renders a note with mermaid and KaTeX', async ({ app }) => {
   const { page } = app
   await page.locator('[data-note="diagram.md"]').click()
@@ -960,6 +964,62 @@ test('exports a note to PDF', async ({ app }) => {
     .toBeGreaterThan(10_000)
   expect((await readFile(target)).subarray(0, 5).toString()).toBe('%PDF-')
   await expect(page.getByText(`Exported to ${target}`)).toBeVisible()
+})
+
+test('pinned notes stay at the top of the list; pin and unpin from the context menu and the editor', async ({
+  app,
+}) => {
+  const { page, vault } = app
+  const order = noteOrder(page)
+  await page.getByRole('combobox', { name: 'Sort notes' }).selectOption('title')
+  await expect.poll(order).toEqual(['diagram.md', 'second.md', 'tasks.md', 'work/third.md'])
+
+  // A note that is not open, from the context menu.
+  await page.locator('[data-note="tasks.md"]').click({ button: 'right' })
+  await page.getByRole('menuitem', { name: 'Pin', exact: true }).click()
+  await expect.poll(order).toEqual(['tasks.md', 'diagram.md', 'second.md', 'work/third.md'])
+  await expect(page.locator('[data-note="tasks.md"] [title="Pinned"]')).toBeVisible()
+  // The vault also stamps `created`/`updated`; the body is untouched.
+  await expect
+    .poll(() => readFile(path.join(vault, 'tasks.md'), 'utf8'))
+    .toMatch(/^---\npinned: true\n[\s\S]*\n---\n# Tasks\n\n- \[x\] one\n- \[ \] two\n- \[ \] three\n$/)
+
+  // The open note, from the editor header; pinned notes keep the chosen sort among themselves.
+  await page.locator('[data-note="second.md"]').click()
+  await page.getByRole('button', { name: 'Pin note' }).click()
+  await expect.poll(order).toEqual(['second.md', 'tasks.md', 'diagram.md', 'work/third.md'])
+  await page.getByRole('button', { name: 'Unpin note' }).click()
+  await expect.poll(order).toEqual(['tasks.md', 'diagram.md', 'second.md', 'work/third.md'])
+  await expect.poll(() => readFile(path.join(vault, 'second.md'), 'utf8')).not.toContain('pinned')
+
+  await page.locator('[data-note="tasks.md"]').click({ button: 'right' })
+  await page.getByRole('menuitem', { name: 'Unpin', exact: true }).click()
+  await expect.poll(order).toEqual(['diagram.md', 'second.md', 'tasks.md', 'work/third.md'])
+  await expect.poll(() => readFile(path.join(vault, 'tasks.md'), 'utf8')).not.toContain('pinned')
+})
+
+test('pinned notes come first in a folder, a tag and search results, which keep their rank', async ({ app }) => {
+  const { page, vault } = app
+  const order = noteOrder(page)
+  // Search scores count body hits: rank Gamma (3), Alpha (2), Beta (1); title order Alpha, Beta, Gamma.
+  await writeFiles(vault, {
+    'work/alpha.md': '---\ntags: [fruit]\n---\n# Alpha\n\nkiwi kiwi\n',
+    'work/beta.md': '---\ntags: [fruit]\n---\n# Beta\n\nkiwi\n',
+    'work/gamma.md': '---\ntags: [fruit]\n---\n# Gamma\n\nkiwi kiwi kiwi\n',
+  })
+  await expect(page.locator('[data-note="work/gamma.md"]')).toBeAttached({ timeout: 15_000 })
+  await page.getByRole('combobox', { name: 'Sort notes' }).selectOption('title')
+  await page.locator('[data-note="work/beta.md"]').click({ button: 'right' })
+  await page.getByRole('menuitem', { name: 'Pin', exact: true }).click()
+  await expect(page.locator('[data-note="work/beta.md"] [title="Pinned"]')).toBeVisible()
+
+  await page.getByLabel('Search notes').fill('kiwi')
+  await expect.poll(order).toEqual(['work/beta.md', 'work/gamma.md', 'work/alpha.md'])
+  await page.getByLabel('Search notes').fill('')
+  await page.locator('[data-folder="work"]').click()
+  await expect.poll(order).toEqual(['work/beta.md', 'work/alpha.md', 'work/gamma.md', 'work/third.md'])
+  await page.locator('[data-tag="fruit"]').click()
+  await expect.poll(order).toEqual(['work/beta.md', 'work/alpha.md', 'work/gamma.md'])
 })
 
 test.describe('link updates after a rename', () => {

@@ -283,6 +283,16 @@ with the whole `frontmatter`; the server keeps the original YAML of keys sent ba
 the vault splices changed keys in place. A renamed key is rewritten after the others (the vault
 treats it as remove + add). The saved summary updates the sidebar's tag and starred counts.
 
+### Pinned notes
+
+Frontmatter `pinned: true` (the legacy importer already writes it for `isPinned`). Pinned notes come
+first in every note list (folder, tag, Starred, All notes, search results); inside each group the
+chosen sort, or the search rank, still applies. Pin or unpin with the 📌 button in the editor header,
+the Pinned checkbox in the properties panel, or Pin/Unpin in a note's context menu. The open note
+changes through its session (unsaved typing is kept); another note is read and saved by hash
+(`toggleFlag` in `model.ts`, shared with starring). The list row shows ★ and 📌 at the right end, so
+titles stay aligned. CLI `list --pinned`, MCP `list_notes { pinned }`, `set-props pinned=true`.
+
 ### Preferences and settings
 
 ⌘, (app menu "Settings…" on macOS, File > Preferences… elsewhere) opens a modal; every change is

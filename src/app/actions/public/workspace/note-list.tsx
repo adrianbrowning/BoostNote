@@ -54,12 +54,17 @@ export function NoteList(handle: Handle<{ model: WorkspaceModel }>) {
         ]}
       >
         <div mix={itemTitleStyle}>
+          <span mix={titleTextStyle}>{note.title}</span>
           {note.starred ? (
             <span mix={starStyle} title="Starred">
               ★
             </span>
           ) : null}
-          {note.title}
+          {note.pinned ? (
+            <span mix={pinStyle} title="Pinned">
+              📌
+            </span>
+          ) : null}
         </div>
         {note.excerpt ? <div mix={excerptStyle}>{note.excerpt}</div> : null}
         <div mix={metaStyle}>
@@ -260,14 +265,20 @@ const itemStyle = css({
 
 const trashItemStyle = css({ gap: '6px' })
 
-const itemTitleStyle = css({
-  fontWeight: 600,
+/** The title takes the row and is cut with an ellipsis; star and pin marks sit at its right end. */
+const itemTitleStyle = css({ display: 'flex', alignItems: 'baseline', gap: '4px', fontWeight: 600 })
+
+const titleTextStyle = css({
+  flex: 1,
+  minWidth: 0,
   overflow: 'hidden',
   textOverflow: 'ellipsis',
   whiteSpace: 'nowrap',
 })
 
-const starStyle = css({ color: '#e8b923', marginRight: '4px' })
+const starStyle = css({ flex: 'none', color: '#e8b923' })
+
+const pinStyle = css({ flex: 'none', fontSize: '11px' })
 
 const excerptStyle = css({
   display: '-webkit-box',
