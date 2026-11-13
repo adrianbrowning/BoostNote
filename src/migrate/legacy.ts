@@ -17,6 +17,7 @@ import {
   union,
 } from 'remix/data-schema'
 
+import { isFolderColor } from '../vault/config.ts'
 import { isNodeError } from '../vault/errors.ts'
 
 /** Thrown when the source is not a legacy storage or the target is unsuitable. */
@@ -56,6 +57,7 @@ const LegacyNoteSchema = object({
 export interface LegacyFolder {
   key: string
   name: string
+  /** Hex colour only; any other legacy value is dropped. */
   color?: string
 }
 
@@ -105,7 +107,7 @@ export async function readLegacyStorage(storagePath: string): Promise<LegacyStor
   const folders = parsed.value.folders.map((folder) => ({
     key: folder.key,
     name: folder.name ?? '',
-    ...(folder.color ? { color: folder.color } : {}),
+    ...(folder.color && isFolderColor(folder.color) ? { color: folder.color } : {}),
   }))
   const storage: LegacyStorage = { path: storagePath, folders, notes: [], skipped: [] }
 

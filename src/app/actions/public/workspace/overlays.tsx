@@ -25,15 +25,19 @@ export function ContextMenuView(handle: Handle<{ model: WorkspaceModel }>) {
         ]}
       >
         <div
+          key={`${left},${top}`}
           role="menu"
           mix={[
             menuStyle,
-            ref((node) => node.querySelector<HTMLElement>('[role^="menuitem"]')?.focus()),
+            ref((node) => {
+              node.style.setProperty('left', `${left}px`)
+              node.style.setProperty('top', `${top}px`)
+              node.querySelector<HTMLElement>('[role^="menuitem"]')?.focus()
+            }),
             on('keydown', (event) => {
               if (event.key === 'Escape') model.closeMenu()
             }),
           ]}
-          style={`left: ${left}px; top: ${top}px; width: ${MENU_WIDTH}px`}
         >
           {menu.entries.map((entry, index) => {
             if (entry.kind === 'separator') return <hr key={`sep-${index}`} mix={separatorStyle} />
@@ -56,12 +60,12 @@ export function ContextMenuView(handle: Handle<{ model: WorkspaceModel }>) {
                       aria-label={`Colour ${color}`}
                       mix={[
                         swatchStyle,
+                        css({ background: color }),
                         on('click', () => {
                           model.closeMenu()
                           entry.pick(color)
                         }),
                       ]}
-                      style={`background: ${color}`}
                     />
                   ))}
                   <button
@@ -282,6 +286,7 @@ const scrimStyle = css({ position: 'fixed', inset: 0, zIndex: 50 })
 const dimStyle = css({ display: 'grid', placeItems: 'center', background: 'var(--bg-overlay)' })
 
 const menuStyle = css({
+  width: `${MENU_WIDTH}px`,
   position: 'fixed',
   display: 'grid',
   padding: '4px',

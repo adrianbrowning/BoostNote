@@ -457,6 +457,25 @@ describe('vaults', () => {
     expect(await b.notes()).toEqual([])
   })
 
+  it('drops a folder colour from the vault config that is not a hex colour', async () => {
+    const root = path.join(app.dir, 'synced')
+    await mkdir(path.join(root, '.boostnote'), { recursive: true })
+    await mkdir(path.join(root, 'Bad'))
+    await mkdir(path.join(root, 'Good'))
+    await writeFile(
+      path.join(root, '.boostnote', 'config.json'),
+      JSON.stringify({
+        version: 1,
+        folders: { Bad: { color: 'red} body{display:none} .x{' }, Good: { color: '#E10051' } },
+      }),
+    )
+    const opened = await readJson<{ workspace: WorkspaceData }>(await app.post(api.vaultOpen.href(), { path: root }))
+    expect(opened.workspace.tree?.folders).toEqual([
+      { id: 'Bad', name: 'Bad', folders: [] },
+      { id: 'Good', name: 'Good', color: '#E10051', folders: [] },
+    ])
+  })
+
   it('opens only http(s) links externally', async () => {
     expect((await app.post(api.openExternal.href(), { url: 'https://example.com/a' })).status).toBe(200)
     expect((await app.post(api.openExternal.href(), { url: 'file:///etc/passwd' })).status).toBe(400)
@@ -888,6 +907,31 @@ describe('import', () => {
     })
     expect(response.status).toBe(400)
     expect(await response.json()).toMatchObject({ error: 'NOT_A_LEGACY_STORAGE' })
+  })
+
+  it('drops an imported folder colour that is not a hex colour', async () => {
+    const source = path.join(app.dir, 'legacy')
+    const target = path.join(app.dir, 'imported')
+    await mkdir(source)
+    await writeFile(
+      path.join(source, 'boostnote.json'),
+      JSON.stringify({
+        folders: [
+          { key: 'f1', name: 'Bad', color: 'red} body{display:none} .x{' },
+          { key: 'f2', name: 'Good', color: '#E10051' },
+        ],
+        version: '1.0',
+      }),
+    )
+    expect((await app.post(api.importRun.href(), { source, target })).status).toBe(200)
+    const config = JSON.parse(await readFile(path.join(target, '.boostnote', 'config.json'), 'utf8'))
+    expect(config.folders).toEqual({ Good: { color: '#E10051' } })
+
+    const opened = await readJson<{ workspace: WorkspaceData }>(await app.post(api.vaultOpen.href(), { path: target }))
+    expect(opened.workspace.tree?.folders).toEqual([
+      { id: 'Bad', name: 'Bad', folders: [] },
+      { id: 'Good', name: 'Good', color: '#E10051', folders: [] },
+    ])
   })
 
   it('picks the source and target folders with the native dialog', async () => {

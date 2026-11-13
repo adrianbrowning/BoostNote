@@ -32,6 +32,13 @@ before using an API. These are the things about Remix 3 in this app that are eas
   Remix 3.2 fixed `css()` number serialisation: under 3.1 `WebkitLineClamp: 2` computed `none` in the
   app, so the note-list excerpt was not clamped, and `flex: 1` was emitted as `flex: 1px` (flex-basis
   `1px` instead of `0%`); the e2e test pins both and the unitless z-index and font-weight values.
+- **No authored `style` attributes.** Per-element values (pane widths, editor settings, folder
+  colours, tree depth, task progress) go through a `css({...})` mixin built in render: the server
+  emits it in `<style data-rmx-style>` (rules kept for the page's life), and rules first added on
+  the client are ref-counted and dropped when no element uses them. Two places write CSSOM directly
+  (`style.setProperty`): the context menu sets `left`/`top` in a ref, keyed by position so each
+  placement remounts the element instead of adding a page-wide `css()` rule, and a pane drag sets
+  the pane variable and removes it once the re-render's class holds the new width.
 - **CSP:** the router runs `asyncContext()`, `csp()` (`remix/middleware/csp`) and `render()`, in that
   order (`router.ts` holds the policy). `csp()` makes a fresh nonce per request and appends the app
   policy to every `text/html` response; `render()` stamps that nonce on the import map, the

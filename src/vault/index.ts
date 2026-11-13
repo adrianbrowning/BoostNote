@@ -3,7 +3,7 @@
  * no Electron imports; the router controllers (phase 4) are its only intended caller.
  */
 
-export type { FolderConfig, TrashEntry, TrashKind, VaultConfig } from './config.ts'
+export { type FolderConfig, isFolderColor, type TrashEntry, type TrashKind, type VaultConfig } from './config.ts'
 export { VaultError, type VaultErrorCode } from './errors.ts'
 export { type Frontmatter, type NoteText, parseNoteText, serializeNoteText, toJsonValue } from './frontmatter.ts'
 export {

@@ -48,7 +48,18 @@ export function trashIndexFile(root: string): string {
   return path.join(root, TRASH_DIR, '.index.json')
 }
 
-const FolderConfigSchema = object({ color: optional(string()) }, { unknownKeys: 'passthrough' })
+const FOLDER_COLOR = /^#[0-9a-f]{3,8}$/i
+
+/** Whether `color` is a hex colour (`#rgb` … `#rrggbbaa`), the only folder colours the app accepts. */
+export function isFolderColor(color: string): boolean {
+  return FOLDER_COLOR.test(color)
+}
+
+/** Drops a stored colour that is not a hex colour, as if the folder had none: the value is interpolated into a page-wide css() rule, so anything looser lets a vault's config.json inject CSS. */
+const FolderConfigSchema = object(
+  { color: optional(string()).transform((color) => (color !== undefined && isFolderColor(color) ? color : undefined)) },
+  { unknownKeys: 'passthrough' },
+)
 
 const VaultConfigSchema = object(
   {

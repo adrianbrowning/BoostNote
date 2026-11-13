@@ -123,6 +123,7 @@ export function Sidebar(handle: Handle<{ model: WorkspaceModel }>) {
           mix={[
             rowStyle,
             folderRowStyle,
+            css({ '--depth': depth }),
             ...dropHandlers(folder.id),
             on('contextmenu', (event) => {
               event.preventDefault()
@@ -134,7 +135,6 @@ export function Sidebar(handle: Handle<{ model: WorkspaceModel }>) {
               event.dataTransfer.effectAllowed = 'move'
             }),
           ]}
-          style={`--depth: ${depth}`}
           data-folder={folder.id}
           data-selected={isSelected(model.selection, selection) ? 'true' : undefined}
           data-drop-target={dropTarget === folder.id ? 'true' : undefined}
@@ -158,8 +158,8 @@ export function Sidebar(handle: Handle<{ model: WorkspaceModel }>) {
             title={isRoot ? 'Notes at the top of the vault' : folder.id}
           >
             <span
-              mix={swatchStyle}
-              style={folder.color ? `background: ${folder.color}` : undefined}
+              mix={[swatchStyle, folder.color ? css({ background: folder.color }) : undefined]}
+              data-folder-swatch
               aria-hidden="true"
             />
             <span mix={labelStyle}>{folder.name}</span>

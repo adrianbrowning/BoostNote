@@ -4,7 +4,14 @@ import { createController } from 'remix/router'
 
 import { renderMarkdown } from '../../../markdown/index.ts'
 import { migrateStorage } from '../../../migrate/index.ts'
-import { type LinkMove, parseNoteText, type TitleRename, toJsonValue, type Vault } from '../../../vault/index.ts'
+import {
+  isFolderColor,
+  type LinkMove,
+  parseNoteText,
+  type TitleRename,
+  toJsonValue,
+  type Vault,
+} from '../../../vault/index.ts'
 import { errorResponse, HttpError, isJsonObject, json, readJsonObject, requireString } from '../../http.ts'
 import { routes } from '../../routes.ts'
 import type { AppServices } from '../../services.ts'
@@ -23,8 +30,6 @@ import { importSummary, toNoteDocument, workspaceData } from './workspace-data.t
 export const MAX_ASSET_BYTES = 50 * 1024 * 1024
 /** Most entries one drop may carry (folders count once; their contents are capped by the vault). */
 export const MAX_IMPORT_PATHS = 200
-
-const FOLDER_COLOR = /^#[0-9a-f]{3,8}$/i
 
 /**
  * The vault a request names with `?vault=<root>` (GET and POST alike). Several vaults can be open,
@@ -269,7 +274,7 @@ export function createApiController(services: AppServices) {
         const vault = requireVault(services, request)
         const body = await readJsonObject(request)
         const color = body.color === null ? undefined : requireString(body.color, 'color')
-        if (color !== undefined && !FOLDER_COLOR.test(color)) {
+        if (color !== undefined && !isFolderColor(color)) {
           throw new HttpError(400, 'BAD_REQUEST', `Invalid colour: ${color}`)
         }
         await vault.setFolderColor(requireString(body.id, 'id'), color)
