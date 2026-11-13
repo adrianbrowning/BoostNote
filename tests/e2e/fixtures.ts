@@ -35,6 +35,24 @@ export async function writeFiles(root: string, files: VaultFiles): Promise<void>
   }
 }
 
+/**
+ * Writes `body` to `rel` under `<dir>/loose/` (outside the vault) and opens it as the OS does
+ * (`open-file`), so the reader shows it.
+ */
+export async function openLooseFile(
+  { dir, electronApp }: Pick<AppHandle, 'dir' | 'electronApp'>,
+  rel: string,
+  body: string,
+): Promise<void> {
+  await writeFiles(path.join(dir, 'loose'), { [rel]: body })
+  await electronApp.evaluate(
+    ({ app: electronApp }, target) => {
+      electronApp.emit('open-file', { preventDefault() {} }, target)
+    },
+    path.join(dir, 'loose', ...rel.split('/')),
+  )
+}
+
 export interface LaunchOptions {
   /** Written outside the vault (under `<dir>/loose/`) and passed on the command line. */
   openFiles?: VaultFiles

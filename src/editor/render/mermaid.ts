@@ -49,15 +49,16 @@ export function renderMermaid(source: string, theme: EditorTheme): Promise<Merma
         theme: theme === 'dark' ? 'dark' : 'default',
         suppressErrorRendering: true,
       })
-      const { svg } = await withStampedStyles(() => mermaid.render(id, source))
-      // Without the nonce `withStampedStyles` gave its `<style>`: the result is cached and exported
-      // to files, where a stale page nonce means nothing; `mermaidNodes` stamps the current one.
+      const { svg } = await withStampedStyles(id, () => mermaid.render(id, source))
+      // Strip the nonce `withStampedStyles` put on the `<style>`: the result is cached and exported
+      // to files, where a page nonce means nothing; `mermaidNodes` stamps the current page's nonce on
+      // insertion.
       return { svg: parseSvg(svg, null).innerHTML }
     } catch (error) {
       return { error: error instanceof Error ? error.message : String(error) }
     } finally {
       // mermaid leaves its measuring container behind when rendering fails.
-      for (const stray of document.querySelectorAll(`#${id}, #d${id}`)) stray.remove()
+      for (const stray of document.querySelectorAll(measuringContainer(id))) stray.remove()
     }
   })
   queue = result
@@ -70,30 +71,40 @@ export function renderMermaid(source: string, theme: EditorTheme): Promise<Merma
   return result
 }
 
+/** Mermaid's measuring container (`#d<id>`) and the SVG inside it (`#<id>`). */
+const measuringContainer = (id: string) => `#d${id}, #${id}`
+
 /**
  * `mermaid.render` lays the diagram out in a temporary SVG in the page and inserts its `<style>`
  * there; mermaid takes no nonce, so the page policy (`style-src-elem`) would block it and the
  * layout would be measured unstyled. While `render` runs, style elements made with
- * `document.createElement` get the page nonce. Renders run one at a time (the queue above).
+ * `document.createElement` get the page nonce as a property (which the policy checks on
+ * insertion, and which adds no attribute), and only those Mermaid inserts into its measuring
+ * container (`#d<id>` around the SVG `#<id>`) also get it as an attribute. Renders run one at a
+ * time (the queue above).
  *
  * Verified against Mermaid 12.2.0, and relies on its internals: it creates the `<style>` with
  * `document.createElement`, inserts it into the measuring SVG synchronously right after, then
  * serialises that SVG and has DOMPurify parse the string. Re-check this on a Mermaid upgrade
  * (`tests/e2e/csp.spec.ts` guards it), and drop the patch once Mermaid accepts a nonce.
  */
-async function withStampedStyles<T>(render: () => Promise<T>): Promise<T> {
+async function withStampedStyles<T>(id: string, render: () => Promise<T>): Promise<T> {
   const nonce = pageCspNonce()
+  const container = measuringContainer(id)
   const createElement = document.createElement
   document.createElement = function (this: Document, ...args: Parameters<Document['createElement']>) {
     const element = createElement.apply(this, args)
     if (element instanceof HTMLStyleElement) {
-      element.setAttribute('nonce', nonce)
-      // Inserting the element hides the attribute (the property keeps it), but mermaid then
-      // serialises the SVG and DOMPurify parses that string under the page policy too: set it
-      // again once mermaid has inserted the element (synchronously, right after creating it).
-      // Without this the page reports style-src-elem violations. The nonce is then readable as an
-      // attribute while the render runs; REMIX-NOTES says why that is accepted.
-      queueMicrotask(() => element.setAttribute('nonce', nonce))
+      element.nonce = nonce
+      // The property lets mermaid insert the element, but mermaid then serialises the SVG and
+      // DOMPurify parses that string under the page policy too, which needs the attribute: set it
+      // once mermaid has inserted the element (synchronously, right after creating it). Without
+      // this the page reports style-src-elem violations. Only Mermaid's own styles get it: one
+      // made elsewhere meanwhile (CodeMirror's, say) has no nonce attribute. The nonce is then
+      // readable as an attribute while the render runs; REMIX-NOTES says why that is accepted.
+      queueMicrotask(() => {
+        if (element.closest(container)) element.setAttribute('nonce', nonce)
+      })
     }
     return element
   } as Document['createElement']

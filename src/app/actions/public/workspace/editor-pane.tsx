@@ -2,7 +2,7 @@ import { openSearchPanel } from '@codemirror/search'
 import type { Handle } from 'remix/component'
 import { css, on, ref } from 'remix/component'
 
-import { createLivePreviewEditor, type EditorTheme } from '../../../../editor/index.ts'
+import { createLivePreviewEditor, DARK_SCHEME, pageTheme } from '../../../../editor/index.ts'
 import { lastSegment, parentOf, resolveNoteLink } from '../../../../shared/vault-ids.ts'
 import { client, vaultAssetUrl } from './api.ts'
 import type { WorkspaceModel } from './model.ts'
@@ -44,12 +44,11 @@ export function EditorPane(handle: Handle<{ model: WorkspaceModel }>) {
   const mountEditor = ref((node, signal) => {
     // `data-editor` is a <div>; ref callbacks are typed with the generic `Element`.
     const parent = node as HTMLElement
-    const scheme = window.matchMedia('(prefers-color-scheme: dark)')
-    const theme = (): EditorTheme => (scheme.matches ? 'dark' : 'light')
+    const scheme = window.matchMedia(DARK_SCHEME)
     const instance = createLivePreviewEditor({
       parent,
       doc: session().body,
-      theme: theme(),
+      theme: pageTheme(),
       onChange: (doc) => {
         session().edit(doc)
         updateProgress(doc)
@@ -65,7 +64,7 @@ export function EditorPane(handle: Handle<{ model: WorkspaceModel }>) {
       },
       onOpenLink,
     })
-    scheme.addEventListener('change', () => instance.setTheme(theme()), { signal })
+    scheme.addEventListener('change', () => instance.setTheme(pageTheme()), { signal })
     session().addEventListener(
       'doc',
       (event) => {

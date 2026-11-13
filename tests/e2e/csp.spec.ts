@@ -2,7 +2,7 @@ import { readFile } from 'node:fs/promises'
 import * as path from 'node:path'
 import type { ElectronApplication, Locator, Page } from '@playwright/test'
 
-import { cspViolations, expect, test, writeFiles } from './fixtures.ts'
+import { cspViolations, expect, openLooseFile, test, writeFiles } from './fixtures.ts'
 
 // The app policy allows style elements only from the app origin or with the request nonce, so
 // every inline <style> the app inserts (Mermaid's SVG styles among them) must carry that nonce.
@@ -51,7 +51,7 @@ async function expectStampedStyles(page: Page, svg: Locator) {
 test('the main window reports no CSP violations: startup, a Mermaid and KaTeX note, editing and the reader', async ({
   app,
 }) => {
-  const { page, dir, electronApp } = app
+  const { page } = app
 
   await page.locator('[data-note="diagram.md"]').click()
   const diagram = page.locator('[data-editor] .cm-lp-mermaid svg')
@@ -66,13 +66,7 @@ test('the main window reports no CSP violations: startup, a Mermaid and KaTeX no
   await page.keyboard.type('\nMore text.')
   await expect(page.locator('[data-editor] .cm-content')).toContainText('More text.')
 
-  await writeFiles(path.join(dir, 'loose'), { 'readme.md': DIAGRAM.replace('# Diagram', '# Loose diagram') })
-  await electronApp.evaluate(
-    ({ app: electronApp }, target) => {
-      electronApp.emit('open-file', { preventDefault() {} }, target)
-    },
-    path.join(dir, 'loose', 'readme.md'),
-  )
+  await openLooseFile(app, 'readme.md', DIAGRAM.replace('# Diagram', '# Loose diagram'))
   const body = page.locator('[data-reader-body]')
   await expect(body.locator('h1')).toHaveText('Loose diagram', { timeout: 20_000 })
   const readerDiagram = body.locator('.mermaid-diagram svg')
@@ -88,6 +82,42 @@ test('the main window reports no CSP violations: startup, a Mermaid and KaTeX no
   expect(strayStyles).toBe(0)
   await expect(body.locator('h1')).not.toHaveCSS('color', 'rgb(255, 0, 0)')
 
+  expect(await cspViolations(page)).toEqual([])
+})
+
+declare global {
+  interface Window {
+    /** Set by the style-scope test: a style made outside Mermaid's container during a render; `wrapped` is true when the createElement wrap set its nonce property. */
+    styleProbe?: { wrapped: boolean; nonceAttribute: string | null }
+  }
+}
+
+test('a style created outside Mermaid’s container while a diagram renders keeps no nonce attribute', async ({
+  app,
+}) => {
+  const { page } = app
+  // When Mermaid appends its measuring container (`#d<id>`) the render is running, so the
+  // createElement wrap is active: a style made then, outside the container (as CodeMirror's
+  // StyleModule might), must have no nonce attribute once the wrap's microtasks have run.
+  await page.evaluate(() => {
+    const observer = new MutationObserver((records) => {
+      const added = records.flatMap((record) => [...record.addedNodes])
+      if (!added.some((node) => node instanceof HTMLElement && node.id.startsWith('dboost-mermaid-'))) return
+      observer.disconnect()
+      const style = document.createElement('style')
+      const wrapped = style.nonce !== ''
+      document.head.append(style)
+      setTimeout(() => {
+        window.styleProbe = { wrapped, nonceAttribute: style.getAttribute('nonce') }
+        style.remove()
+      })
+    })
+    observer.observe(document.body, { childList: true })
+  })
+
+  await page.locator('[data-note="diagram.md"]').click()
+  await expect(page.locator('[data-editor] .cm-lp-mermaid svg')).toBeVisible({ timeout: 20_000 })
+  await expect.poll(() => page.evaluate(() => window.styleProbe)).toEqual({ wrapped: true, nonceAttribute: null })
   expect(await cspViolations(page)).toEqual([])
 })
 
@@ -143,21 +173,13 @@ test.describe('vault and reader asset documents', () => {
   }
 
   test('an .svg asset keeps only its sandbox policy, so its <style> applies without violations', async ({ app }) => {
-    const { page, dir, electronApp } = app
+    const { page, dir } = app
     await page.locator('[data-note="assets.md"]').click()
     const vaultSvg = await page.locator('[data-editor] img[alt="styled"]').getAttribute('src')
     if (!vaultSvg) throw new Error('the note shows no image')
 
-    await writeFiles(path.join(dir, 'loose'), {
-      'pics.md': '# Pics\n\n![styled](styled.svg)\n',
-      'styled.svg': STYLED_SVG,
-    })
-    await electronApp.evaluate(
-      ({ app: electronApp }, target) => {
-        electronApp.emit('open-file', { preventDefault() {} }, target)
-      },
-      path.join(dir, 'loose', 'pics.md'),
-    )
+    await writeFiles(path.join(dir, 'loose'), { 'styled.svg': STYLED_SVG })
+    await openLooseFile(app, 'pics.md', '# Pics\n\n![styled](styled.svg)\n')
     const readerSvg = await page
       .locator('[data-reader-body] img[alt="styled"]')
       .getAttribute('src', { timeout: 20_000 })

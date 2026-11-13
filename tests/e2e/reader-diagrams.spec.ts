@@ -1,29 +1,23 @@
-import * as path from 'node:path'
+import { type AppHandle, cspViolations, expect, openLooseFile, test } from './fixtures.ts'
 
-import { type AppHandle, cspViolations, expect, test, writeFiles } from './fixtures.ts'
-
+// The broken fence comes first: diagrams render one at a time, so once the graph has drawn the
+// broken one has finished too, and its kept code block is final rather than a pending render.
 const DIAGRAMS = `# Diagrams
+
+\`\`\`mermaid
+broken
+\`\`\`
 
 \`\`\`mermaid
 graph TD
   A[Write] --> B[Export]
 \`\`\`
-
-\`\`\`mermaid
-broken
-\`\`\`
 `
 
 /** Opens `body` as a loose `.md` in the reader, as the OS does, and returns the reader's body. */
-async function openInReader({ page, dir, electronApp }: AppHandle, body: string) {
-  await writeFiles(path.join(dir, 'loose'), { 'diagrams.md': body })
-  await electronApp.evaluate(
-    ({ app: electronApp }, target) => {
-      electronApp.emit('open-file', { preventDefault() {} }, target)
-    },
-    path.join(dir, 'loose', 'diagrams.md'),
-  )
-  const reader = page.locator('[data-reader-body]')
+async function openInReader(app: AppHandle, body: string) {
+  await openLooseFile(app, 'diagrams.md', body)
+  const reader = app.page.locator('[data-reader-body]')
   await expect(reader.locator('h1')).toHaveText('Diagrams', { timeout: 20_000 })
   return reader
 }
