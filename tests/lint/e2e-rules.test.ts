@@ -11,8 +11,13 @@ const biome = path.join(root, 'node_modules/.bin/biome')
 // in a copy of the configuration. fs.promises.mkdtempDisposable needs a newer Node than the >=24.3.0 floor.
 const configCopy = async () => {
   const dir = await mkdtemp(path.join(tmpdir(), 'boost-lint-'))
-  await cp(path.join(root, 'biome.json'), path.join(dir, 'biome.json'))
-  await cp(path.join(root, 'tests/e2e/rules.grit'), path.join(dir, 'tests/e2e/rules.grit'))
+  try {
+    await cp(path.join(root, 'biome.json'), path.join(dir, 'biome.json'))
+    await cp(path.join(root, 'tests/e2e/rules.grit'), path.join(dir, 'tests/e2e/rules.grit'))
+  } catch (error) {
+    await rm(dir, { recursive: true, force: true })
+    throw error
+  }
   return { dir, [Symbol.asyncDispose]: () => rm(dir, { recursive: true, force: true }) }
 }
 
