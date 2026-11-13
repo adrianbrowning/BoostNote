@@ -998,13 +998,15 @@ test('pinned notes stay at the top of the list; pin and unpin from the context m
   await expect.poll(() => readFile(path.join(vault, 'tasks.md'), 'utf8')).not.toContain('pinned')
 })
 
-test('pinned notes come first in a folder, a tag and search results, which keep their rank', async ({ app }) => {
+test('pinned notes come first in a folder, a tag, Starred and search results, which keep their rank', async ({
+  app,
+}) => {
   const { page, vault } = app
   const order = noteOrder(page)
   // Search scores count body hits: rank Gamma (3), Alpha (2), Beta (1); title order Alpha, Beta, Gamma.
   await writeFiles(vault, {
-    'work/alpha.md': '---\ntags: [fruit]\n---\n# Alpha\n\nkiwi kiwi\n',
-    'work/beta.md': '---\ntags: [fruit]\n---\n# Beta\n\nkiwi\n',
+    'work/alpha.md': '---\ntags: [fruit]\nstarred: true\n---\n# Alpha\n\nkiwi kiwi\n',
+    'work/beta.md': '---\ntags: [fruit]\nstarred: true\n---\n# Beta\n\nkiwi\n',
     'work/gamma.md': '---\ntags: [fruit]\n---\n# Gamma\n\nkiwi kiwi kiwi\n',
   })
   await expect(page.locator('[data-note="work/gamma.md"]')).toBeAttached({ timeout: 15_000 })
@@ -1020,6 +1022,8 @@ test('pinned notes come first in a folder, a tag and search results, which keep 
   await expect.poll(order).toEqual(['work/beta.md', 'work/alpha.md', 'work/gamma.md', 'work/third.md'])
   await page.locator('[data-tag="fruit"]').click()
   await expect.poll(order).toEqual(['work/beta.md', 'work/alpha.md', 'work/gamma.md'])
+  await page.locator('[data-sidebar="starred"]').click()
+  await expect.poll(order).toEqual(['work/beta.md', 'work/alpha.md'])
 })
 
 test.describe('link updates after a rename', () => {
