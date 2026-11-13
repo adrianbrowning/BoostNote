@@ -19,6 +19,10 @@ Rules a reviewer checks on a diff. Mechanical rules live in Biome, `tsc` and the
   hash they are based on (`baseHash`), and a `{ status: 'conflict' }` result from `Vault.writeNote` becomes a
   conflict (409 / `CONFLICT`), not an overwrite. An adapter that reads, edits and saves a note uses
   `Vault.editNote(id, baseHash, edit)`; adapters never compare hashes themselves.
+- **`css()` values are validated where they enter.** A value that reaches a `css()` mixin is written
+  unescaped into a page-wide rule, so it is checked at its entry point (vault config read, legacy
+  import, API, `settings.json` load) against the strictest shape the feature needs: a hex colour of
+  3, 4, 6 or 8 digits; a font name free of `;`, `{`, `}`, `<`, `>`, `/*` and backslash.
 
 ## UI (Remix 3)
 
@@ -34,3 +38,14 @@ Rules a reviewer checks on a diff. Mechanical rules live in Biome, `tsc` and the
   `test.describe` with `test.use`).
 - **Smoke on copies.** Scripts and tests open temp vaults or copies (`pnpm smoke --vault-copy`), with
   a temp `--user-data-dir`; a path to a real vault (`~/…`) in a test or script is a finding.
+- **E2e tests find elements by role, accessible name or a `data-*` hook.**
+- **E2e helpers come from `tests/e2e/fixtures.ts`.** A spec reuses `readSettings`, `openLooseFile`,
+  `cspViolations` and the other helpers there, and a new shared helper goes there too.
+- **E2e specs are split by concern.** A new test joins the spec for its concern (`styles.spec.ts`,
+  `layout.spec.ts`, `csp.spec.ts`, …) or starts a new one, keeping `app.spec.ts` from growing.
+
+## Docs
+
+- **Docs move in the same diff.** A diff that changes `package.json` engines or a framework version,
+  the router middleware chain, or a CSP policy also updates `readme.md` / `contributing.md` and the
+  matching lines of `docs/modernisation/PLAN.md` and `docs/modernisation/REMIX-NOTES.md`.

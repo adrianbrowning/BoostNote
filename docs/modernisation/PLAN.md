@@ -484,7 +484,11 @@ HTML export contains mermaid `<svg>` and KaTeX markup (and is screenshotted in a
 a `.md` passed on argv and via `open-file`; no CSP violation in the main window (startup, a Mermaid
 and KaTeX note, editing, the reader) or the hidden Mermaid renderer, recorded from the start of each
 window's load by a session preload (`tests/e2e/csp-violations-preload.cjs`, registered by `tests/e2e/csp-violations.cjs`). `pnpm test` stays unit-only
-(Vitest excludes `tests/e2e`).
+(Vitest excludes `tests/e2e`). A Biome Grit plugin (`tests/e2e/rules.grit`, loaded by a `biome.json`
+override on `tests/e2e/**`) makes `pnpm check` reject `getComputedStyle` (use
+`expect(locator).toHaveCSS`) and parent traversal with `locator('..')` in any quoting, `xpath=..` or
+with extra arguments (use a role, accessible name or `data-*` hook); `tests/lint/e2e-rules.test.ts`
+tests the rule.
 Tests run in parallel, also within a file (`fullyParallel`; 4 workers locally, 2 in CI): each test
 owns its app, temp vault, profile and HOME. Two tests must never write the same path (each
 `/tmp/boost-phase6` artifact belongs to one test).

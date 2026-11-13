@@ -31,6 +31,10 @@
           }
         }
       }
+    },
+    {
+      "includes": ["tests/e2e/**"],
+      "plugins": ["./tests/e2e/rules.grit"]
     }
   ],
   "javascript": {
