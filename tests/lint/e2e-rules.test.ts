@@ -8,7 +8,8 @@ const root = path.resolve(import.meta.dirname, '../..')
 const biome = path.join(root, 'node_modules/.bin/biome')
 let dir: string
 
-// Biome's stdin mode reports no diagnostics, so each probe is a real file in a copy of the configuration.
+// Biome's stdin mode shows no lint diagnostics and exits 1 even on clean code, so each probe is a real file
+// in a copy of the configuration.
 beforeAll(async () => {
   dir = await mkdtemp(path.join(tmpdir(), 'boost-lint-'))
   await cp(path.join(root, 'biome.json'), path.join(dir, 'biome.json'))
