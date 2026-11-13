@@ -4,11 +4,8 @@ or {
   `getComputedStyle` as $use where {
     register_diagnostic(span=$use, message="Read computed styles with expect(locator).toHaveCSS(), which retries until the style settles.")
   },
-  `$target.locator($selector)` where {
-    $selector <: or {
-      `'..'`,
-      `".."`
-    },
+  `$target.locator($selector, $...)` where {
+    $selector <: r"^[\x27\x22`](?:xpath=)?\.\.[\x27\x22`]$",
     register_diagnostic(span=$selector, message="Locate the element by role, accessible name or a data-* hook instead of DOM traversal.")
   }
 }

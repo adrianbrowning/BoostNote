@@ -36,11 +36,31 @@ describe('e2e lint rules', () => {
     expect(output).toContain('toHaveCSS')
   })
 
+  it('rejects a bare getComputedStyle call in an e2e spec', async () => {
+    const { status, output } = await lint(
+      'tests/e2e/bare.spec.ts',
+      'export const read = (element) => getComputedStyle(element).color\n',
+    )
+    expect(status).not.toBe(0)
+    expect(output).toContain('toHaveCSS')
+  })
+
   it("rejects locator('..') DOM traversal in an e2e spec", async () => {
     const { status, output } = await lint(
       'tests/e2e/parent.spec.ts',
       "export const parent = (row) => row.locator('..')\n",
     )
+    expect(status).not.toBe(0)
+    expect(output).toContain('data-*')
+  })
+
+  it.each([
+    ['double quotes', 'row.locator("..")'],
+    ['a template literal', 'row.locator(`..`)'],
+    ['the xpath form', "row.locator('xpath=..')"],
+    ['extra arguments', "row.locator('..', { hasText: 'x' })"],
+  ])('rejects parent traversal written with %s', async (_form, call) => {
+    const { status, output } = await lint('tests/e2e/parent-form.spec.ts', `export const parent = (row) => ${call}\n`)
     expect(status).not.toBe(0)
     expect(output).toContain('data-*')
   })
