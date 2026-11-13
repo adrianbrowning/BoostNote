@@ -2,27 +2,26 @@ import { spawnSync } from 'node:child_process'
 import { cp, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
-import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+import { describe, expect, it } from 'vitest'
 
 const root = path.resolve(import.meta.dirname, '../..')
 const biome = path.join(root, 'node_modules/.bin/biome')
-let dir: string
 
 // Biome's stdin mode shows no lint diagnostics and exits 1 even on clean code, so each probe is a real file
-// in a copy of the configuration.
-beforeAll(async () => {
-  dir = await mkdtemp(path.join(tmpdir(), 'boost-lint-'))
+// in a copy of the configuration. fs.promises.mkdtempDisposable needs a newer Node than the >=24.3.0 floor.
+const configCopy = async () => {
+  const dir = await mkdtemp(path.join(tmpdir(), 'boost-lint-'))
   await cp(path.join(root, 'biome.json'), path.join(dir, 'biome.json'))
   await cp(path.join(root, 'tests/e2e/rules.grit'), path.join(dir, 'tests/e2e/rules.grit'))
-})
+  return { dir, [Symbol.asyncDispose]: () => rm(dir, { recursive: true, force: true }) }
+}
 
-afterAll(() => rm(dir, { recursive: true, force: true }))
-
-/** Lints `source` saved at `file` (relative to the repository root) with the repository's Biome configuration. */
+/** Lints `source` saved at the repo-relative path `file` inside the temp copy, so the repository's Biome overrides for that path apply. */
 const lint = async (file: string, source: string) => {
-  await mkdir(path.dirname(path.join(dir, file)), { recursive: true })
-  await writeFile(path.join(dir, file), source)
-  const result = spawnSync(biome, ['lint', '--vcs-enabled=false', file], { cwd: dir, encoding: 'utf8' })
+  await using copy = await configCopy()
+  await mkdir(path.dirname(path.join(copy.dir, file)), { recursive: true })
+  await writeFile(path.join(copy.dir, file), source)
+  const result = spawnSync(biome, ['lint', '--vcs-enabled=false', file], { cwd: copy.dir, encoding: 'utf8' })
   return { status: result.status, output: `${result.stdout}${result.stderr}` }
 }
 
