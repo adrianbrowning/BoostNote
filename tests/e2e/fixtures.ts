@@ -8,7 +8,10 @@ import type { Settings, UiPatch } from '../../src/main/settings.ts'
 const projectRoot = path.resolve(import.meta.dirname, '../..')
 /** Main-process preload: on macOS test windows never take the OS keyboard focus (see the file). */
 const backgroundWindows = path.join(import.meta.dirname, 'background-windows.cjs')
-/** Main-process preload: every window records its CSP violations from the start (see the file). */
+/**
+ * Main-process registrar (loaded with -r): adds the session preload `csp-violations-preload.cjs`,
+ * which records each window's CSP violations from the start.
+ */
 const cspViolationRecorder = path.join(import.meta.dirname, 'csp-violations.cjs')
 
 export interface AppHandle {
@@ -55,7 +58,7 @@ export async function openLooseFile(
   )
 }
 
-/** The app's raw `settings.json` from its temp profile: its `ui` section is stored unnormalized. */
+/** The app's raw `settings.json` from its temp profile. Its `ui` section can be partial: launchApp seeds a UiPatch, and the app writes a full one only when it saves preferences. */
 export async function readSettings({
   userDataDir,
 }: Pick<AppHandle, 'userDataDir'>): Promise<Omit<Settings, 'ui'> & { ui?: UiPatch }> {
