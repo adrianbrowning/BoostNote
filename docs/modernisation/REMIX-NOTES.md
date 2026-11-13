@@ -24,12 +24,21 @@ before using an API. These are the things about Remix 3 in this app that are eas
   `page.keyboard.type`, which sends one input event per key; `fill()` sets the value at once and
   hides both bugs.
 - **Styles:** `css(...)` rules are collected during SSR into `<style data-rmx-style>` tags inside the
-  `rmx` cascade layer. Global CSS (`src/app/ui/public/base.css`) declares `@layer base, rmx;` so
-  component rules win. The CSP therefore allows inline styles; scripts need `'self'` or the nonce.
+  `rmx` cascade layer, each generated class in its own sublayer (`@layer rmx.rmxc-…`).
+  Global CSS (`src/app/ui/public/base.css`) declares `@layer base, rmx;` so component rules win. The
+  CSP therefore allows inline styles; scripts need `'self'` or the nonce.
+- **Generated class names are not an interface.** Never select, assert on or script against
+  `rmxc-*` names; check styling through computed styles in the Electron e2e tests (`tests/e2e`).
+  Remix 3.2 fixed `css()` number serialisation: under 3.1 `WebkitLineClamp: 2` computed `none` in the
+  app, so the note-list excerpt was not clamped, and `flex: 1` was emitted as `flex: 1px` (flex-basis
+  `1px` instead of `0%`); the e2e test pins both and the unitless z-index and font-weight values.
 - **CSP nonce plumbing:** `contentSecurityPolicy()` stores a per-request nonce under a context key;
   `Document` reads it with `getContext()` (needs `asyncContext()` first in the middleware list) and
   passes it to `<ImportMap nonce>`. The client runtime copies that nonce onto import maps it adds for
-  client entries discovered later (frames).
+  client entries discovered later (frames). Remix 3.2 ships `csp()` (`remix/middleware/csp`): it
+  makes the nonce, `getCspNonce(context)` reads it, and `render()` stamps it on generated import
+  maps, module preloads and `css()` style tags. Our own middleware does not feed `render()`, so
+  those generated tags carry no nonce yet; an explicit `<ImportMap nonce>` keeps its own value.
 - **Asset server:** `allowFiles`/`mounts` come from `remix.json` via `loadConfig` from `remix/cli`;
   `rootDir` must be passed explicitly (the packaged app's cwd is `/`). Package files are served from
   `/assets/npm/.pnpm/...` (the asset server understands pnpm's store). New browser-side packages

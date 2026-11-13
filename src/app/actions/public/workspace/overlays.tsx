@@ -16,6 +16,7 @@ export function ContextMenuView(handle: Handle<{ model: WorkspaceModel }>) {
     const top = Math.max(4, Math.min(menu.y, window.innerHeight - 40 * menu.entries.length))
     return (
       <div
+        data-scrim="menu"
         mix={[
           scrimStyle,
           on('pointerdown', (event) => {
