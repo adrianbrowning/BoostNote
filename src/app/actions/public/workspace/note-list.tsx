@@ -54,12 +54,17 @@ export function NoteList(handle: Handle<{ model: WorkspaceModel }>) {
         ]}
       >
         <div mix={itemTitleStyle}>
-          {note.starred ? (
-            <span mix={starStyle} title="Starred">
-              ★
-            </span>
+          <span mix={titleTextStyle}>{note.title}</span>
+          {note.starred || note.pinned ? (
+            <>
+              <span mix={markStyle} title={note.starred ? 'Starred' : undefined}>
+                {note.starred ? '★' : ''}
+              </span>
+              <span mix={[markStyle, pinStyle]} title={note.pinned ? 'Pinned' : undefined}>
+                {note.pinned ? '📌' : ''}
+              </span>
+            </>
           ) : null}
-          {note.title}
         </div>
         {note.excerpt ? <div mix={excerptStyle}>{note.excerpt}</div> : null}
         <div mix={metaStyle}>
@@ -260,14 +265,30 @@ const itemStyle = css({
 
 const trashItemStyle = css({ gap: '6px' })
 
+/**
+ * The title takes the row and is cut with an ellipsis. A row with a mark gets a fixed slot for each,
+ * star then pin, at the right end, so marks line up from row to row.
+ */
 const itemTitleStyle = css({
+  display: 'flex',
+  alignItems: 'baseline',
+  gap: '4px',
+  minWidth: 0,
+  overflow: 'hidden',
   fontWeight: 600,
+})
+
+const titleTextStyle = css({
+  flex: 1,
+  minWidth: 0,
   overflow: 'hidden',
   textOverflow: 'ellipsis',
   whiteSpace: 'nowrap',
 })
 
-const starStyle = css({ color: '#e8b923', marginRight: '4px' })
+const markStyle = css({ flex: 'none', width: '14px', textAlign: 'center', color: '#e8b923' })
+
+const pinStyle = css({ fontSize: '11px' })
 
 const excerptStyle = css({
   display: '-webkit-box',

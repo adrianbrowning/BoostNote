@@ -285,7 +285,16 @@ export function EditorPane(handle: Handle<{ model: WorkspaceModel }>) {
             </button>
             <button
               type="button"
-              mix={[iconButton, starButtonStyle, on('click', () => void model.toggleStar())]}
+              mix={[iconButton, pinButtonStyle, on('click', () => void model.toggleFlag('pinned'))]}
+              aria-pressed={note.pinned ? 'true' : 'false'}
+              aria-label={note.pinned ? 'Unpin note' : 'Pin note'}
+              title={note.pinned ? 'Unpin from the top of the list' : 'Pin to the top of the list'}
+            >
+              📌
+            </button>
+            <button
+              type="button"
+              mix={[iconButton, starButtonStyle, on('click', () => void model.toggleFlag('starred'))]}
               aria-pressed={note.starred ? 'true' : 'false'}
               aria-label={note.starred ? 'Unstar note' : 'Star note'}
               title={note.starred ? 'Unstar' : 'Star'}
@@ -403,6 +412,8 @@ const renameErrorStyle = css({ color: 'var(--danger)', fontSize: '12px' })
 const pathStyle = css({ fontSize: '11px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' })
 
 const starButtonStyle = css({ fontSize: '16px', '&[aria-pressed="true"]': { color: '#e8b923' } })
+
+const pinButtonStyle = css({ fontSize: '14px', opacity: 0.4, '&[aria-pressed="true"]': { opacity: 1 } })
 
 const progressStyle = css({
   position: 'relative',
