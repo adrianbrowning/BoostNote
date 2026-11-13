@@ -213,6 +213,8 @@ describe('notes', () => {
     await app.post(api.folderCreate.href(), { parent: '', name: 'B' })
     expect((await app.post(api.folderColor.href(), { id: 'A', color: '#E10051' })).status).toBe(200)
     expect((await app.post(api.folderColor.href(), { id: 'A', color: 'red;}' })).status).toBe(400)
+    expect((await app.post(api.folderColor.href(), { id: 'A', color: '#12345' })).status).toBe(400)
+    expect((await app.post(api.folderColor.href(), { id: 'A', color: '#1234567' })).status).toBe(400)
     expect(await readJson(await app.post(api.folderRename.href(), { id: 'A', name: 'Alpha' }))).toEqual({ id: 'Alpha' })
     expect(await readJson(await app.post(api.folderMove.href(), { id: 'Alpha', parent: 'B' }))).toEqual({
       id: 'B/Alpha',

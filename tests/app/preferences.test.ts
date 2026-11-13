@@ -1,4 +1,4 @@
-import { readFile, writeFile } from 'node:fs/promises'
+import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import * as path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 
@@ -56,6 +56,8 @@ describe('preferences route', () => {
       { lineWidth: 100 },
       { spellcheck: 'yes' },
       { editorFont: 'x; color: red' },
+      { editorFont: 'Georgia /*' },
+      { editorFont: 'Georgia\\' },
       { panes: { sidebarWidth: 5000 } },
       { panes: { mystery: true } },
       { panes: [] },
@@ -98,6 +100,14 @@ describe('preferences route', () => {
       panes: { ...DEFAULT_UI.panes, listWidth: 250 },
     })
     expect(normalizeUi('garbage')).toEqual(DEFAULT_UI)
+  })
+
+  it('drops a stored editorFont that could break out of its css() rule when settings.json loads', async () => {
+    await mkdir(path.dirname(app.settings.file), { recursive: true })
+    for (const editorFont of ['Georgia /*', 'Geor\\gia']) {
+      await writeFile(app.settings.file, JSON.stringify({ ui: { editorFont, fontSize: 18 } }))
+      expect(new SettingsStore(app.settings.file).ui).toMatchObject({ editorFont: '', fontSize: 18 })
+    }
   })
 
   it('validates accelerators', () => {

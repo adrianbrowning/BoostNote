@@ -3,6 +3,8 @@ import { tmpdir } from 'node:os'
 import * as path from 'node:path'
 import { test as base, type ElectronApplication, _electron as electron, type Page } from '@playwright/test'
 
+import type { UiPatch } from '../../src/main/settings.ts'
+
 const projectRoot = path.resolve(import.meta.dirname, '../..')
 /** Main-process preload: on macOS test windows never take the OS keyboard focus (see the file). */
 const backgroundWindows = path.join(import.meta.dirname, 'background-windows.cjs')
@@ -59,7 +61,7 @@ export interface LaunchOptions {
   /** Copies this folder into the temp vault (before `files` are written); the folder is only read. */
   vaultCopyOf?: string
   /** Preferences merged into the profile's `settings.json` `ui` section. */
-  ui?: Record<string, unknown>
+  ui?: UiPatch
 }
 
 /**
@@ -157,7 +159,7 @@ export async function cspViolations(page: Page): Promise<string[]> {
 }
 
 /** `app`: a launched app per test, closed and its temp folder removed afterwards. */
-export const test = base.extend<{ files: VaultFiles; ui: Record<string, unknown>; app: AppHandle }>({
+export const test = base.extend<{ files: VaultFiles; ui: UiPatch; app: AppHandle }>({
   files: [{}, { option: true }],
   ui: [{}, { option: true }],
   app: async ({ files, ui }, use) => {
