@@ -3,7 +3,7 @@ import * as path from 'node:path'
 import type { Page } from '@playwright/test'
 
 import { createLegacyStorage } from '../migrate/fixture.ts'
-import { expect, launchApp, quitWithoutDialog, test, writeFiles } from './fixtures.ts'
+import { expect, launchApp, openLooseFile, quitWithoutDialog, test, writeFiles } from './fixtures.ts'
 
 const DIAGRAM = `---
 title: Diagram
@@ -891,16 +891,14 @@ test('a reader tab shows images next to its file; only http(s) links open, in th
     const opened = () => app.electronApp.evaluate((): unknown => Reflect.get(globalThis, 'openedUrls'))
     // Only pics.md is opened from the OS; its image and the .md it links to just sit next to it.
     await writeFiles(path.join(dir, 'loose'), {
-      'pics.md': '# Pics\n\n![dot](img/dot.svg)\n\n[site](https://example.com/) [other](other.md) [[other]]\n',
       'img/dot.svg':
         '<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10"><rect width="10" height="10"/></svg>',
       'other.md': '# Other\n',
     })
-    await app.electronApp.evaluate(
-      ({ app: electronApp }, target) => {
-        electronApp.emit('open-file', { preventDefault() {} }, target)
-      },
-      path.join(dir, 'loose', 'pics.md'),
+    await openLooseFile(
+      app,
+      'pics.md',
+      '# Pics\n\n![dot](img/dot.svg)\n\n[site](https://example.com/) [other](other.md) [[other]]\n',
     )
     const body = page.locator('[data-reader-body]')
     await expect(body.locator('h1')).toHaveText('Pics', { timeout: 20_000 })

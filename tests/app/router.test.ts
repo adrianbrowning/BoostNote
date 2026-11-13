@@ -72,18 +72,17 @@ describe('router', () => {
       expect(importMaps).toHaveLength(1)
       // Every script element except data blocks (`application/json`), which CSP does not govern.
       const scripts = tags(/<script\b[^>]*>/g).filter((tag) => !/\btype="application\/json"/.test(tag))
-      const nonceBearing = [
-        ...scripts,
-        ...tags(/<link[^>]*rel="modulepreload"[^>]*>/g),
-        ...tags(/<style[^>]*data-rmx-style[^>]*>/g),
-      ]
+      const preloads = tags(/<link[^>]*data-rmx-module-preload[^>]*>/g)
+      const styles = tags(/<style[^>]*data-rmx-style[^>]*>/g)
+      // Authored module preloads (EntryHead's); the generated ones are `preloads`.
+      const authoredPreloads = tags(/<link[^>]*rel="modulepreload"[^>]*>/g).filter(
+        (tag) => !tag.includes('data-rmx-module-preload'),
+      )
+      const nonceBearing = [...scripts, ...authoredPreloads, ...preloads, ...styles]
       for (const tag of nonceBearing) expect(tag).toContain(`nonce="${nonce}"`)
       if (page === routes.home) {
-        const generated = [tags(/<link[^>]*data-rmx-module-preload[^>]*>/g), tags(/<style[^>]*data-rmx-style[^>]*>/g)]
-        for (const list of generated) {
-          expect(list).not.toHaveLength(0)
-          for (const tag of list) expect(tag).toContain(`nonce="${nonce}"`)
-        }
+        expect(preloads).not.toHaveLength(0)
+        expect(styles).not.toHaveLength(0)
       }
 
       const second = await app.get(page.href())

@@ -211,6 +211,8 @@ describe('notes', () => {
   it('manages folders: create, colour, rename, move, delete, empty trash', async () => {
     await app.post(api.folderCreate.href(), { parent: '', name: 'A' })
     await app.post(api.folderCreate.href(), { parent: '', name: 'B' })
+    expect((await app.post(api.folderColor.href(), { id: 'A', color: '#E105' })).status).toBe(200)
+    expect((await app.post(api.folderColor.href(), { id: 'A', color: '#E10051CC' })).status).toBe(200)
     expect((await app.post(api.folderColor.href(), { id: 'A', color: '#E10051' })).status).toBe(200)
     expect((await app.post(api.folderColor.href(), { id: 'A', color: 'red;}' })).status).toBe(400)
     expect((await app.post(api.folderColor.href(), { id: 'A', color: '#12345' })).status).toBe(400)

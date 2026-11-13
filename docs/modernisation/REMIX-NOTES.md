@@ -43,14 +43,13 @@ before using an API. These are the things about Remix 3 in this app that are eas
 - **CSP:** the router runs `asyncContext()`, `noStoreNonceResponses`, `csp()` (`remix/middleware/csp`)
   and `render()`, in that order (`router.ts` holds the policy). `csp()` makes a fresh nonce per
   request and appends the app policy to every `text/html` response; `render()` stamps that nonce on
-  the import map, the
-  module preloads and `<style data-rmx-style>` tags it generates, and the client runtime copies it
-  onto import maps it adds for client entries discovered later (frames). Authored tags that
-  `render()` does not stamp (the module preloads and entry script of `EntryHead`, shared by
+  the import map, the module preloads and `<style data-rmx-style>` tags it generates, and the client
+  runtime copies it onto import maps it adds for client entries discovered later (frames). Authored
+  tags that `render()` does not stamp (the module preloads and entry script of `EntryHead`, shared by
   `Document` and `MermaidRendererPage`) read it with `getCspNonce(getContext())`, which needs
-  `asyncContext()` first. `csp()` appends instead of replacing, so an HTML vault/reader asset
-  response carries both its own sandbox
-  policy and the app policy, and the browser enforces both. `csp()` sets no cache headers, so
+  `asyncContext()` first. `csp()` appends instead of replacing, so an HTML vault asset response
+  (reader assets are images only) carries both its own sandbox policy and the app policy, and the
+  browser enforces both. `csp()` sets no cache headers, so
   `noStoreNonceResponses` sends `Cache-Control: no-store` on every response whose policy carries a
   nonce (app pages and HTML assets); other responses keep their cache headers. It must stay outside
   (before) `csp()`: only there does it see the policy `csp()` added.

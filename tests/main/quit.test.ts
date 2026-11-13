@@ -25,13 +25,13 @@ afterEach(() => {
 describe('raceTimeout', () => {
   it('settles with the promise value, even false, when the promise wins', async () => {
     await expect(raceTimeout(Promise.resolve(false), 1000)).resolves.toBe(false)
+    expect(vi.getTimerCount()).toBe(0)
   })
 
-  it("settles with 'timeout' and clears its timer when the timer wins", async () => {
+  it("settles with 'timeout' when the timer wins", async () => {
     const result = raceTimeout(new Promise(() => {}), 1000)
     await vi.advanceTimersByTimeAsync(1000)
     expect(await result).toBe('timeout')
-    expect(vi.getTimerCount()).toBe(0)
   })
 })
 
@@ -140,11 +140,12 @@ describe('createQuitDisposal', () => {
 
   it('waits for a pending step up to the bound', async () => {
     const quit = vi.fn()
+    const close = vi.fn(() => Promise.resolve())
     const beforeQuit = createQuitDisposal({
       teardown: [
         step('the hub', () => {}),
         step('the vaults', () => new Promise<void>(() => {})),
-        step('the asset server', () => Promise.resolve()),
+        step('the asset server', close),
       ],
       quit,
       timeoutMs: 1000,
@@ -152,6 +153,7 @@ describe('createQuitDisposal', () => {
     const done = beforeQuit(quitEvent())
 
     await vi.advanceTimersByTimeAsync(999)
+    expect(close).toHaveBeenCalledTimes(1)
     expect(quit).not.toHaveBeenCalled()
 
     await vi.advanceTimersByTimeAsync(1)
