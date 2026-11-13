@@ -15,6 +15,8 @@ export interface NoteMeta {
   title: string
   tags: string[]
   starred: boolean
+  /** Frontmatter `pinned: true`; the app lists pinned notes first. */
+  pinned: boolean
   /** ISO-8601; frontmatter `created`, else the file's birth time. */
   created: string
   /** ISO-8601; frontmatter `updated`, else the file's modification time. */
@@ -27,8 +29,8 @@ export interface NoteMeta {
  * `frontmatter`, `body`, `raw`, `hash`). Takes the vault's frozen query results too; `tags` is copied.
  */
 export function toMeta(note: Readonly<Omit<NoteMeta, 'tags'>> & { readonly tags: readonly string[] }): NoteMeta {
-  const { id, folder, title, tags, starred, created, updated, excerpt } = note
-  return { id, folder, title, tags: [...tags], starred, created, updated, excerpt }
+  const { id, folder, title, tags, starred, pinned, created, updated, excerpt } = note
+  return { id, folder, title, tags: [...tags], starred, pinned, created, updated, excerpt }
 }
 
 /** Folder id of a note or folder id (`work/todo.md` → `work`, `todo.md` → `''`). */

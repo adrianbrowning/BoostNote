@@ -133,6 +133,7 @@ export interface ListOptions {
   recursive?: boolean
   tag?: string
   starred?: boolean
+  pinned?: boolean
   /** `updated`/`created` newest first, `title`/`id` A→Z. Default `updated`. */
   sort?: SortKey
   limit?: number
@@ -146,7 +147,7 @@ export interface CreateOptions {
 }
 
 export interface PropertyChanges {
-  /** Keys to set; `tags` must be a list of strings, `starred` a boolean, `title` a string. */
+  /** Keys to set; `tags` must be a list of strings, `starred` and `pinned` booleans, `title` a string. */
   set?: Record<string, unknown>
   remove?: string[]
 }
@@ -207,6 +208,7 @@ export async function listNotes(vault: Vault, options: ListOptions = {}): Promis
     }
     if (options.tag !== undefined && !meta.tags.includes(options.tag)) return false
     if (options.starred && !meta.starred) return false
+    if (options.pinned && !meta.pinned) return false
     return true
   })
   notes.sort((a, b) =>
@@ -386,8 +388,9 @@ function checkProperties(set: Record<string, unknown>): void {
   if ('tags' in set && !(Array.isArray(set.tags) && set.tags.every((tag) => typeof tag === 'string'))) {
     throw new CommandError('USAGE', '"tags" must be a list of strings')
   }
-  if ('starred' in set && typeof set.starred !== 'boolean')
-    throw new CommandError('USAGE', '"starred" must be true or false')
+  for (const key of ['starred', 'pinned']) {
+    if (key in set && typeof set[key] !== 'boolean') throw new CommandError('USAGE', `"${key}" must be true or false`)
+  }
   if ('title' in set && typeof set.title !== 'string') throw new CommandError('USAGE', '"title" must be a string')
 }
 

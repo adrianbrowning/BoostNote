@@ -77,12 +77,13 @@ export function createMcpServer(vault: Vault): McpServer {
     {
       title: 'List notes',
       description:
-        'List notes (id, title, folder, tags, starred, created, updated, excerpt), newest first by default. Filter by folder, tag or starred.',
+        'List notes (id, title, folder, tags, starred, pinned, created, updated, excerpt), newest first by default. Filter by folder, tag, starred or pinned.',
       inputSchema: {
         folder: z.string().optional().describe('Folder id ("" for the vault root)'),
         recursive: z.boolean().optional().describe('Include notes in subfolders of "folder"'),
         tag: z.string().optional(),
         starred: z.boolean().optional(),
+        pinned: z.boolean().optional(),
         sort: z.enum(SORT_KEYS).optional(),
         limit: z.number().int().positive().optional(),
       },
@@ -160,7 +161,7 @@ export function createMcpServer(vault: Vault): McpServer {
     {
       title: 'Update note properties',
       description:
-        'Set or remove frontmatter properties: tags (list of strings), starred (boolean), title (string) or any other key. Properties not named are left exactly as written. Returns the updated note.',
+        'Set or remove frontmatter properties: tags (list of strings), starred (boolean), pinned (boolean), title (string) or any other key. Properties not named are left exactly as written. Returns the updated note.',
       inputSchema: {
         id,
         set: z

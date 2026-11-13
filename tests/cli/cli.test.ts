@@ -25,7 +25,8 @@ created: 2024-01-01T00:00:00.000Z
 const FILES: Record<string, string> = {
   'index.md': '# Index\n\nSee [the todo list](work/todo.md) and [plan](work/plan.md).\n',
   'work/todo.md': TODO,
-  'work/plan.md': '---\ntags: [work]\n---\nThe plan: finish [todo](todo.md) then [again](./todo.md#top).\n',
+  'work/plan.md':
+    '---\ntags: [work]\npinned: true\n---\nThe plan: finish [todo](todo.md) then [again](./todo.md#top).\n',
   'personal/todo.md': '# Personal todo\n\nbuy milk\n',
   'archive/.keep/x.md': 'hidden',
 }
@@ -83,9 +84,9 @@ describe('reading', () => {
       'work/todo.md',
     ])
     expect(Object.keys(notes[3]).sort()).toEqual(
-      ['created', 'excerpt', 'folder', 'id', 'starred', 'tags', 'title', 'updated'].sort(),
+      ['created', 'excerpt', 'folder', 'id', 'pinned', 'starred', 'tags', 'title', 'updated'].sort(),
     )
-    expect(notes[3]).toMatchObject({ id: 'work/todo.md', folder: 'work', title: 'todo', starred: true })
+    expect(notes[3]).toMatchObject({ id: 'work/todo.md', folder: 'work', title: 'todo', starred: true, pinned: false })
 
     expect(
       (await cli(['list', '--json', '--tag', 'work', '--sort', 'id'])).json().map((n: { id: string }) => n.id),
@@ -93,13 +94,16 @@ describe('reading', () => {
     expect((await cli(['list', '--json', '--starred'])).json().map((n: { id: string }) => n.id)).toEqual([
       'work/todo.md',
     ])
+    expect((await cli(['list', '--json', '--pinned'])).json().map((n: { id: string }) => n.id)).toEqual([
+      'work/plan.md',
+    ])
     expect((await cli(['list', '--json', '--folder', ''])).json().map((n: { id: string }) => n.id)).toEqual([
       'index.md',
     ])
     expect((await cli(['list', '--json', '--folder', '/', '--recursive'])).json()).toHaveLength(4)
     expect((await cli(['list', '--json', '--folder', 'work', '--limit', '1'])).json()).toHaveLength(1)
     const text = await cli(['list', '--folder', 'work', '--sort', 'title'])
-    expect(text.stdout).toMatch(/^work\/plan\.md — plan {2}#work/)
+    expect(text.stdout).toMatch(/^📌 work\/plan\.md — plan {2}#work/)
     expect(text.stdout).toContain('★ work/todo.md — todo  #work #todo')
     expect((await cli(['list', '--folder', 'nope'])).code).toBe(4)
     expect((await cli(['list', '--sort', 'size'])).code).toBe(2)
@@ -273,6 +277,9 @@ describe('writing', () => {
     expect(raw).toContain('created: 2024-01-01T00:00:00.000Z\n')
     expect(raw.endsWith(TODO.slice(TODO.indexOf('# Todo')))).toBe(true)
     expect((await cli(['set-props', 'work/todo.md', 'starred=maybe'])).code).toBe(2)
+    expect((await cli(['set-props', 'work/todo.md', 'pinned=maybe'])).code).toBe(2)
+    expect((await cli(['set-props', 'work/todo.md', 'pinned=true', '--json'])).json()).toMatchObject({ pinned: true })
+    expect(await read('work/todo.md')).toContain('pinned: true\n')
     expect((await cli(['set-props', 'work/todo.md'])).code).toBe(2)
     expect((await cli(['set-props', 'work/todo.md', 'novalue'])).code).toBe(2)
   })
