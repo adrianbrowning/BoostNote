@@ -25,8 +25,9 @@ before using an API. These are the things about Remix 3 in this app that are eas
   hides both bugs.
 - **Styles:** `css(...)` rules are collected during SSR into `<style data-rmx-style>` tags inside the
   `rmx` cascade layer, each generated class in its own sublayer (`@layer rmx.rmxc-…`).
-  Global CSS (`src/app/ui/public/base.css`) declares `@layer base, rmx;` so component rules win. The
-  CSP therefore allows inline styles; scripts need `'self'` or the nonce.
+  Global CSS (`src/app/ui/public/base.css`) declares `@layer base, rmx;` so component rules win.
+  `render()` stamps the CSP nonce on those tags; rules first added on the client go into
+  constructed stylesheets (`adoptedStyleSheets`), which the policy does not govern.
 - **Generated class names are not an interface.** Never select, assert on or script against
   `rmxc-*` names; check styling through computed styles in the Electron e2e tests (`tests/e2e`).
   Remix 3.2 fixed `css()` number serialisation: under 3.1 `WebkitLineClamp: 2` computed `none` in the
@@ -44,12 +45,33 @@ before using an API. These are the things about Remix 3 in this app that are eas
   policy to every `text/html` response; `render()` stamps that nonce on the import map, the
   module preloads and `<style data-rmx-style>` tags it generates, and the client runtime copies it
   onto import maps it adds for client entries discovered later (frames). Authored tags that
-  `render()` does not stamp (`Document`'s and `MermaidRendererPage`'s own module preloads and entry
-  script) read it with `getCspNonce(getContext())`, which needs `asyncContext()` first. `csp()`
-  appends instead of replacing, so an HTML vault/reader asset response carries both its own sandbox
+  `render()` does not stamp (the module preloads and entry script of `EntryHead`, shared by
+  `Document` and `MermaidRendererPage`) read it with `getCspNonce(getContext())`, which needs
+  `asyncContext()` first. `csp()` appends instead of replacing, so an HTML vault/reader asset
+  response carries both its own sandbox
   policy and the app policy, and the browser enforces both. `csp()` sets no cache headers, so a
   middleware outside it (`noStoreNonceResponses`) sends `Cache-Control: no-store` on every response
   whose policy carries a nonce (app pages and HTML assets); other responses keep their cache headers.
+- **Style elements need the nonce** (`style-src-elem 'self' 'nonce-…'`; style attributes stay
+  allowed by `style-src-attr 'unsafe-inline'` for KaTeX, table-cell alignment and Mermaid). Client
+  code that makes a `<style>` reads the page nonce with `pageCspNonce()`
+  (`src/editor/render/csp-nonce.ts`, the `<meta name="rmx-nonce">` property, as Remix's runtime
+  does): CodeMirror gets it through `EditorView.cspNonce`, and `mermaidNodes` stamps it on a
+  diagram's `<style>` before the editor or the reader inserts the SVG. Mermaid itself takes no
+  nonce, yet inserts a `<style>` into its measuring SVG and then DOMPurify parses the serialised
+  SVG (both checked against the page policy), so while `mermaid.render` runs
+  `document.createElement` stamps style elements, and the nonce is stripped from the result again
+  (cached, exported). `/export/mermaid` therefore has the app policy too, no route-specific one.
+  Trade-off: inserting a nonce'd element hides its `nonce` attribute, and DOMPurify's parse of the
+  serialised SVG needs it, so `withStampedStyles` sets the attribute again once mermaid has
+  inserted the `<style>` (removing that second stamp gives `style-src-elem` violations). While a
+  render runs, the page nonce (which also authorises scripts) is readable as an attribute of the
+  measuring SVG. Accepted: `default-src 'none'`, `img-src 'self' data: blob:` and
+  `connect-src 'self'` leave CSS attribute selectors no outside host to leak it to, inserted HTML
+  never runs a `<script>`, and the nonce is removed before the SVG is cached or exported. Verified
+  against Mermaid 12.2.0: re-check on a Mermaid upgrade, or drop it once Mermaid accepts a nonce.
+  E2E: every app window records `securitypolicyviolation` from the start of its load
+  (`tests/e2e/csp-violations.cjs`); `tests/e2e/csp.spec.ts` asserts none.
 - **Asset server:** `allowFiles`/`mounts` come from `remix.json` via `loadConfig` from `remix/cli`;
   `rootDir` must be passed explicitly (the packaged app's cwd is `/`). Package files are served from
   `/assets/npm/.pnpm/...` (the asset server understands pnpm's store). New browser-side packages

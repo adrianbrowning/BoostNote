@@ -6,6 +6,8 @@ import { test as base, type ElectronApplication, _electron as electron, type Pag
 const projectRoot = path.resolve(import.meta.dirname, '../..')
 /** Main-process preload: on macOS test windows never take the OS keyboard focus (see the file). */
 const backgroundWindows = path.join(import.meta.dirname, 'background-windows.cjs')
+/** Main-process preload: every window records its CSP violations from the start (see the file). */
+const cspViolationRecorder = path.join(import.meta.dirname, 'csp-violations.cjs')
 
 export interface AppHandle {
   electronApp: ElectronApplication
@@ -68,6 +70,8 @@ export async function launchApp(files: VaultFiles, options: LaunchOptions = {}):
     args: [
       '-r',
       backgroundWindows,
+      '-r',
+      cspViolationRecorder,
       projectRoot,
       `--user-data-dir=${userDataDir}`,
       ...Object.keys(openFiles).map((rel) => path.join(root, 'loose', ...rel.split('/'))),
@@ -120,6 +124,18 @@ export async function quitWithoutDialog(electronApp: ElectronApplication): Promi
     dialog.showMessageBox = (async () => ({ response: 1, checkboxChecked: false })) as typeof dialog.showMessageBox
   })
   await electronApp.close()
+}
+
+/**
+ * The `securitypolicyviolation` events of `page` since its load began, recorded by a session
+ * preload (`csp-violations.cjs`) that every window of the app gets, the hidden export windows too.
+ */
+export async function cspViolations(page: Page): Promise<string[]> {
+  return page.evaluate(() => {
+    const read: unknown = Reflect.get(window, 'boostCspViolations')
+    if (typeof read !== 'function') throw new Error(`no CSP violation recorder in ${location.href}`)
+    return (read as () => string[])()
+  })
 }
 
 /** `app`: a launched app per test, closed and its temp folder removed afterwards. */

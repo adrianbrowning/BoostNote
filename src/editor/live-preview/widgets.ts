@@ -3,7 +3,7 @@ import { type EditorView, WidgetType } from '@codemirror/view'
 
 import type { EditorTheme } from '../config.ts'
 import { renderMath } from '../render/math.ts'
-import { cachedMermaid, type MermaidResult, renderMermaid } from '../render/mermaid.ts'
+import { cachedMermaid, type MermaidResult, mermaidNodes, renderMermaid } from '../render/mermaid.ts'
 
 /** `•` in place of a `-`/`*`/`+` bullet when the cursor is elsewhere. */
 export class BulletWidget extends WidgetType {
@@ -174,7 +174,7 @@ export class MermaidWidget extends WidgetType {
     wrap.classList.remove('cm-lp-mermaid-loading')
     if ('svg' in result) {
       // Sanitised by mermaid (securityLevel: 'strict' runs DOMPurify over the output).
-      wrap.innerHTML = result.svg
+      wrap.replaceChildren(mermaidNodes(result.svg))
       wrap.classList.remove('cm-lp-mermaid-error')
       return
     }

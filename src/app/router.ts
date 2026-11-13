@@ -12,14 +12,19 @@ import type { AppServices } from './services.ts'
 /**
  * The app policy, appended to every HTML response. Scripts must come from the app origin or carry
  * the request nonce, which `render()` stamps on generated import maps, module preloads and `css()`
- * style tags. style-src keeps 'unsafe-inline' because authored style attributes and inline
- * Mermaid/KaTeX styles carry no nonce.
+ * style tags. Style elements follow the same rule (style-src-elem): stylesheets from the app origin
+ * (base.css, KaTeX), `render()`'s `<style data-rmx-style>` tags, CodeMirror's style tag
+ * (`EditorView.cspNonce`) and Mermaid's SVG `<style>`, which client code stamps with the page nonce
+ * (`src/editor/render/mermaid.ts`). Style attributes stay allowed (style-src-attr 'unsafe-inline')
+ * because KaTeX output, table-cell `text-align` in the editor and the reader, and Mermaid's SVG and
+ * measuring element carry them, and an attribute cannot carry a nonce.
  */
 const appCsp = csp({
   policy: ({ nonce }) => ({
     defaultSrc: ["'none'"],
     scriptSrc: ["'self'", `'nonce-${nonce}'`],
-    styleSrc: ["'self'", "'unsafe-inline'"],
+    styleSrcElem: ["'self'", `'nonce-${nonce}'`],
+    styleSrcAttr: ["'unsafe-inline'"],
     imgSrc: ["'self'", 'data:', 'blob:'],
     fontSrc: ["'self'", 'data:'],
     connectSrc: ["'self'"],

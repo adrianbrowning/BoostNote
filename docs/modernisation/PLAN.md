@@ -408,7 +408,9 @@ real path gets the same live ticket, so opening it again activates its tab). The
 `{ kind: 'external', ticket, name }` with the base name, never a path; a ticket is 48 random hex
 characters and says nothing about the file. `GET /api/reader/:ticket` reads the file again each time
 and answers `{ name, body, frontmatter, html }`; main renders `html` with `src/markdown/render.ts` (it
-needs Node, so the page cannot). A ticket is bound to the granted real path: each read opens it
+needs Node, so the page cannot). Mermaid fences stay code blocks there; the reader pane replaces them
+with diagrams rendered in the page by the editor's `renderMermaid`, in the page's colour scheme (a
+diagram that fails keeps its code block). A ticket is bound to the granted real path: each read opens it
 without following a symlink (`O_NOFOLLOW | O_NONBLOCK`), requires a regular file, reads from that
 handle, and then requires that `realpath` is still the granted path and that `lstat` of the path is a
 regular file with the handle's device and inode; otherwise it answers `404` (base name only). So a
@@ -479,7 +481,10 @@ suite runs used to land in a test (`eWeekly plan`, arrow keys moving the note li
 renders mermaid SVG and KaTeX (fully rendered while unfocused); typing is saved to disk; an external
 write live-reloads; tabs survive a reload; importing the legacy fixture storage through the dialog;
 HTML export contains mermaid `<svg>` and KaTeX markup (and is screenshotted in a window); PDF export;
-a `.md` passed on argv and via `open-file`. `pnpm test` stays unit-only (Vitest excludes `tests/e2e`).
+a `.md` passed on argv and via `open-file`; no CSP violation in the main window (startup, a Mermaid
+and KaTeX note, editing, the reader) or the hidden Mermaid renderer, recorded from the start of each
+window's load by a session preload (`tests/e2e/csp-violations.cjs`). `pnpm test` stays unit-only
+(Vitest excludes `tests/e2e`).
 Tests run in parallel, also within a file (`fullyParallel`; 4 workers locally, 2 in CI): each test
 owns its app, temp vault, profile and HOME. Two tests must never write the same path (each
 `/tmp/boost-phase6` artifact belongs to one test).
