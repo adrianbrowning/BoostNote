@@ -14,15 +14,16 @@ async function settleFrames(page: Page, frames = 2): Promise<void> {
 }
 
 /** A pointer event step: target (a selector, or `'window'`), event type and clientX. */
-type PointerStep = [target: string, type: string, clientX: number]
+type PointerStep = [target: string, type: 'pointerdown' | 'pointermove' | 'pointerup', clientX: number]
 
 /** Dispatches `steps` in one synchronous burst at height `y`, so no update settles in between. */
 async function pointerBurst(page: Page, y: number, steps: PointerStep[]): Promise<void> {
   await page.evaluate(
     ({ y, steps }) => {
       for (const [selector, type, clientX] of steps) {
-        const target = selector === 'window' ? window : document.querySelector(selector)
-        if (!target) throw new Error(`${selector} is not rendered`)
+        const matches = selector === 'window' ? [window] : document.querySelectorAll(selector)
+        const [target] = matches
+        if (!target || matches.length !== 1) throw new Error(`${selector} matches ${matches.length} elements, not one`)
         target.dispatchEvent(new PointerEvent(type, { bubbles: true, cancelable: true, clientX, clientY: y }))
       }
     },
@@ -92,7 +93,7 @@ test('dragging a resizer resizes the pane, persists the width and survives colla
   await page.mouse.move(resizer.x + 42, resizer.y + 100, { steps: 4 })
   await page.mouse.up()
   await expect.poll(async () => (await box(sidebar)).width).toBe(290)
-  await expect.poll(async () => (await readSettings(app)).ui?.panes.sidebarWidth).toBe(290)
+  await expect.poll(async () => (await readSettings(app)).ui?.panes?.sidebarWidth).toBe(290)
 
   // A collapsed sidebar takes no width, so the drag leaves no width of its own behind.
   await app.clickMenu('toggle-sidebar')
@@ -117,14 +118,14 @@ test('dragging the note-list resizer resizes the list and persists listWidth', a
   await page.mouse.move(resizer.x + 42, resizer.y + 100, { steps: 4 })
   await page.mouse.up()
   await expect.poll(async () => (await box(notes)).width).toBe(320)
-  await expect.poll(async () => (await readSettings(app)).ui?.panes.listWidth).toBe(320)
+  await expect.poll(async () => (await readSettings(app)).ui?.panes?.listWidth).toBe(320)
 })
 
 test('a second drag that starts before the first settles keeps its own width', async ({ app }) => {
   const { page } = app
   const sidebar = page.getByRole('navigation', { name: 'Vault' })
   const sidebarResizer = '[aria-label="Resize sidebar"]'
-  const resizer = await box(page.locator(sidebarResizer))
+  const resizer = await box(page.getByRole('separator', { name: 'Resize sidebar' }))
   const x = resizer.x + 2
   const y = resizer.y + 100
   // One synchronous burst, so the second pointerdown lands before the first drag's update settles.
@@ -148,8 +149,8 @@ test('a note-list drag that starts before a sidebar drag settles leaves no sideb
   const notes = page.getByRole('region', { name: 'Notes' })
   const sidebarResizer = '[aria-label="Resize sidebar"]'
   const listResizer = '[aria-label="Resize note list"]'
-  const sidebarBox = await box(page.locator(sidebarResizer))
-  const listBox = await box(page.locator(listResizer))
+  const sidebarBox = await box(page.getByRole('separator', { name: 'Resize sidebar' }))
+  const listBox = await box(page.getByRole('separator', { name: 'Resize note list' }))
   const y = sidebarBox.y + 100
   // One synchronous burst, so the list pointerdown lands before the sidebar drag's update settles.
   await pointerBurst(page, y, [

@@ -55,8 +55,10 @@ export async function openLooseFile(
   )
 }
 
-/** The app's parsed `settings.json` from its temp profile. */
-export async function readSettings({ userDataDir }: Pick<AppHandle, 'userDataDir'>): Promise<Settings> {
+/** The app's raw `settings.json` from its temp profile: its `ui` section is stored unnormalized. */
+export async function readSettings({
+  userDataDir,
+}: Pick<AppHandle, 'userDataDir'>): Promise<Omit<Settings, 'ui'> & { ui?: UiPatch }> {
   return JSON.parse(await readFile(path.join(userDataDir, 'settings.json'), 'utf8'))
 }
 

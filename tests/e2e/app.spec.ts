@@ -3,7 +3,7 @@ import * as path from 'node:path'
 import type { Page } from '@playwright/test'
 
 import { createLegacyStorage } from '../migrate/fixture.ts'
-import { expect, launchApp, openLooseFile, quitWithoutDialog, test, writeFiles } from './fixtures.ts'
+import { expect, launchApp, openLooseFile, quitWithoutDialog, readSettings, test, writeFiles } from './fixtures.ts'
 
 const DIAGRAM = `---
 title: Diagram
@@ -322,7 +322,7 @@ test('opens a .md outside every vault read-only in a reader tab, without touchin
     await expect(page.locator('[data-editor]')).toBeHidden()
     await expect(page.locator('[data-note="inside.md"]')).toBeVisible()
     await expect(page.locator('[data-note="readme.md"]')).toHaveCount(0)
-    const settings = async () => JSON.parse(await readFile(path.join(app.userDataDir, 'settings.json'), 'utf8'))
+    const settings = () => readSettings(app)
     // Main stores the vault's real path (macOS temp folders sit behind the `/var` symlink).
     const vaultRoot = await realpath(app.vault)
     expect(await settings()).toMatchObject({ vaults: [vaultRoot], lastVault: vaultRoot })
@@ -432,7 +432,7 @@ test('"Open folder as vault" in a reader opens the file’s folder as the vault 
 
     // Recent and lastVault: the folder is the vault now; the ticket is revoked.
     const loose = await realpath(path.join(dir, 'loose'))
-    const settings = JSON.parse(await readFile(path.join(app.userDataDir, 'settings.json'), 'utf8'))
+    const settings = await readSettings(app)
     expect(settings).toMatchObject({ lastVault: loose, vaults: [loose, await realpath(app.vault)] })
     const ticket = new URL(response.url()).pathname.split('/')[3]
     expect(await page.evaluate((t) => fetch(`/api/reader/${t}`).then((r) => r.status), ticket)).toBe(404)
@@ -825,7 +825,7 @@ test('a reader’s Add to vault and vault switch wait for a running open-request
     await expect(page.locator('[role="tab"][aria-selected="true"]')).toHaveAttribute('data-tab', 'second.md')
     await expect(page.locator('[data-note="second.md"]')).toBeVisible()
     await expect(page.locator('[data-notice][data-kind="error"]')).toHaveCount(0)
-    const settings = JSON.parse(await readFile(path.join(app.userDataDir, 'settings.json'), 'utf8'))
+    const settings = await readSettings(app)
     expect(settings.lastVault).toBe(await realpath(path.join(dir, 'loose')))
     // The vaults the drains opened kept their notes.
     const saved = async (root: string) =>
@@ -853,9 +853,7 @@ test('"Opening a .md outside a vault" defaults to Read only; "Open its folder as
     await expect(select).toHaveValue('reader')
     await expect(select.locator('option')).toHaveText(['Read only', 'Open its folder as vault'])
     await select.selectOption('vault')
-    await expect
-      .poll(async () => JSON.parse(await readFile(path.join(app.userDataDir, 'settings.json'), 'utf8')).ui?.outsideFile)
-      .toBe('vault')
+    await expect.poll(async () => (await readSettings(app)).ui?.outsideFile).toBe('vault')
     await page.keyboard.press('Escape')
 
     // An outside file opens its folder as the vault, as before reader tabs.
