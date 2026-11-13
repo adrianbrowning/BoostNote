@@ -165,6 +165,7 @@ export function toNote(id: string, raw: string, text: NoteText, stats: { birthti
     title,
     tags: readTags(frontmatter.tags),
     starred: frontmatter.starred === true,
+    pinned: frontmatter.pinned === true,
     created: readDate(frontmatter.created, stats.birthtime),
     updated: readDate(frontmatter.updated, stats.mtime),
     excerpt: excerptOf(body),

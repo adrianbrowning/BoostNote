@@ -145,10 +145,18 @@ describe('MCP server', () => {
   it('updates properties, moves, trashes and restores', async () => {
     const updated = await callJson('update_properties', {
       id: 'work/todo.md',
-      set: { starred: true },
+      set: { starred: true, pinned: true },
       remove: ['tags'],
     })
-    expect(updated).toMatchObject({ starred: true, tags: [], frontmatter: { owner: 'me', starred: true } })
+    expect(updated).toMatchObject({
+      starred: true,
+      pinned: true,
+      tags: [],
+      frontmatter: { owner: 'me', starred: true },
+    })
+    expect((await callJson('list_notes', { pinned: true })).map((meta: { id: string }) => meta.id)).toEqual([
+      'work/todo.md',
+    ])
     expect(await callJson('move_note', { id: 'work/todo.md', folder: 'ideas' })).toMatchObject({
       id: 'ideas/todo.md',
       linksUpdated: 0,

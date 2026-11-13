@@ -87,6 +87,7 @@ const OPTIONS: Record<string, OptionSpec> = {
   recursive: { type: 'boolean' },
   tag: { type: 'string', multiple: true },
   starred: { type: 'boolean' },
+  pinned: { type: 'boolean' },
   sort: { type: 'string' },
   limit: { type: 'string' },
   raw: { type: 'boolean' },
@@ -102,9 +103,9 @@ const GLOBAL_OPTIONS = ['vault', 'json', 'help']
 const COMMANDS: Record<string, CommandSpec> = {
   list: {
     usage:
-      'list [--folder <id>] [--recursive] [--tag <tag>] [--starred] [--sort updated|created|title|id] [--limit <n>]',
+      'list [--folder <id>] [--recursive] [--tag <tag>] [--starred] [--pinned] [--sort updated|created|title|id] [--limit <n>]',
     summary: 'List notes (newest first).',
-    options: ['folder', 'recursive', 'tag', 'starred', 'sort', 'limit'],
+    options: ['folder', 'recursive', 'tag', 'starred', 'pinned', 'sort', 'limit'],
     args: [0, 0],
   },
   search: {
@@ -139,7 +140,7 @@ const COMMANDS: Record<string, CommandSpec> = {
   },
   'set-props': {
     usage: 'set-props <id> [key=value]... [--unset <key>]... [--base-hash <hash>]',
-    summary: 'Set/remove properties. tags=a,b  starred=true  title=Text  other=<YAML value>.',
+    summary: 'Set/remove properties. tags=a,b  starred=true  pinned=true  title=Text  other=<YAML value>.',
     options: ['unset', 'base-hash'],
     args: [1, Number.POSITIVE_INFINITY],
   },
@@ -314,6 +315,7 @@ async function run(command: string, context: Context, vault: Vault): Promise<Out
         recursive: values.recursive === true,
         tag: tags?.[0],
         starred: values.starred === true,
+        pinned: values.pinned === true,
         sort: sort as SortKey | undefined,
         limit: optionalNumber(values.limit),
       })
@@ -424,7 +426,7 @@ function optionalNumber(value: Values[string]): number | undefined {
   return number
 }
 
-/** `tags` is a comma-separated list, `title` text as typed, `starred` true/false, anything else a YAML value. */
+/** `tags` is a comma-separated list, `title` text as typed, `starred`/`pinned` true/false, anything else a YAML value. */
 function propertyValue(key: string, text: string): unknown {
   if (key === 'tags') {
     return text
@@ -433,8 +435,8 @@ function propertyValue(key: string, text: string): unknown {
       .filter(Boolean)
   }
   if (key === 'title') return text
-  if (key === 'starred') {
-    if (text !== 'true' && text !== 'false') throw new CommandError('USAGE', 'starred must be true or false')
+  if (key === 'starred' || key === 'pinned') {
+    if (text !== 'true' && text !== 'false') throw new CommandError('USAGE', `${key} must be true or false`)
     return text === 'true'
   }
   try {
@@ -448,7 +450,8 @@ function propertyValue(key: string, text: string): unknown {
 
 function noteLine(meta: ReadonlyNoteMeta): string {
   const tags = meta.tags.length > 0 ? `  ${meta.tags.map((tag) => `#${tag}`).join(' ')}` : ''
-  return `${meta.starred ? '★ ' : ''}${meta.id} — ${meta.title}${tags}  (${meta.updated.slice(0, 10)})`
+  const marks = `${meta.pinned ? '📌 ' : ''}${meta.starred ? '★ ' : ''}`
+  return `${marks}${meta.id} — ${meta.title}${tags}  (${meta.updated.slice(0, 10)})`
 }
 
 function propertiesText(note: NoteDocument): string {

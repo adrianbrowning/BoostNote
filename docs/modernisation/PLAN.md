@@ -583,7 +583,7 @@ deleted for good: `trash` moves a note to `.trash/` (restorable), there is no em
   `NOT_FOUND`, `CONFLICT`, `AMBIGUOUS`, `INVALID`, `EXISTS`) mapped from `VaultError`. Both the CLI
   (`src/cli/main.ts`, `runCli(argv, io)`) and the MCP server (`src/cli/mcp.ts`, `createMcpServer(vault)`)
   call it, so they behave alike and `boostnote --json` prints exactly what the MCP tools return.
-- **Operations:** `list` (folder, `--recursive`, tag, starred, sort, limit), `search` (the index's
+- **Operations:** `list` (folder, `--recursive`, tag, starred, pinned, sort, limit), `search` (the index's
   `search`; id, title, excerpt, score), `read` (document with frontmatter, body and `hash`; `--raw`
   the file), `create`, `write` (body only, frontmatter kept), `append`, `set-props` / MCP
   `update_properties { set, remove }` (`writeNote` with the edited frontmatter, so YAML of keys not

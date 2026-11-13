@@ -13,7 +13,7 @@ choose, so any editor, `git` or sync tool works with them. The background and de
 ## Features
 
 - **Vaults of plain Markdown.** A vault is any folder: notes are `.md` files with optional YAML
-  frontmatter (`title`, `tags`, `starred`, `created`, `updated`, and any keys of your own, kept
+  frontmatter (`title`, `tags`, `starred`, `pinned`, `created`, `updated`, and any keys of your own, kept
   verbatim), folders are directories, pasted images live next to the note in `<note>.assets/`.
 - **One live-preview editor** (CodeMirror 6, Obsidian/Typora style): markers hide when the cursor
   leaves a construct, and an unfocused note looks fully rendered. Images, task checkboxes, tables,

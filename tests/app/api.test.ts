@@ -199,6 +199,7 @@ describe('notes', () => {
       'excerpt',
       'folder',
       'id',
+      'pinned',
       'starred',
       'tags',
       'title',
