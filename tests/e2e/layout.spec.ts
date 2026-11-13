@@ -188,7 +188,8 @@ test('folder colour swatches show the palette and the picked colour paints the f
   const { page } = app
   const folder = page.locator('[data-folder="work"]')
   const dot = folder.locator('[data-folder-swatch]')
-  const uncoloured = await dot.evaluate((element) => getComputedStyle(element).backgroundColor)
+  const uncoloured = 'rgba(0, 0, 0, 0)'
+  await expect(dot).toHaveCSS('background-color', uncoloured)
   await folder.click({ button: 'right' })
   const swatch = page.getByRole('menuitemradio', { name: 'Colour #E10051' })
   await expect(swatch).toHaveCSS('background-color', 'rgb(225, 0, 81)')
