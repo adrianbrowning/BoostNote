@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os'
 import * as path from 'node:path'
 import { test as base, type ElectronApplication, _electron as electron, type Page } from '@playwright/test'
 
-import type { Settings, UiPatch } from '../../src/main/settings.ts'
+import type { Settings, UiPatch, UiPreferences } from '../../src/main/settings.ts'
 
 const projectRoot = path.resolve(import.meta.dirname, '../..')
 /** Main-process preload: on macOS test windows never take the OS keyboard focus (see the file). */
@@ -58,10 +58,14 @@ export async function openLooseFile(
   )
 }
 
-/** The app's raw `settings.json` from its temp profile. Its `ui` section can be partial: launchApp seeds a UiPatch, and the app writes a full one only when it saves preferences. */
+/**
+ * The app's `settings.json` from its temp profile. launchApp seeds a partial `ui`, but the app
+ * rewrites the file with its sanitized settings (a full, normalized `ui`) when it restores the
+ * vaults at start-up, before its window opens, so by the time launchApp returns it is full.
+ */
 export async function readSettings({
   userDataDir,
-}: Pick<AppHandle, 'userDataDir'>): Promise<Omit<Settings, 'ui'> & { ui?: UiPatch }> {
+}: Pick<AppHandle, 'userDataDir'>): Promise<Settings & { ui: UiPreferences }> {
   return JSON.parse(await readFile(path.join(userDataDir, 'settings.json'), 'utf8'))
 }
 
