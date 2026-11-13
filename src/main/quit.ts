@@ -1,11 +1,38 @@
-/** How long quitting waits for the asset server (its dev file watcher) to close. */
-export const ASSET_CLOSE_TIMEOUT_MS = 2000
+/** How long quitting waits for every teardown step (asset server dev watcher, event hub, vaults) to settle. */
+export const QUIT_TEARDOWN_TIMEOUT_MS = 2000
+
+/** Settles with `promise`, or with `'timeout'` after `ms`; the timer is always cleared. */
+export async function raceTimeout<T>(promise: Promise<T>, ms: number): Promise<T | 'timeout'> {
+  const { promise: timeout, resolve } = Promise.withResolvers<'timeout'>()
+  const timer = setTimeout(() => resolve('timeout'), ms)
+  try {
+    return await Promise.race([promise, timeout])
+  } finally {
+    clearTimeout(timer)
+  }
+}
+
+/** Runs `teardown`, logging (not propagating) a synchronous throw or a rejection. */
+async function logFailure(message: string, teardown: () => void | Promise<void>): Promise<void> {
+  try {
+    await teardown()
+  } catch (error) {
+    console.error(message, error)
+  }
+}
+
+/** One named quit-time teardown step; a failure is logged as `Could not close ${name}`. */
+export interface TeardownStep {
+  name: string
+  run(): void | Promise<void>
+}
 
 interface QuitDisposalOptions {
-  /** The asset server; closing it stops its dev file watcher. */
-  server: { close(): Promise<void> }
-  /** Synchronous teardown run once, when disposal starts. */
-  dispose(): void
+  /**
+   * Teardown steps run once, together, when disposal starts. Each is guarded on its own, so one that
+   * throws or rejects is logged and never skips another; returned promises are awaited together.
+   */
+  teardown: ReadonlyArray<TeardownStep>
   /** Quits for real (`app.quit()`); emits `before-quit` again, which then passes through. */
   quit(): void
   timeoutMs?: number
@@ -13,14 +40,13 @@ interface QuitDisposalOptions {
 
 /**
  * The `before-quit` handler once leaving is confirmed: the first quit is held (`preventDefault`)
- * while the asset server closes, bounded by `timeoutMs` so a close that fails or never settles
- * still quits; repeated quits meanwhile are held too, and the final `quit()` passes through.
+ * while `teardown` runs, bounded by `timeoutMs` so a step that throws, fails or never settles still
+ * quits; repeated quits meanwhile are held too, and the final `quit()` passes through.
  */
 export function createQuitDisposal({
-  server,
-  dispose,
+  teardown,
   quit,
-  timeoutMs = ASSET_CLOSE_TIMEOUT_MS,
+  timeoutMs = QUIT_TEARDOWN_TIMEOUT_MS,
 }: QuitDisposalOptions): (event: { preventDefault(): void }) => Promise<void> {
   let state: 'pending' | 'running' | 'done' = 'pending'
   return async (event) => {
@@ -28,16 +54,10 @@ export function createQuitDisposal({
     event.preventDefault()
     if (state === 'running') return
     state = 'running'
-    dispose()
-    const { promise: timeout, resolve } = Promise.withResolvers<void>()
-    const timer = setTimeout(resolve, timeoutMs)
-    try {
-      await Promise.race([server.close(), timeout])
-    } catch (error) {
-      console.error('Could not close the asset server', error)
-    } finally {
-      clearTimeout(timer)
-    }
+    await raceTimeout(
+      Promise.all(teardown.map(({ name, run }) => logFailure(`Could not close ${name}`, run))),
+      timeoutMs,
+    )
     state = 'done'
     quit()
   }
