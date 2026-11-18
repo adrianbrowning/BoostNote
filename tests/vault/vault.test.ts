@@ -68,6 +68,21 @@ describe('vault notes', () => {
     expect(vault.folders).toContain('new')
   })
 
+  it('lists, reads and saves a note whose extension is upper or mixed case, keeping its file name', async () => {
+    await put('work/Plan.MD', 'old\n')
+    await put('Idea.mD', 'idea\n')
+    vault = await openVault(root)
+    expect((await vault.notes()).map((note) => note.id).sort()).toEqual(['Idea.mD', 'work/Plan.MD'])
+    const note = await vault.readNote('work/Plan.MD')
+    expect(note.title).toBe('Plan')
+    const written = await vault.writeNote('work/Plan.MD', { body: 'new\n', frontmatter: note.frontmatter })
+    if (written.status !== 'saved') throw new Error('expected saved')
+    expect(written.note.id).toBe('work/Plan.MD')
+    expect(await readdir(path.join(root, 'work'))).toEqual(['Plan.MD'])
+    expect((await read('work/Plan.MD')).endsWith('new\n')).toBe(true)
+    expect((await vault.createNote('work', 'Fresh')).id).toBe('work/Fresh.md')
+  })
+
   it('creates notes named after the title, unique ignoring case', async () => {
     vault = await openVault(root)
     const first = await vault.createNote('', 'Hello, World!')

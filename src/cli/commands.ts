@@ -4,7 +4,7 @@
  * data so the CLI (`--json`) and the MCP tools return the same shapes.
  */
 import { type TaskProgress, taskProgress } from '../app/actions/public/workspace/tasks.ts'
-import { type NoteMeta, noteStem } from '../shared/vault-ids.ts'
+import { isNoteFileName, lastSegment, type NoteMeta, noteStem } from '../shared/vault-ids.ts'
 import {
   type FolderNode,
   type Frontmatter,
@@ -166,15 +166,16 @@ export function normalizeFolder(folder: string): string {
 }
 
 /**
- * The note id `input` names: an exact id (with or without `.md`), else a bare name matching one
+ * The note id `input` names: an exact id (with or without `.md`, in any case), else a bare name matching one
  * note's file name or title (exactly, then ignoring case). Several matches is an error listing them.
  */
 export async function resolveNoteId(vault: Vault, input: string): Promise<string> {
   const id = input.replace(/\\/g, '/').replace(/^\/+/, '')
   if (id === '') throw new CommandError('USAGE', 'Missing note id')
   if (await vault.hasNote(id)) return id
-  if (!id.endsWith('.md') && (await vault.hasNote(`${id}.md`))) return `${id}.md`
-  const name = id.replace(/\.md$/, '')
+  const isNoteName = isNoteFileName(lastSegment(id))
+  if (!isNoteName && (await vault.hasNote(`${id}.md`))) return `${id}.md`
+  const name = isNoteName ? id.slice(0, -3) : id
   const named = (await vault.notes()).map((meta) => ({ id: meta.id, stem: noteStem(meta.id), title: meta.title }))
   const exact = named.filter((note) => note.stem === name || note.title === name)
   const lower = name.toLowerCase()

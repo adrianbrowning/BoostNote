@@ -3,7 +3,8 @@
  * (Biome enforces it for `src/shared/**`), served to the page through `remix.json` `allowFiles`.
  *
  * A vault id is a POSIX path relative to the vault root: `work/todo.md` (note), `work` (folder),
- * `''` (the root). Note files end in lowercase `.md`; `.MD` is not a note extension.
+ * `''` (the root). A note file name ends in `.md` in any letter case (`.md`, `.MD`, `.Md`, `.mD`) and
+ * has a stem; new notes are written with a lowercase `.md`.
  */
 
 /** What the index and lists know about a note; also the JSON the client gets for a note list. */
@@ -44,12 +45,12 @@ export function lastSegment(id: string): string {
   return id.replace(/[\\/]+$/, '').replace(/^.*[\\/]/, '')
 }
 
-/** Whether a file name is a note's: it ends in lowercase `.md` and has a stem (`a.md`; not `.md`, `B.MD`). */
+/** Whether a file name is a note's: it ends in `.md` in any case and has a stem (`a.md`, `B.MD`; not `.md`). */
 export function isNoteFileName(name: string): boolean {
-  return name.endsWith('.md') && name.length > 3
+  return name.length > 3 && name.slice(-3).toLowerCase() === '.md'
 }
 
-/** File name without `.md` (`work/todo.md` → `todo`); `.MD` and a bare `.md` are kept. */
+/** File name without its `.md` in any case (`work/todo.md` → `todo`, `Plan.MD` → `Plan`); a bare `.md` is kept. */
 export function noteStem(id: string): string {
   const name = lastSegment(id)
   return isNoteFileName(name) ? name.slice(0, -3) : name
@@ -142,7 +143,7 @@ export function relativeId(folder: string, toId: string): string {
 /**
  * The note a link in note `fromId` opens (`../work/todo.md#x` → `work/todo.md`, `note.md/#x` →
  * `note.md`), or `undefined` unless `href` is a relative link whose last non-empty segment is a note
- * file name (lowercase `.md`) and that resolves inside the vault with no hidden segment (`resolveLinkPath`).
+ * file name (`.md` in any case) and that resolves inside the vault with no hidden segment (`resolveLinkPath`).
  */
 export function resolveNoteLink(fromId: string, href: string): string | undefined {
   const relPath = linkPath(href)
