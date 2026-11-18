@@ -130,8 +130,8 @@ export interface TitleRenamePlan {
 }
 
 /**
- * Part of the result of trashing, renaming or moving a note whose extension-case twin (`a.md`
- * beside `a.MD`) shares its assets folder: the folder stayed in place for the twin.
+ * Part of the result of trashing, restoring, renaming or moving a note whose extension-case twin
+ * (`a.md` beside `a.MD`) shares its assets folder: the folder stayed in place for the twin.
  */
 export interface AssetsLeftBehind {
   /** Vault path of the assets folder left in place (`work/a.assets`); the note's links into it may break. */
@@ -552,7 +552,7 @@ export class Vault {
    * Moves a note and its assets (unless an extension-case twin shares them) into `.trash/`, keeping
    * its file name (extension case too) unless taken.
    */
-  deleteNote(id: string): Promise<TrashEntry & AssetsLeftBehind> {
+  deleteNote(id: string): Promise<TrashEntry> {
     return this.#exclusive(async () => {
       const file = await resolveInside(this.root, noteSegments(id))
       if (!(await isFile(file))) throw new VaultError('NOT_FOUND', `Note not found: ${id}`)
@@ -567,12 +567,12 @@ export class Vault {
         await renameIfExists(assetsDirOf(file), path.join(trashDir, `${trashStem}${ASSETS_SUFFIX}`))
       }
       this.#untrack(id)
-      const entry = await this.#addTrashEntry(trashId, {
+      return this.#addTrashEntry(trashId, {
         kind: 'note',
         originalPath: id,
         deletedAt: new Date().toISOString(),
+        ...(assetsLeftBehind ? { assetsLeftBehind } : {}),
       })
-      return assetsLeftBehind ? { ...entry, assetsLeftBehind } : entry
     })
   }
 
@@ -597,9 +597,10 @@ export class Vault {
 
   /**
    * Puts a trashed note or folder back at its original path (recreating missing parent folders,
-   * suffixing the name when the original is taken). Returns the restored note/folder id and its kind.
+   * suffixing the name when the original is taken). Returns the restored note/folder id and its kind;
+   * a note trashed without its shared assets folder keeps its links on it and says so.
    */
-  restore(trashId: string): Promise<{ id: string; kind: TrashKind }> {
+  restore(trashId: string): Promise<{ id: string; kind: TrashKind } & AssetsLeftBehind> {
     return this.#exclusive(async () => {
       const index = await readTrashIndex(this.root)
       const entry = index.entries[trashId]
@@ -609,6 +610,7 @@ export class Vault {
       const parent = parentOf(entry.originalPath)
       const parentDir = await resolveInside(this.root, folderSegments(parent))
       await mkdir(parentDir, { recursive: true })
+      const { assetsLeftBehind } = entry
       let restoredId: string
       if (entry.kind === 'note') {
         noteSegments(entry.originalPath)
@@ -616,10 +618,12 @@ export class Vault {
         restoredId = joinId(parent, `${stem}${splitNoteExtension(entry.originalPath).extension}`)
         const target = path.join(this.root, ...restoredId.split('/'))
         await rename(source, target)
-        await renameIfExists(assetsDirOf(source), assetsDirOf(target))
+        if (assetsLeftBehind === undefined) await renameIfExists(assetsDirOf(source), assetsDirOf(target))
         const raw = await readFile(target, 'utf8')
         const text = parseNoteText(raw)
-        const body = rebaseNoteLinks(text.body, entry.originalPath, restoredId)
+        const body = rebaseNoteLinks(text.body, entry.originalPath, restoredId, [
+          { from: entry.originalPath, to: restoredId, kind: 'note', assets: assetsLeftBehind === undefined },
+        ])
         const next = body === text.body ? raw : raw.slice(0, raw.length - text.body.length) + body
         if (next !== raw) await writeFileAtomic(target, next)
         this.#addAncestors(restoredId)
@@ -638,7 +642,7 @@ export class Vault {
       }
       delete index.entries[trashId]
       await writeTrashIndex(this.root, index)
-      return { id: restoredId, kind: entry.kind }
+      return { id: restoredId, kind: entry.kind, ...(assetsLeftBehind ? { assetsLeftBehind } : {}) }
     })
   }
 

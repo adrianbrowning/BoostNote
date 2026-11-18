@@ -529,8 +529,8 @@ The file name **is** the note's name (as in Obsidian/Hubble); the first `# H1` i
   follows), and a typed `.md` of any case is dropped from a new name. `x.md` and `x.MD` count as the
   same name. Two notes that differ only in extension case (`a.md` beside `a.MD`, on case-sensitive
   file systems) share `a.assets`: trashing, renaming or moving one leaves the folder for the other
-  and the result says so (`assetsLeftBehind: 'work/a.assets'`); a rename or move re-bases the note's
-  links on the folder's real place.
+  and the result says so (`assetsLeftBehind: 'work/a.assets'`, kept in the trash entry so `restore`
+  says it too); rename, move and restore keep the note's links on the folder's real place.
 - **Inline rename:** click the name in the editor header (or focus it and press F2/Enter); Enter or
   blur commits through `POST /api/notes/rename`, Esc cancels, `EXISTS`/`INVALID_PATH` show inline. A
   note whose name comes from a frontmatter `title` edits that key instead (tooltip says so; clearing

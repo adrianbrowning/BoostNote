@@ -240,11 +240,25 @@ describe('extension-case twins (a.md beside a.MD)', () => {
     expect(await readdir(path.join(root, '.trash/work'))).toEqual(['a.md'])
     expect(await read('work/a.assets/x.png')).toBe('X')
     expect(await vault.hasNote('work/a.MD')).toBe(true)
-    expect((await vault.listTrash()).map((item) => Object.keys(item).includes('assetsLeftBehind'))).toEqual([false])
+    expect((await vault.listTrash()).map((item) => item.assetsLeftBehind)).toEqual(['work/a.assets'])
 
     const last = await vault.deleteNote('work/a.MD')
     expect(last).not.toHaveProperty('assetsLeftBehind')
     expect((await readdir(path.join(root, '.trash/work'))).sort()).toEqual(['a 2.MD', 'a 2.assets', 'a.md'])
+  })
+
+  it('restores a trashed twin beside the other, its links still on the shared folder, saying it stayed', async (ctx) => {
+    if (!(await seedTwins())) ctx.skip()
+    vault = await openVault(root)
+    const entry = await vault.deleteNote('work/a.md')
+    await vault.close()
+    vault = await openVault(root)
+    const restored = await vault.restore(entry.id)
+    expect(restored).toEqual({ id: 'work/a 2.md', kind: 'note', assetsLeftBehind: 'work/a.assets' })
+    expect(await read('work/a 2.md')).toBe('lower ![x](./a.assets/x.png)\n')
+    expect((await readdir(path.join(root, 'work'))).sort()).toEqual(['a 2.md', 'a.MD', 'a.assets'])
+    expect(await read('work/a.assets/x.png')).toBe('X')
+    expect(await vault.listTrash()).toEqual([])
   })
 
   it('renames one twin and leaves the shared assets folder in place, its links still pointing at it', async (ctx) => {
