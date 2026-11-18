@@ -1098,9 +1098,13 @@ async function sameOrMissing(from: string, to: string): Promise<boolean> {
  * `self`, so a case-only rename of `self` is free.
  */
 async function nameTaken(file: string, self: string): Promise<boolean> {
-  const lower = path.basename(file).toLowerCase()
+  const target = path.basename(file).normalize('NFC').toLowerCase()
   for (const name of await readdir(path.dirname(file))) {
-    if (name.toLowerCase() === lower && !(await sameOrMissing(self, path.join(path.dirname(file), name)))) return true
+    if (
+      name.normalize('NFC').toLowerCase() === target &&
+      !(await sameOrMissing(self, path.join(path.dirname(file), name)))
+    )
+      return true
   }
   return false
 }

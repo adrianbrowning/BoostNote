@@ -338,6 +338,16 @@ describe('extension-case twins (a.md beside a.MD)', () => {
     expect(await read('work/Caf\u0065\u0301.md')).toBe('nfd\n')
     expect(await read('work/x.md')).toBe('x\n')
   })
+
+  it('refuses to rename onto an NFD name that differs from the target only in extension case', async (ctx) => {
+    if (!(await seedTwins())) ctx.skip()
+    await put('work/Caf\u0065\u0301.MD', 'nfd\n')
+    await put('work/x.md', 'x\n')
+    vault = await openVault(root)
+    await expect(vault.renameNote('work/x.md', 'Caf\u00e9')).rejects.toMatchObject({ code: 'EXISTS' })
+    expect(await read('work/Caf\u0065\u0301.MD')).toBe('nfd\n')
+    expect(await read('work/x.md')).toBe('x\n')
+  })
 })
 
 describe('writeNote frontmatter', () => {
