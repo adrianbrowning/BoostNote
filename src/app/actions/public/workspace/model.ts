@@ -1034,10 +1034,10 @@ export class WorkspaceModel extends TypedEventTarget<{
 
   async restore(trashId: string): Promise<void> {
     await this.attempt(async () => {
-      const { id } = await client.restore(trashId)
+      const { id, assetsLeftBehind } = await client.restore(trashId)
       this.selectedTrashId = null
       await this.refresh()
-      this.notify('info', `Restored ${id}`)
+      this.notify('info', `Restored ${id}${assetsLeftBehind ? `. ${assetsLeftBehindNotice(assetsLeftBehind)}` : ''}`)
     })
   }
 

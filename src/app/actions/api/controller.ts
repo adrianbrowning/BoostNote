@@ -291,7 +291,8 @@ export function createApiController(services: AppServices) {
       trashRestore: guarded(async ({ request }: { request: Request }) => {
         const vault = requireVault(services, request)
         const body = await readJsonObject(request)
-        return json({ id: (await vault.restore(requireString(body.id, 'id'))).id })
+        const { id, assetsLeftBehind } = await vault.restore(requireString(body.id, 'id'))
+        return json(assetsLeftBehind ? { id, assetsLeftBehind } : { id })
       }),
 
       trashEmpty: guarded(async ({ request }: { request: Request }) => {

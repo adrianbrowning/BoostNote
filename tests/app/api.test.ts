@@ -311,6 +311,20 @@ describe('notes', () => {
     expect(await readFile(path.join(vault.root, 'index.md'), 'utf8')).toBe('![x](work/a.assets/x.png)\n')
   })
 
+  it('restores one trashed extension-case twin and reports the shared assets folder stayed', async (ctx) => {
+    const work = path.join(vault.root, 'work')
+    await mkdir(path.join(work, 'a.assets'), { recursive: true })
+    await writeFile(path.join(work, 'a.md'), 'lower ![x](./a.assets/x.png)\n')
+    await writeFile(path.join(work, 'a.MD'), 'upper\n')
+    await writeFile(path.join(work, 'a.assets', 'x.png'), 'X')
+    if ((await readdir(work)).length !== 3) ctx.skip()
+    await vault.refresh()
+
+    await app.post(api.noteDelete.href(), { id: 'work/a.md' })
+    const restored = await readJson<unknown>(await app.post(api.trashRestore.href(), { id: 'work/a.md' }))
+    expect(restored).toEqual({ id: 'work/a 2.md', assetsLeftBehind: 'work/a.assets' })
+  })
+
   it('validates link update moves', async () => {
     const invalid = [
       {},

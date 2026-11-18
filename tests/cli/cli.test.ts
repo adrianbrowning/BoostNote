@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readdir, readFile, rm, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import * as path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
@@ -338,6 +338,25 @@ describe('renaming, moving and the trash', () => {
     expect(restored.json()).toEqual({ id: 'personal/todo.md', kind: 'note' })
     expect(await read('personal/todo.md')).toBe(FILES['personal/todo.md'])
     expect((await cli(['restore', 'personal/todo.md'])).code).toBe(4)
+  })
+
+  it('says in its text output when a twin leaves the shared assets folder behind', async (ctx) => {
+    await put('twins/a.md', 'lower\n')
+    await put('twins/a.MD', 'upper\n')
+    await put('twins/a.assets/x.png', 'X')
+    await put('twins/c.md', 'c\n')
+    await put('twins/c.MD', 'C\n')
+    await put('twins/c.assets/x.png', 'X')
+    if ((await readdir(path.join(root, 'twins'))).length !== 6) ctx.skip()
+    const stayed = (folder: string) => `Assets folder ${folder} stayed in place for the note with the same name.`
+
+    expect((await cli(['rename', 'twins/a.md', 'b'])).stdout).toContain(stayed('twins/a.assets'))
+    expect((await cli(['move', 'twins/c.MD', 'archive'])).stdout).toContain(stayed('twins/c.assets'))
+    await put('twins/d.md', 'd\n')
+    await put('twins/d.MD', 'D\n')
+    await put('twins/d.assets/x.png', 'X')
+    expect((await cli(['trash', 'twins/d.md'])).stdout).toContain(stayed('twins/d.assets'))
+    expect((await cli(['restore', 'twins/d.md'])).stdout).toContain(stayed('twins/d.assets'))
   })
 })
 

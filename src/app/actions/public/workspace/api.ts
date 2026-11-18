@@ -123,7 +123,7 @@ export const client = {
   deleteFolder: (id: string) => post<unknown>(api.folderDelete.href(), { id }),
   setFolderColor: (id: string, color: string | null) => post<unknown>(api.folderColor.href(), { id, color }),
 
-  restore: (id: string) => post<{ id: string }>(api.trashRestore.href(), { id }),
+  restore: (id: string) => post<{ id: string } & AssetsLeftBehind>(api.trashRestore.href(), { id }),
   emptyTrash: () => post<unknown>(api.trashEmpty.href()),
 
   uploadAsset: (noteId: string, file: File) => {
