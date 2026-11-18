@@ -741,8 +741,8 @@ export class WorkspaceModel extends TypedEventTarget<{
       const trashed = await client.deleteNote(id)
       await this.#forgetTabs((path) => path === id)
       await this.refresh()
-      const { notice } = linkMovesAfterRelocate({ result: { id, ...trashed }, done: 'Moved to Trash' })
-      if (notice) this.notify('info', notice)
+      const { notice, sticky } = linkMovesAfterRelocate({ result: { id, ...trashed }, done: 'Moved to Trash' })
+      if (notice) this.notify('info', notice, [], sticky)
     })
   }
 
@@ -1041,8 +1041,8 @@ export class WorkspaceModel extends TypedEventTarget<{
       const restored = await client.restore(trashId)
       this.selectedTrashId = null
       await this.refresh()
-      const { notice } = linkMovesAfterRelocate({ result: restored, done: `Restored ${restored.id}` })
-      if (notice) this.notify('info', notice)
+      const { notice, sticky } = linkMovesAfterRelocate({ result: restored, done: `Restored ${restored.id}` })
+      if (notice) this.notify('info', notice, [], sticky)
     })
   }
 
