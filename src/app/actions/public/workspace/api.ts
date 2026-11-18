@@ -1,5 +1,6 @@
 import { routes } from '../../../routes.ts'
 import type {
+  AssetsLeftBehind,
   ExportResult,
   ImportCandidate,
   ImportFilesReport,
@@ -108,7 +109,7 @@ export const client = {
     post<NoteDocument>(api.noteSave.href(), input),
   renameNote: (id: string, name: string) => post<NoteDocument>(api.noteRename.href(), { id, name }),
   moveNote: (id: string, folder: string) => post<NoteDocument>(api.noteMove.href(), { id, folder }),
-  deleteNote: (id: string) => post<unknown>(api.noteDelete.href(), { id }),
+  deleteNote: (id: string) => post<AssetsLeftBehind>(api.noteDelete.href(), { id }),
   revealNote: (id: string) => post<unknown>(api.noteReveal.href(), { id }),
   planTitleRenames: () => request<TitleRenamePlan>(api.titleRenamesPlan.href()),
   applyTitleRenames: (renames: TitleRename[]) => post<TitleRenameReport>(api.titleRenamesApply.href(), { renames }),

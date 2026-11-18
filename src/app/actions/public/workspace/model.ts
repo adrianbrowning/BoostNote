@@ -637,7 +637,8 @@ export class WorkspaceModel extends TypedEventTarget<{
     this.#rebaseTabs((path) => (path === id ? renamed.id : path))
     if (this.openId === id) this.session.relocated(renamed)
     await this.refresh()
-    void this.#offerLinkUpdates({ from: id, to: renamed.id, kind: 'note' })
+    if (renamed.assetsLeftBehind) this.notify('info', assetsLeftBehindNotice(renamed.assetsLeftBehind))
+    void this.#offerLinkUpdates({ from: id, to: renamed.id, kind: 'note', assets: !renamed.assetsLeftBehind })
   }
 
   setTitleRenamesOpen(open: boolean): void {
@@ -670,8 +671,9 @@ export class WorkspaceModel extends TypedEventTarget<{
       this.#rebaseTabs((path) => (path === id ? moved.id : path))
       if (this.openId === id) this.session.relocated(moved)
       await this.refresh()
-      this.notify('info', `Moved to ${this.folderName(folder)}`)
-      void this.#offerLinkUpdates({ from: id, to: moved.id, kind: 'note' })
+      const left = moved.assetsLeftBehind
+      this.notify('info', `Moved to ${this.folderName(folder)}${left ? `. ${assetsLeftBehindNotice(left)}` : ''}`)
+      void this.#offerLinkUpdates({ from: id, to: moved.id, kind: 'note', assets: !left })
     })
   }
 
@@ -733,10 +735,10 @@ export class WorkspaceModel extends TypedEventTarget<{
     }
     if (this.openId === id) await this.session.flush()
     await this.attempt(async () => {
-      await client.deleteNote(id)
+      const { assetsLeftBehind } = await client.deleteNote(id)
       await this.#forgetTabs((path) => path === id)
       await this.refresh()
-      this.notify('info', 'Moved to Trash')
+      this.notify('info', `Moved to Trash${assetsLeftBehind ? `. ${assetsLeftBehindNotice(assetsLeftBehind)}` : ''}`)
     })
   }
 
@@ -1285,4 +1287,9 @@ export class WorkspaceModel extends TypedEventTarget<{
       this.fail(error)
     }
   }
+}
+
+/** Tells the user an extension-case twin kept the shared assets folder, so this note's asset links may break. */
+function assetsLeftBehindNotice(folder: string): string {
+  return `The assets folder ${folder} stayed in place for the note with the same name; this note's links into it may break.`
 }

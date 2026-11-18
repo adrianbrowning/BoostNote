@@ -230,7 +230,7 @@ describe('rename files from titles', () => {
     ])
     const report = await vault.applyTitleRenames(plan)
     expect(report.renamed).toEqual(plan.renames)
-    expect(await readdir(path.join(root, 'Work'))).toEqual(['Meeting notes.MD', 'Meeting notes.assets'])
+    expect((await readdir(path.join(root, 'Work'))).sort()).toEqual(['Meeting notes.MD', 'Meeting notes.assets'])
     expect((await vault.readNote('Work/Meeting notes.MD')).body).toBe('![a](./Meeting%20notes.assets/a.png)\n')
     expect(await read('index.md')).toBe('[m](Work/Meeting%20notes.MD)\n')
   })

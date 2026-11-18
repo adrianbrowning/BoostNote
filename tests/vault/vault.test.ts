@@ -95,7 +95,7 @@ describe('vault notes', () => {
     expect((await readdir(path.join(root, 'work/Plan.assets'))).length).toBe(2)
     const entry = await vault.deleteNote('work/Plan.MD')
     expect(entry.id).toBe('work/Plan.MD')
-    expect(await readdir(path.join(root, '.trash/work'))).toEqual(['Plan.MD', 'Plan.assets'])
+    expect((await readdir(path.join(root, '.trash/work'))).sort()).toEqual(['Plan.MD', 'Plan.assets'])
     expect(await readdir(path.join(root, 'work'))).toEqual([])
     const restored = await vault.restore(entry.id)
     expect(restored).toEqual({ id: 'work/Plan.MD', kind: 'note' })
@@ -165,7 +165,7 @@ describe('vault notes', () => {
 
     const renamed = await vault.renameNote('work/Plan.MD', 'Roadmap')
     expect(renamed.id).toBe('work/Roadmap.MD')
-    expect(await readdir(path.join(root, 'work'))).toEqual(['Roadmap.MD', 'Roadmap.assets'])
+    expect((await readdir(path.join(root, 'work'))).sort()).toEqual(['Roadmap.MD', 'Roadmap.assets'])
     expect((await vault.readNote('work/Roadmap.MD')).body).toBe('![a](./Roadmap.assets/a.png)\n')
     expect(await read('work/Roadmap.assets/a.png')).toBe('A')
 
@@ -183,7 +183,7 @@ describe('vault notes', () => {
 
     const moved = await vault.moveNote('work/Plan.MD', 'archive')
     expect(moved.id).toBe('archive/Plan.MD')
-    expect(await readdir(path.join(root, 'archive'))).toEqual(['Plan.MD', 'Plan.assets'])
+    expect((await readdir(path.join(root, 'archive'))).sort()).toEqual(['Plan.MD', 'Plan.assets'])
     expect(await readdir(path.join(root, 'work'))).toEqual([])
     expect((await vault.readNote('archive/Plan.MD')).body).toBe('![a](./Plan.assets/a.png)\n[web](../index.md)\n')
     expect(await read('archive/Plan.assets/a.png')).toBe('A')

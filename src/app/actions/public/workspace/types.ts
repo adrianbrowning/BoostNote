@@ -16,6 +16,7 @@ import type { OpenRequest } from '../../../../main/vault-session.ts'
 import type { MenuCommand, MenuEvent } from '../../../../shared/commands.ts'
 import type { NoteMeta } from '../../../../shared/vault-ids.ts'
 import type {
+  AssetsLeftBehind,
   ImportFilesReport,
   LinkMove,
   LinkUpdate,
@@ -26,6 +27,7 @@ import type {
 } from '../../../../vault/index.ts'
 
 export type {
+  AssetsLeftBehind,
   ImportFilesReport,
   LinkMove,
   LinkUpdate,
@@ -59,8 +61,11 @@ export type JsonValue = string | number | boolean | null | JsonValue[] | { [key:
 /** What lists show about a note: the vault index's `NoteMeta`. */
 export type NoteSummary = NoteMeta
 
-/** A note as the editor needs it: frontmatter and body kept apart, `hash` for optimistic concurrency. */
-export interface NoteDocument extends NoteSummary {
+/**
+ * A note as the editor needs it: frontmatter and body kept apart, `hash` for optimistic concurrency.
+ * After a rename or move, `assetsLeftBehind` is set when an extension-case twin kept the shared assets folder.
+ */
+export interface NoteDocument extends NoteSummary, AssetsLeftBehind {
   frontmatter: { [key: string]: JsonValue }
   body: string
   /** sha256 of the whole file as last read or written. */

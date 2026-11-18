@@ -291,6 +291,26 @@ describe('notes', () => {
     expect(await readFile(path.join(vault.root, 'linker.md'), 'utf8')).toBe('[t](./New%20name.md#x)\n')
   })
 
+  it('renames one extension-case twin, reports the shared assets folder stayed, and keeps links into it', async (ctx) => {
+    const work = path.join(vault.root, 'work')
+    await mkdir(path.join(work, 'a.assets'), { recursive: true })
+    await writeFile(path.join(work, 'a.md'), 'lower ![x](./a.assets/x.png)\n')
+    await writeFile(path.join(work, 'a.MD'), 'upper ![x](./a.assets/x.png) [l](./a.md)\n')
+    await writeFile(path.join(work, 'a.assets', 'x.png'), 'X')
+    await writeFile(path.join(vault.root, 'index.md'), '![x](work/a.assets/x.png)\n')
+    if ((await readdir(work)).length !== 3) ctx.skip()
+    await vault.refresh()
+
+    const renamed = await readJson<NoteDocument>(await app.post(api.noteRename.href(), { id: 'work/a.md', name: 'b' }))
+    expect(renamed).toMatchObject({ id: 'work/b.md', assetsLeftBehind: 'work/a.assets' })
+    const moves = [{ from: 'work/a.md', to: renamed.id, kind: 'note', assets: false }]
+    const plan = await readJson<LinkUpdateReport>(await app.post(api.linksPlan.href(), { moves }))
+    expect(plan).toEqual({ notes: [{ id: 'work/a.MD', title: 'a', links: 1 }], total: 1 })
+    await app.post(api.linksApply.href(), { moves })
+    expect(await readFile(path.join(work, 'a.MD'), 'utf8')).toBe('upper ![x](./a.assets/x.png) [l](./b.md)\n')
+    expect(await readFile(path.join(vault.root, 'index.md'), 'utf8')).toBe('![x](work/a.assets/x.png)\n')
+  })
+
   it('validates link update moves', async () => {
     const invalid = [
       {},
@@ -299,6 +319,7 @@ describe('notes', () => {
       { moves: [{ from: 'a.md', to: 'b.md' }] },
       { moves: [{ from: 'a.md', to: 'b.md', kind: 'file' }] },
       { moves: [{ from: 'a.md', kind: 'note' }] },
+      { moves: [{ from: 'a.md', to: 'b.md', kind: 'note', assets: 'no' }] },
       { moves: [null] },
     ]
     for (const body of invalid) {

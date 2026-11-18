@@ -6,6 +6,7 @@
 import { type TaskProgress, taskProgress } from '../app/actions/public/workspace/tasks.ts'
 import { type NoteMeta, noteStem, splitNoteExtension } from '../shared/vault-ids.ts'
 import {
+  type AssetsLeftBehind,
   type FolderNode,
   type Frontmatter,
   type LinkMove,
@@ -85,7 +86,7 @@ export interface SearchResult {
   score: number
 }
 
-export interface RelocateResult extends WriteResult {
+export interface RelocateResult extends WriteResult, AssetsLeftBehind {
   previousId: string
   /** Links in other notes rewritten to follow the note (0 with `updateLinks: false`). */
   linksUpdated: number
@@ -94,14 +95,14 @@ export interface RelocateResult extends WriteResult {
   linksNotUpdated?: number
 }
 
-export interface TrashResult {
+export interface TrashResult extends AssetsLeftBehind {
   /** Pass to `restore`. */
   trashId: string
   originalPath: string
   deletedAt: string
 }
 
-export interface RestoreResult {
+export interface RestoreResult extends AssetsLeftBehind {
   /** Where the note or folder now is (its original place, suffixed when that is taken). */
   id: string
   kind: 'note' | 'folder'
@@ -317,7 +318,13 @@ export async function moveNote(
 /** Moves the note (and its assets) to the vault's `.trash/`; nothing is deleted. */
 export async function trashNote(vault: Vault, input: string): Promise<TrashResult> {
   const entry = await vault.deleteNote(await resolveNoteId(vault, input))
-  return { trashId: entry.id, originalPath: entry.originalPath, deletedAt: entry.deletedAt }
+  const { assetsLeftBehind } = entry
+  return {
+    trashId: entry.id,
+    originalPath: entry.originalPath,
+    deletedAt: entry.deletedAt,
+    ...(assetsLeftBehind ? { assetsLeftBehind } : {}),
+  }
 }
 
 /** Puts a trashed note (or a folder the app trashed) back; returns where it now is. */
@@ -370,10 +377,22 @@ function conflictChecked(id: string, result: WriteNoteResult): Note {
   throw conflict(id, result.current?.hash ?? null)
 }
 
-async function relocated(vault: Vault, fromId: string, note: Note, options: RelocateOptions): Promise<RelocateResult> {
-  const result: RelocateResult = { ...written(note), previousId: fromId, linksUpdated: 0, notesUpdated: 0 }
+async function relocated(
+  vault: Vault,
+  fromId: string,
+  note: Note & AssetsLeftBehind,
+  options: RelocateOptions,
+): Promise<RelocateResult> {
+  const { assetsLeftBehind } = note
+  const result: RelocateResult = {
+    ...written(note),
+    previousId: fromId,
+    linksUpdated: 0,
+    notesUpdated: 0,
+    ...(assetsLeftBehind ? { assetsLeftBehind } : {}),
+  }
   if (note.id === fromId) return result
-  const moves: LinkMove[] = [{ from: fromId, to: note.id, kind: 'note' }]
+  const moves: LinkMove[] = [{ from: fromId, to: note.id, kind: 'note', assets: assetsLeftBehind === undefined }]
   if (options.updateLinks === false) {
     result.linksNotUpdated = (await vault.planLinkUpdates(moves)).total
     return result
