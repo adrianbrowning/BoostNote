@@ -4,6 +4,10 @@ import type { LinkMove } from './types.ts'
 export interface RelocateOutcome {
   moves: LinkMove[]
   notice: string | undefined
+  /** The assets-left-behind warning, if any; later notices about this relocation carry it too. */
+  warning: string | undefined
+  /** True when the notice carries the warning, so it stays until the user closes it. */
+  sticky: boolean
 }
 
 /**
@@ -24,6 +28,16 @@ export function linkMovesAfterRelocate(options: {
   const warning = left
     ? `The assets folder ${left} stayed in place for the note with the same name; this note's links into it may break.`
     : undefined
-  const parts = [done, warning].filter((part) => part !== undefined)
-  return { moves, notice: parts.length === 0 ? undefined : parts.join('. ') }
+  return { moves, notice: joinNotice(done, warning), warning, sticky: warning !== undefined }
+}
+
+/** The "Updated N links" notice, still carrying the relocation's assets warning so it is not lost; sticky when it does. */
+export function linksUpdatedNotice(total: number, warning?: string): { text: string; sticky: boolean } {
+  const done = `Updated ${total === 1 ? '1 link' : `${total} links`}`
+  return { text: joinNotice(done, warning) ?? done, sticky: warning !== undefined }
+}
+
+function joinNotice(...parts: (string | undefined)[]): string | undefined {
+  const present = parts.filter((part) => part !== undefined)
+  return present.length === 0 ? undefined : present.join('. ')
 }

@@ -910,7 +910,11 @@ export class Vault {
     if (fromId === toId) return this.#track(fromId, from, raw)
     const assetsLeftBehind = await sharedAssetsOf(fromId, from)
     const assetsMove = assetsLeftBehind === undefined
-    if ((await nameTaken(to, from)) || (assetsMove && !(await sameOrMissing(assetsDirOf(from), assetsDirOf(to))))) {
+    if (
+      !(await sameOrMissing(from, to)) ||
+      (await nameTaken(to, from)) ||
+      !(await sameOrMissing(assetsDirOf(from), assetsDirOf(to)))
+    ) {
       throw new VaultError('EXISTS', `Already exists: ${toId}`)
     }
     // Rename first (also handles case-only renames on case-insensitive file systems), then fix links.

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { linkMovesAfterRelocate } from '../../src/app/actions/public/workspace/relocate.ts'
+import { linkMovesAfterRelocate, linksUpdatedNotice } from '../../src/app/actions/public/workspace/relocate.ts'
 
 describe('linkMovesAfterRelocate', () => {
   it('a twin rename leaves the shared assets out of the link move and names the folder', () => {
@@ -43,5 +43,28 @@ describe('linkMovesAfterRelocate', () => {
   it('an ordinary restore has no warning', () => {
     const outcome = linkMovesAfterRelocate({ result: { id: 'a.md' }, done: 'Restored a.md' })
     expect(outcome.notice).toBe('Restored a.md')
+  })
+})
+
+describe('sticky assets warning', () => {
+  it('a notice carrying the assets warning stays until closed', () => {
+    const outcome = linkMovesAfterRelocate({ from: 'a.md', result: { id: 'b.md', assetsLeftBehind: 'a.assets' } })
+    expect(outcome.sticky).toBe(true)
+    expect(outcome.warning).toContain('a.assets')
+  })
+
+  it('an ordinary notice closes on its own', () => {
+    const outcome = linkMovesAfterRelocate({ from: 'a.md', result: { id: 'sub/a.md' }, done: 'Moved to sub' })
+    expect(outcome.sticky).toBe(false)
+    expect(outcome.warning).toBeUndefined()
+  })
+
+  it('the links-updated notice keeps the assets warning and stays', () => {
+    const notice = linksUpdatedNotice(3, 'The assets folder a.assets stayed in place')
+    expect(notice).toEqual({ text: 'Updated 3 links. The assets folder a.assets stayed in place', sticky: true })
+  })
+
+  it('the links-updated notice without a warning closes on its own', () => {
+    expect(linksUpdatedNotice(1)).toEqual({ text: 'Updated 1 link', sticky: false })
   })
 })

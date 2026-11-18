@@ -314,6 +314,30 @@ describe('extension-case twins (a.md beside a.MD)', () => {
     expect(await read('index.md')).toBe('[m](work/Meeting%20notes.md)\n![x](work/meeting-notes.assets/x.png)\n')
     expect(await read('work/meeting-notes.assets/x.png')).toBe('X')
   })
+
+  it('refuses to rename one twin onto a name whose assets folder already exists', async (ctx) => {
+    if (!(await seedTwins())) ctx.skip()
+    await put('work/b.assets/y.png', 'Y')
+    vault = await openVault(root)
+    await expect(vault.renameNote('work/a.md', 'b')).rejects.toMatchObject({ code: 'EXISTS' })
+    expect(await read('work/a.md')).toBe('lower ![x](./a.assets/x.png)\n')
+    expect(await read('work/a.assets/x.png')).toBe('X')
+    expect(await read('work/b.assets/y.png')).toBe('Y')
+  })
+
+  it('refuses to rename onto a note the file system sees as the same name in another Unicode normalization', async (ctx) => {
+    await put('work/Caf\u0065\u0301.md', 'nfd\n')
+    await put('work/x.md', 'x\n')
+    if ((await readdir(path.join(root, 'work'))).length !== 2) ctx.skip()
+    await writeFile(path.join(root, 'work/Caf\u00e9.md'), 'probe\n', { flag: 'wx' }).then(
+      () => ctx.skip(),
+      () => undefined,
+    )
+    vault = await openVault(root)
+    await expect(vault.renameNote('work/x.md', 'Caf\u00e9')).rejects.toMatchObject({ code: 'EXISTS' })
+    expect(await read('work/Caf\u0065\u0301.md')).toBe('nfd\n')
+    expect(await read('work/x.md')).toBe('x\n')
+  })
 })
 
 describe('writeNote frontmatter', () => {
