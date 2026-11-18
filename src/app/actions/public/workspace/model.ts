@@ -439,7 +439,7 @@ export class WorkspaceModel extends TypedEventTarget<{
    * A reader tab's "Open folder as vault": main opens the folder of the tab's file as the vault (the
    * page sends only the ticket) and revokes the ticket; the reader tab becomes that note's tab at
    * the same position, next to the vault's restored tabs. Main refuses a file that can be no note
-   * of its folder (a dot-name, upper-case `.MD`); the notice says so and the reader stays. Ignored
+   * of its folder (a dot-name); the notice says so and the reader stays. Ignored
    * while the reader is closing, opening its folder or being added to the vault, so the tab is
    * still there to turn into the note's. The switch waits for a running open-request drain.
    */

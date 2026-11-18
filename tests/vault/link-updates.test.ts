@@ -154,6 +154,16 @@ describe('the shared link table, when the linking note moves', () => {
   })
 })
 
+describe('an upper-case `Note.MD/#anchor` link, when the linking note moves', () => {
+  it('keeps its trailing slash like a lowercase one', async () => {
+    await put(FROM, '[l](./Plan.MD/#x)\n')
+    await mkdir(path.join(root, 'Archive'))
+    vault = await openVault(root)
+    const note = await vault.moveNote(FROM, 'Archive')
+    expect(note.body).toBe('[l](../Guides/Plan.MD/#x)\n')
+  })
+})
+
 describe('links into a dot-folder, when the linking note moves', () => {
   it('are re-based like any other relative link', async () => {
     await put('Guides/n.md', '![d](.attachments/d.png)\n')

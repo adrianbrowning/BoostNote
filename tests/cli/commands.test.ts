@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os'
 import * as path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 
-import { restoreFromTrash } from '../../src/cli/commands.ts'
+import { resolveNoteId, restoreFromTrash } from '../../src/cli/commands.ts'
 import { openVault, type Vault } from '../../src/vault/index.ts'
 
 let root: string
@@ -26,5 +26,15 @@ describe('restoreFromTrash', () => {
     const trashed = await vault.deleteFolder('Ideas')
     expect(await restoreFromTrash(vault, ` ${trashed.id} `)).toEqual({ id: 'Ideas', kind: 'folder' })
     expect(vault.folders).toContain('Ideas')
+  })
+})
+
+describe('resolveNoteId', () => {
+  it('finds an upper-case .MD note by its path with no extension or a lowercase .md', async () => {
+    await vault.createFolder('', 'ideas')
+    await writeFile(path.join(root, 'ideas', 'Roadmap.MD'), '# Roadmap\n')
+    await vault.refresh()
+    expect(await resolveNoteId(vault, 'ideas/Roadmap')).toBe('ideas/Roadmap.MD')
+    expect(await resolveNoteId(vault, 'ideas/Roadmap.md')).toBe('ideas/Roadmap.MD')
   })
 })
