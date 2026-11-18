@@ -524,7 +524,9 @@ export class Vault {
    * number of such links in each. Nothing is written.
    */
   planLinkUpdates(moves: readonly LinkMove[]): Promise<LinkUpdateReport> {
-    return this.#exclusive(() => this.#rewriteIncomingLinks(checkMoves(moves), false))
+    return this.#exclusive(async () =>
+      this.#rewriteIncomingLinks(await this.#withAssetsState(checkMoves(moves)), false),
+    )
   }
 
   /**
@@ -532,7 +534,23 @@ export class Vault {
    * and a leading `./` are kept; links in code are not touched). Returns what was written.
    */
   applyLinkUpdates(moves: readonly LinkMove[]): Promise<LinkUpdateReport> {
-    return this.#exclusive(() => this.#rewriteIncomingLinks(checkMoves(moves), true))
+    return this.#exclusive(async () => this.#rewriteIncomingLinks(await this.#withAssetsState(checkMoves(moves)), true))
+  }
+
+  /**
+   * Note moves that do not say whether their assets folder moved get `assets: false` when the
+   * folder is still at the old place (an extension-case twin kept it), so links into it stay.
+   */
+  async #withAssetsState(moves: readonly LinkMove[]): Promise<LinkMove[]> {
+    return Promise.all(
+      moves.map(async (move) => {
+        if (move.kind !== 'note' || move.assets !== undefined) return move
+        const from = assetsDirOf(await resolveInside(this.root, noteSegments(move.from)))
+        const to = assetsDirOf(await resolveInside(this.root, noteSegments(move.to)))
+        const stayed = (await exists(from)) && !((await exists(to)) && (await sameOrMissing(from, to)))
+        return { ...move, assets: !stayed }
+      }),
+    )
   }
 
   /**

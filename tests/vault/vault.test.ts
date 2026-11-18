@@ -271,6 +271,10 @@ describe('extension-case twins (a.md beside a.MD)', () => {
     expect((await readdir(path.join(root, 'work'))).sort()).toEqual(['a.MD', 'a.assets', 'b.md'])
     expect(await read('work/a.assets/x.png')).toBe('X')
     expect(await read('work/a.MD')).toBe('upper ![x](./a.assets/x.png)\n')
+
+    await vault.applyLinkUpdates([{ from: 'work/a.md', to: renamed.id, kind: 'note' }])
+    expect(await read('work/a.MD')).toBe('upper ![x](./a.assets/x.png)\n')
+    expect(await read('index.md')).toBe('![x](work/a.assets/x.png)\n')
   })
 
   it('moves one twin and leaves the shared assets folder in place, re-basing its links on it', async (ctx) => {
@@ -283,6 +287,12 @@ describe('extension-case twins (a.md beside a.MD)', () => {
     expect(await readdir(path.join(root, 'archive'))).toEqual(['a.MD'])
     expect((await readdir(path.join(root, 'work'))).sort()).toEqual(['a.assets', 'a.md'])
     expect(await read('work/a.assets/x.png')).toBe('X')
+
+    await put('index.md', '[a](work/a.MD) ![x](work/a.assets/x.png)\n')
+    await vault.refresh()
+    await vault.applyLinkUpdates([{ from: 'work/a.MD', to: moved.id, kind: 'note' }])
+    expect(await read('index.md')).toBe('[a](archive/a.MD) ![x](work/a.assets/x.png)\n')
+    expect(await read('work/a.md')).toBe('lower ![x](./a.assets/x.png)\n')
   })
 
   it('title-renames one twin, leaving the shared assets folder and the links into it alone', async (ctx) => {
