@@ -10,6 +10,7 @@ import {
   parentOf,
   resolveNoteLink,
   safeDecode,
+  splitNoteExtension,
   toMeta,
 } from '../../src/shared/vault-ids.ts'
 import { FROM, LINK_CASES } from './link-cases.ts'
@@ -76,6 +77,23 @@ describe('noteStem', () => {
     ['work/', 'work'],
   ])('%j → %j', (id, stem) => {
     expect(noteStem(id)).toBe(stem)
+  })
+})
+
+describe('splitNoteExtension', () => {
+  it.each([
+    ['work/Plan.MD', 'work/Plan', '.MD'],
+    ['todo.md', 'todo', '.md'],
+    ['a.mD', 'a', '.mD'],
+    ['ideas/Roadmap', 'ideas/Roadmap', ''],
+    ['a.md.md', 'a.md', '.md'],
+    ['.md', '.md', ''],
+    ['work/.MD', 'work/.MD', ''],
+    ['notes.md.bak', 'notes.md.bak', ''],
+    ['work', 'work', ''],
+    ['note.md/', 'note.md/', ''],
+  ])('%j → %j + %j', (id, base, extension) => {
+    expect(splitNoteExtension(id)).toEqual({ base, extension })
   })
 })
 

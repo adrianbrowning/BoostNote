@@ -523,6 +523,14 @@ The file name **is** the note's name (as in Obsidian/Hubble); the first `# H1` i
   so renames can refuse it). Names are unique per folder ignoring case, with ` 2`, ` 3`, …
   (also for moves, trash slots and restores). `createNote` makes `Untitled.md`, `Untitled 2.md`, … with an
   empty body. Link paths encode space, `#`, `%`, `(`, `)`, `<`, `>`.
+- **Extension case:** a note file ends in `.md` of any case (`splitNoteExtension` / `noteStem`,
+  `src/shared/vault-ids.ts`). New notes get `.md`; rename, title renames, moves, trash and restore
+  keep the note's own extension (`Plan.MD` renamed to Roadmap is `Roadmap.MD`, its `Plan.assets`
+  follows), and a typed `.md` of any case is dropped from a new name. `x.md` and `x.MD` count as the
+  same name. Two notes that differ only in extension case (`a.md` beside `a.MD`, on case-sensitive
+  file systems) share `a.assets`: trashing, renaming or moving one leaves the folder for the other
+  and the result says so (`assetsLeftBehind: 'work/a.assets'`); a rename or move re-bases the note's
+  links on the folder's real place.
 - **Inline rename:** click the name in the editor header (or focus it and press F2/Enter); Enter or
   blur commits through `POST /api/notes/rename`, Esc cancels, `EXISTS`/`INVALID_PATH` show inline. A
   note whose name comes from a frontmatter `title` edits that key instead (tooltip says so; clearing

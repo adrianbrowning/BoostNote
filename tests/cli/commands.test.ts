@@ -1,4 +1,4 @@
-import { mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readdir, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import * as path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
@@ -36,5 +36,17 @@ describe('resolveNoteId', () => {
     await vault.refresh()
     expect(await resolveNoteId(vault, 'ideas/Roadmap')).toBe('ideas/Roadmap.MD')
     expect(await resolveNoteId(vault, 'ideas/Roadmap.md')).toBe('ideas/Roadmap.MD')
+  })
+
+  it('rejects a path with no extension that matches extension-case twins as ambiguous', async (ctx) => {
+    await mkdir(path.join(root, 'twins'))
+    await writeFile(path.join(root, 'twins', 'a.md'), 'lower\n')
+    await writeFile(path.join(root, 'twins', 'a.MD'), 'upper\n')
+    if ((await readdir(path.join(root, 'twins'))).length !== 2) ctx.skip()
+    await vault.refresh()
+    await expect(resolveNoteId(vault, 'twins/a')).rejects.toMatchObject({
+      code: 'AMBIGUOUS',
+      details: { matches: expect.arrayContaining(['twins/a.md', 'twins/a.MD']) },
+    })
   })
 })

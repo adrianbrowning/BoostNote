@@ -18,6 +18,7 @@ export type { Note, ReadonlyNoteMeta } from './note.ts'
 export { noteFileName } from './paths.ts'
 export type { SearchHit } from './search.ts'
 export {
+  type AssetsLeftBehind,
   type CreateNoteOptions,
   type FolderNode,
   type LinkUpdate,

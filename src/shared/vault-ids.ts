@@ -6,7 +6,7 @@
  * `''` (the root). A note file name ends in `.md` in any letter case (`.md`, `.MD`, `.Md`, `.mD`) and
  * has a stem; new notes are written with a lowercase `.md`. Two notes that differ only in extension
  * case (`a.md` and `a.MD`, possible on case-sensitive filesystems) share the asset folder `a.assets`;
- * this is an accepted limit.
+ * this is an accepted limit (trashing, renaming or moving one leaves the folder for the other).
  */
 
 /** What the index and lists know about a note; also the JSON the client gets for a note list. */
@@ -52,10 +52,19 @@ export function isNoteFileName(name: string): boolean {
   return name.length > 3 && name.slice(-3).toLowerCase() === '.md'
 }
 
+/**
+ * `id` split before its note extension, kept as the file has it (`work/Plan.MD` → `work/Plan` +
+ * `.MD`); the extension is `''` when the last segment is not a note file name (`work`, `.md`).
+ */
+export function splitNoteExtension(id: string): { base: string; extension: string } {
+  return isNoteFileName(lastSegment(id)) && isNoteFileName(id)
+    ? { base: id.slice(0, -3), extension: id.slice(-3) }
+    : { base: id, extension: '' }
+}
+
 /** File name without its `.md` in any case (`work/todo.md` → `todo`, `Plan.MD` → `Plan`); a bare `.md` is kept. */
 export function noteStem(id: string): string {
-  const name = lastSegment(id)
-  return isNoteFileName(name) ? name.slice(0, -3) : name
+  return splitNoteExtension(lastSegment(id)).base
 }
 
 /** `folder` + `name` as a vault id (`''` is the root). */

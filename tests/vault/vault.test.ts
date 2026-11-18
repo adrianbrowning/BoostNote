@@ -89,12 +89,18 @@ describe('vault notes', () => {
     vault = await openVault(root)
     const link = await vault.saveAsset('work/Plan.MD', new Uint8Array([1, 2]), 'png')
     expect(link).toMatch(/^\.\/Plan\.assets\/[0-9a-f]+\.png$/)
+    const file = await vault.assetPath('work/Plan.MD', link)
+    expect(path.dirname(file)).toBe(path.join(vault.root, 'work', 'Plan.assets'))
+    expect(new Uint8Array(await readFile(file))).toEqual(new Uint8Array([1, 2]))
     expect((await readdir(path.join(root, 'work/Plan.assets'))).length).toBe(2)
     const entry = await vault.deleteNote('work/Plan.MD')
+    expect(entry.id).toBe('work/Plan.MD')
+    expect(await readdir(path.join(root, '.trash/work'))).toEqual(['Plan.MD', 'Plan.assets'])
     expect(await readdir(path.join(root, 'work'))).toEqual([])
     const restored = await vault.restore(entry.id)
-    const stem = restored.id.replace(/^work\/|\.md$/gi, '')
-    expect(stem).toBe('Plan')
+    expect(restored).toEqual({ id: 'work/Plan.MD', kind: 'note' })
+    expect(await vault.hasNote('work/Plan.MD')).toBe(true)
+    expect(await read('work/Plan.MD')).toBe('![a](./Plan.assets/a.png)\n')
     expect(await read('work/Plan.assets/a.png')).toBe('A')
   })
 
@@ -151,6 +157,52 @@ describe('vault notes', () => {
     await expect(vault.renameNote(moved.id, 'Done list 2')).rejects.toMatchObject({ code: 'EXISTS' })
   })
 
+  it('renames an upper-case .MD note keeping its extension, with its assets and incoming links', async () => {
+    await put('work/Plan.MD', '![a](./Plan.assets/a.png)\n')
+    await put('work/Plan.assets/a.png', 'A')
+    await put('index.md', '[plan](work/Plan.MD)\n![a](work/Plan.assets/a.png)\n')
+    vault = await openVault(root)
+
+    const renamed = await vault.renameNote('work/Plan.MD', 'Roadmap')
+    expect(renamed.id).toBe('work/Roadmap.MD')
+    expect(await readdir(path.join(root, 'work'))).toEqual(['Roadmap.MD', 'Roadmap.assets'])
+    expect((await vault.readNote('work/Roadmap.MD')).body).toBe('![a](./Roadmap.assets/a.png)\n')
+    expect(await read('work/Roadmap.assets/a.png')).toBe('A')
+
+    const links = await vault.applyLinkUpdates([{ from: 'work/Plan.MD', to: renamed.id, kind: 'note' }])
+    expect(links.total).toBe(2)
+    expect(await read('index.md')).toBe('[plan](work/Roadmap.MD)\n![a](work/Roadmap.assets/a.png)\n')
+  })
+
+  it('moves an upper-case .MD note keeping its file name, with its assets', async () => {
+    await put('work/Plan.MD', '![a](./Plan.assets/a.png)\n[web](../index.md)\n')
+    await put('work/Plan.assets/a.png', 'A')
+    await put('index.md', '# Index\n')
+    await mkdir(path.join(root, 'archive'))
+    vault = await openVault(root)
+
+    const moved = await vault.moveNote('work/Plan.MD', 'archive')
+    expect(moved.id).toBe('archive/Plan.MD')
+    expect(await readdir(path.join(root, 'archive'))).toEqual(['Plan.MD', 'Plan.assets'])
+    expect(await readdir(path.join(root, 'work'))).toEqual([])
+    expect((await vault.readNote('archive/Plan.MD')).body).toBe('![a](./Plan.assets/a.png)\n[web](../index.md)\n')
+    expect(await read('archive/Plan.assets/a.png')).toBe('A')
+  })
+
+  it('treats a name whose .md or .MD variant exists as taken when renaming or moving', async () => {
+    await put('work/a.md', 'a')
+    await put('work/Taken.MD', 'upper')
+    await put('work/Plan.MD', 'plan')
+    await put('work/other.md', 'lower')
+    await put('archive/a.MD', 'archived')
+    vault = await openVault(root)
+    await expect(vault.renameNote('work/a.md', 'Taken')).rejects.toMatchObject({ code: 'EXISTS' })
+    await expect(vault.renameNote('work/Plan.MD', 'other')).rejects.toMatchObject({ code: 'EXISTS' })
+    expect((await vault.moveNote('work/a.md', 'archive')).id).toBe('archive/a 2.md')
+    expect((await readdir(path.join(root, 'work'))).sort()).toEqual(['Plan.MD', 'Taken.MD', 'other.md'])
+    expect(await read('archive/a.MD')).toBe('archived')
+  })
+
   it('moves to a free name when the target folder has the same file name', async () => {
     await put('a/note.md', 'one')
     await put('b/note.md', 'two')
@@ -168,6 +220,75 @@ describe('vault notes', () => {
     const file = await vault.assetPath('work/My Note.md', link)
     expect(file).toBe(path.join(vault.root, 'work', 'My Note.assets', link.split('/').at(-1) ?? ''))
     expect(await readFile(file, 'utf8')).toBe('image bytes')
+  })
+})
+
+describe('extension-case twins (a.md beside a.MD)', () => {
+  /** Seeds `work/a.md` and `work/a.MD` sharing `work/a.assets`; false when the file system folds them into one file. */
+  async function seedTwins(): Promise<boolean> {
+    await put('work/a.md', 'lower ![x](./a.assets/x.png)\n')
+    await put('work/a.MD', 'upper ![x](./a.assets/x.png)\n')
+    await put('work/a.assets/x.png', 'X')
+    return (await readdir(path.join(root, 'work'))).length === 3
+  }
+
+  it('trashes one twin and leaves the shared assets folder for the other, saying so', async (ctx) => {
+    if (!(await seedTwins())) ctx.skip()
+    vault = await openVault(root)
+    const entry = await vault.deleteNote('work/a.md')
+    expect(entry).toMatchObject({ id: 'work/a.md', originalPath: 'work/a.md', assetsLeftBehind: 'work/a.assets' })
+    expect(await readdir(path.join(root, '.trash/work'))).toEqual(['a.md'])
+    expect(await read('work/a.assets/x.png')).toBe('X')
+    expect(await vault.hasNote('work/a.MD')).toBe(true)
+    expect((await vault.listTrash()).map((item) => Object.keys(item).includes('assetsLeftBehind'))).toEqual([false])
+
+    const last = await vault.deleteNote('work/a.MD')
+    expect(last).not.toHaveProperty('assetsLeftBehind')
+    expect((await readdir(path.join(root, '.trash/work'))).sort()).toEqual(['a 2.MD', 'a 2.assets', 'a.md'])
+  })
+
+  it('renames one twin and leaves the shared assets folder in place, its links still pointing at it', async (ctx) => {
+    if (!(await seedTwins())) ctx.skip()
+    await put('index.md', '![x](work/a.assets/x.png)\n')
+    vault = await openVault(root)
+    const renamed = await vault.renameNote('work/a.md', 'b')
+    expect(renamed).toMatchObject({ id: 'work/b.md', assetsLeftBehind: 'work/a.assets' })
+    expect(renamed.body).toBe('lower ![x](./a.assets/x.png)\n')
+    expect((await readdir(path.join(root, 'work'))).sort()).toEqual(['a.MD', 'a.assets', 'b.md'])
+    expect(await read('work/a.assets/x.png')).toBe('X')
+    expect(await read('work/a.MD')).toBe('upper ![x](./a.assets/x.png)\n')
+  })
+
+  it('moves one twin and leaves the shared assets folder in place, re-basing its links on it', async (ctx) => {
+    if (!(await seedTwins())) ctx.skip()
+    await mkdir(path.join(root, 'archive'))
+    vault = await openVault(root)
+    const moved = await vault.moveNote('work/a.MD', 'archive')
+    expect(moved).toMatchObject({ id: 'archive/a.MD', assetsLeftBehind: 'work/a.assets' })
+    expect(moved.body).toBe('upper ![x](../work/a.assets/x.png)\n')
+    expect(await readdir(path.join(root, 'archive'))).toEqual(['a.MD'])
+    expect((await readdir(path.join(root, 'work'))).sort()).toEqual(['a.assets', 'a.md'])
+    expect(await read('work/a.assets/x.png')).toBe('X')
+  })
+
+  it('title-renames one twin, leaving the shared assets folder and the links into it alone', async (ctx) => {
+    await put('work/meeting-notes.md', '---\ntitle: Meeting notes\n---\nbody\n')
+    await put('work/meeting-notes.MD', 'twin\n')
+    await put('work/meeting-notes.assets/x.png', 'X')
+    if ((await readdir(path.join(root, 'work'))).length !== 3) ctx.skip()
+    await put('index.md', '[m](work/meeting-notes.md)\n![x](work/meeting-notes.assets/x.png)\n')
+    vault = await openVault(root)
+    const report = await vault.applyTitleRenames(await vault.planTitleRenames())
+    expect(report.renamed).toEqual([
+      {
+        from: 'work/meeting-notes.md',
+        to: 'work/Meeting notes.md',
+        title: 'Meeting notes',
+        assetsLeftBehind: 'work/meeting-notes.assets',
+      },
+    ])
+    expect(await read('index.md')).toBe('[m](work/Meeting%20notes.md)\n![x](work/meeting-notes.assets/x.png)\n')
+    expect(await read('work/meeting-notes.assets/x.png')).toBe('X')
   })
 })
 

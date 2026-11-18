@@ -4,7 +4,7 @@
  * data so the CLI (`--json`) and the MCP tools return the same shapes.
  */
 import { type TaskProgress, taskProgress } from '../app/actions/public/workspace/tasks.ts'
-import { isNoteFileName, lastSegment, type NoteMeta, noteStem } from '../shared/vault-ids.ts'
+import { type NoteMeta, noteStem, splitNoteExtension } from '../shared/vault-ids.ts'
 import {
   type FolderNode,
   type Frontmatter,
@@ -173,23 +173,19 @@ export async function resolveNoteId(vault: Vault, input: string): Promise<string
   const id = input.replace(/\\/g, '/').replace(/^\/+/, '')
   if (id === '') throw new CommandError('USAGE', 'Missing note id')
   if (await vault.hasNote(id)) return id
-  const isNoteName = isNoteFileName(lastSegment(id))
-  const name = isNoteName ? id.slice(0, -3) : id
-  const notes = await vault.notes()
-  // Every note id ends in a 3-character `.md` of some case, so the path minus it matches in any case.
-  const byPath = notes.filter((meta) => meta.id.slice(0, -3) === name)
-  if (byPath.length > 1) {
-    const ids = byPath.map((meta) => meta.id)
-    throw new CommandError('AMBIGUOUS', `"${input}" matches ${ids.length} notes: ${ids.join(', ')}`, { matches: ids })
-  }
-  if (byPath[0]) return byPath[0].id
-  const named = notes.map((meta) => ({ id: meta.id, stem: noteStem(meta.id), title: meta.title }))
+  const name = splitNoteExtension(id).base
+  const named = (await vault.notes()).map((meta) => ({ id: meta.id, stem: noteStem(meta.id), title: meta.title }))
+  // A path names the note whose id minus its extension equals it exactly: `ideas/Roadmap` and
+  // `ideas/Roadmap.md` match `ideas/Roadmap.MD`; only the extension's case is ignored, not the folder's or stem's.
+  const byPath = named.filter((note) => splitNoteExtension(note.id).base === name)
   const exact = named.filter((note) => note.stem === name || note.title === name)
   const lower = name.toLowerCase()
   const matches =
-    exact.length > 0
-      ? exact
-      : named.filter((note) => note.stem.toLowerCase() === lower || note.title.toLowerCase() === lower)
+    byPath.length > 0
+      ? byPath
+      : exact.length > 0
+        ? exact
+        : named.filter((note) => note.stem.toLowerCase() === lower || note.title.toLowerCase() === lower)
   const [first, ...rest] = matches
   if (!first) throw new CommandError('NOT_FOUND', `Note not found: ${input}`)
   if (rest.length > 0) {
