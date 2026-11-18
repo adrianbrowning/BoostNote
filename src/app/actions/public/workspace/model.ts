@@ -5,6 +5,7 @@ import { ApiError, client, setPageVault } from './api.ts'
 import type { DropTicket } from './drop-import.ts'
 import { NoteSession } from './note-session.ts'
 import { folderChain } from './paths.ts'
+import { linkMovesAfterRelocate } from './relocate.ts'
 import { type ReaderTab, type Tab, Tabs } from './tabs.ts'
 import type {
   FolderSummary,
@@ -637,8 +638,9 @@ export class WorkspaceModel extends TypedEventTarget<{
     this.#rebaseTabs((path) => (path === id ? renamed.id : path))
     if (this.openId === id) this.session.relocated(renamed)
     await this.refresh()
-    if (renamed.assetsLeftBehind) this.notify('info', assetsLeftBehindNotice(renamed.assetsLeftBehind))
-    void this.#offerLinkUpdates({ from: id, to: renamed.id, kind: 'note', assets: !renamed.assetsLeftBehind })
+    const outcome = linkMovesAfterRelocate({ from: id, result: renamed })
+    if (outcome.notice) this.notify('info', outcome.notice)
+    for (const move of outcome.moves) void this.#offerLinkUpdates(move)
   }
 
   setTitleRenamesOpen(open: boolean): void {
@@ -671,9 +673,9 @@ export class WorkspaceModel extends TypedEventTarget<{
       this.#rebaseTabs((path) => (path === id ? moved.id : path))
       if (this.openId === id) this.session.relocated(moved)
       await this.refresh()
-      const left = moved.assetsLeftBehind
-      this.notify('info', `Moved to ${this.folderName(folder)}${left ? `. ${assetsLeftBehindNotice(left)}` : ''}`)
-      void this.#offerLinkUpdates({ from: id, to: moved.id, kind: 'note', assets: !left })
+      const outcome = linkMovesAfterRelocate({ from: id, result: moved, done: `Moved to ${this.folderName(folder)}` })
+      if (outcome.notice) this.notify('info', outcome.notice)
+      for (const move of outcome.moves) void this.#offerLinkUpdates(move)
     })
   }
 
@@ -735,10 +737,11 @@ export class WorkspaceModel extends TypedEventTarget<{
     }
     if (this.openId === id) await this.session.flush()
     await this.attempt(async () => {
-      const { assetsLeftBehind } = await client.deleteNote(id)
+      const trashed = await client.deleteNote(id)
       await this.#forgetTabs((path) => path === id)
       await this.refresh()
-      this.notify('info', `Moved to Trash${assetsLeftBehind ? `. ${assetsLeftBehindNotice(assetsLeftBehind)}` : ''}`)
+      const { notice } = linkMovesAfterRelocate({ result: { id, ...trashed }, done: 'Moved to Trash' })
+      if (notice) this.notify('info', notice)
     })
   }
 
@@ -1034,10 +1037,11 @@ export class WorkspaceModel extends TypedEventTarget<{
 
   async restore(trashId: string): Promise<void> {
     await this.attempt(async () => {
-      const { id, assetsLeftBehind } = await client.restore(trashId)
+      const restored = await client.restore(trashId)
       this.selectedTrashId = null
       await this.refresh()
-      this.notify('info', `Restored ${id}${assetsLeftBehind ? `. ${assetsLeftBehindNotice(assetsLeftBehind)}` : ''}`)
+      const { notice } = linkMovesAfterRelocate({ result: restored, done: `Restored ${restored.id}` })
+      if (notice) this.notify('info', notice)
     })
   }
 
@@ -1287,9 +1291,4 @@ export class WorkspaceModel extends TypedEventTarget<{
       this.fail(error)
     }
   }
-}
-
-/** Tells the user an extension-case twin kept the shared assets folder, so this note's asset links may break. */
-function assetsLeftBehindNotice(folder: string): string {
-  return `The assets folder ${folder} stayed in place for the note with the same name; this note's links into it may break.`
 }
