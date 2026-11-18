@@ -4,7 +4,9 @@
  *
  * A vault id is a POSIX path relative to the vault root: `work/todo.md` (note), `work` (folder),
  * `''` (the root). A note file name ends in `.md` in any letter case (`.md`, `.MD`, `.Md`, `.mD`) and
- * has a stem; new notes are written with a lowercase `.md`.
+ * has a stem; new notes are written with a lowercase `.md`. Two notes that differ only in extension
+ * case (`a.md` and `a.MD`, possible on case-sensitive filesystems) share the asset folder `a.assets`;
+ * this is an accepted limit.
  */
 
 /** What the index and lists know about a note; also the JSON the client gets for a note list. */

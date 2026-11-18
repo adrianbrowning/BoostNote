@@ -1004,7 +1004,7 @@ export class Vault {
 }
 
 function assetsDirOf(noteFile: string): string {
-  return noteFile.replace(/\.md$/, ASSETS_SUFFIX)
+  return path.join(path.dirname(noteFile), `${noteStem(noteFile)}${ASSETS_SUFFIX}`)
 }
 
 /** The file's text, or `undefined` when it does not exist. */

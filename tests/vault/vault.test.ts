@@ -83,6 +83,21 @@ describe('vault notes', () => {
     expect((await vault.createNote('work', 'Fresh')).id).toBe('work/Fresh.md')
   })
 
+  it('trashes and restores an upper-case .MD note with its assets, and saves assets beside it', async () => {
+    await put('work/Plan.MD', '![a](./Plan.assets/a.png)\n')
+    await put('work/Plan.assets/a.png', 'A')
+    vault = await openVault(root)
+    const link = await vault.saveAsset('work/Plan.MD', new Uint8Array([1, 2]), 'png')
+    expect(link).toMatch(/^\.\/Plan\.assets\/[0-9a-f]+\.png$/)
+    expect((await readdir(path.join(root, 'work/Plan.assets'))).length).toBe(2)
+    const entry = await vault.deleteNote('work/Plan.MD')
+    expect(await readdir(path.join(root, 'work'))).toEqual([])
+    const restored = await vault.restore(entry.id)
+    const stem = restored.id.replace(/^work\/|\.md$/gi, '')
+    expect(stem).toBe('Plan')
+    expect(await read('work/Plan.assets/a.png')).toBe('A')
+  })
+
   it('creates notes named after the title, unique ignoring case', async () => {
     vault = await openVault(root)
     const first = await vault.createNote('', 'Hello, World!')
