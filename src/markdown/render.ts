@@ -227,15 +227,19 @@ export async function renderMarkdown(markdown: string, options: RenderOptions = 
 
 /**
  * `other.md#x` → `other.html#x`: links between notes of an exported folder, from note `fromId`,
- * by the shared `resolveNoteLink` rule: a link that leaves the vault gives `undefined`. The page
- * is `pages`' entry for the resolved note id, else that id with its `.md` (any case) swapped for
- * `.html`; the link is that page relative to `fromId`'s folder (`sub//../ch3.md` → `ch3.html`,
- * `other.md/#x` → `other.html#x`, `Plan.MD` → `Plan.html`), each segment percent-encoded, plus the
- * raw query and fragment. Anything else: `undefined`.
+ * by the shared `resolveNoteLink` rule: a link that leaves the vault gives `undefined`. With
+ * `pages`, the page is `pages`' entry for the exact resolved note id, and a link to an id `pages`
+ * lacks gives `undefined` (left as written: no extension-case folding onto another note's page);
+ * without `pages`, it is that id with its `.md` (any case) swapped for `.html`. The link is that
+ * page relative to `fromId`'s folder (`sub//../ch3.md` → `ch3.html`, `other.md/#x` →
+ * `other.html#x`, `Plan.MD` → `Plan.html`), each segment percent-encoded, plus the raw query and
+ * fragment. Anything else: `undefined`.
  */
 export function noteLinkToHtml(fromId: string, href: string, pages?: ReadonlyMap<string, string>): string | undefined {
   const note = resolveNoteLink(fromId, href)
   if (note === undefined) return undefined
-  const page = relativeId(parentOf(fromId), pages?.get(note) ?? `${splitNoteExtension(note).base}.html`)
+  const target = pages ? pages.get(note) : `${splitNoteExtension(note).base}.html`
+  if (target === undefined) return undefined
+  const page = relativeId(parentOf(fromId), target)
   return `${page.split('/').map(encodeURIComponent).join('/')}${/[?#].*$/.exec(href)?.[0] ?? ''}`
 }

@@ -3,6 +3,7 @@ import * as path from 'node:path'
 import { lastSegment, type NoteMeta, noteStem, parentOf, splitNoteExtension } from '../shared/vault-ids.ts'
 import type { Note, Vault } from '../vault/index.ts'
 import { rewriteRelativeLinks } from '../vault/links.ts'
+import { nameKey } from '../vault/names.ts'
 import { htmlDocument } from './document.ts'
 import { noteLinkToHtml, renderMarkdown } from './render.ts'
 
@@ -85,16 +86,20 @@ export async function exportFolderHtml(
   const prefix = folder === '' ? '' : `${folder}/`
   const notes = (await vault.notes()).filter((note) => note.id.startsWith(prefix))
   await mkdir(targetDir, { recursive: true })
-  // Page of each note as a vault id (`work/Plan.MD` → `work/Plan.html`). A twin's numbered page
-  // skips names another note has as its own (`a 2.md` keeps `a 2.html`).
-  const own = new Set(notes.map((note) => `${splitNoteExtension(note.id).base}.html`))
+  // Page of each note as a vault id (`work/Plan.MD` → `work/Plan.html`). Names are compared by
+  // `nameKey`, so pages stay distinct on case- or normalization-insensitive disks (`A.md`, `a.md`
+  // → `A.html`, `a 2.html`). A numbered page skips names another note has as its own (`a 2.md`
+  // keeps `a 2.html`) and the listing's name, reserved first.
+  const ownIndex = notes.some((note) => nameKey(note.id.slice(prefix.length)) === 'index.md')
+  const listing = ownIndex ? '_contents.html' : 'index.html'
+  const own = new Set(notes.map((note) => nameKey(`${splitNoteExtension(note.id).base}.html`)))
   const pages = new Map<string, string>()
-  const taken = new Set<string>()
+  const taken = new Set<string>([nameKey(`${prefix}${listing}`)])
   for (const note of notes) {
     const base = splitNoteExtension(note.id).base
     let page = `${base}.html`
-    for (let n = 2; taken.has(page) || (n > 2 && own.has(page)); n++) page = `${base} ${n}.html`
-    taken.add(page)
+    for (let n = 2; taken.has(nameKey(page)) || (n > 2 && own.has(nameKey(page))); n++) page = `${base} ${n}.html`
+    taken.add(nameKey(page))
     pages.set(note.id, page)
   }
 
@@ -114,8 +119,7 @@ export async function exportFolderHtml(
     if (group !== '') body += `<h2>${escapeHtml(group)}</h2>\n`
     body += `<ul>\n${pages.map((page) => `<li><a href="${escapeHtml(page.href)}">${escapeHtml(page.title)}</a></li>\n`).join('')}</ul>\n`
   }
-  const ownIndex = notes.some((note) => note.id.slice(prefix.length).toLowerCase() === 'index.md')
-  const contents = path.join(targetDir, ownIndex ? '_contents.html' : 'index.html')
+  const contents = path.join(targetDir, listing)
   await writeFile(contents, await htmlDocument({ title: name, body, math: false, className: 'index' }))
   return { contents, pages: notes.length }
 }

@@ -243,6 +243,50 @@ describe('vault export', () => {
     expect(await readFile(path.join(out, 'index.html'), 'utf8')).toContain('<a href="a%202.html">')
   })
 
+  const fakeVault = (files: Record<string, string>): ExportVault => ({
+    root,
+    notes: async () => Object.keys(files).map((id) => ({ id, title: id })),
+    readNote: async (id: string) => ({ raw: files[id] as string }),
+    assetPath: async () => {
+      throw new Error('no assets')
+    },
+  })
+
+  it('leaves a link to a missing exact id as written, not pointed at a case-variant note page', async () => {
+    await exportFolderHtml(fakeVault({ 'a.MD': '# Upper\n', 'links.md': '[x](a.md) [y](b.md)\n' }), '', out)
+    const links = await readFile(path.join(out, 'links.html'), 'utf8')
+    expect(links).toContain('href="a.md"')
+    expect(links).toContain('href="b.md"')
+    expect(links).not.toContain('href="a.html"')
+  })
+
+  it('reserves the _contents.html listing name so a _contents.md note keeps its own page', async () => {
+    const fake = fakeVault({
+      'index.md': '# Home\n',
+      '_contents.md': 'contents note\n',
+      'links.md': '[c](_contents.md)\n',
+    })
+    expect((await exportFolderHtml(fake, '', out)).contents).toBe(path.join(out, '_contents.html'))
+    expect(await readFile(path.join(out, '_contents 2.html'), 'utf8')).toContain('contents note')
+    expect(await readFile(path.join(out, 'links.html'), 'utf8')).toContain('href="_contents%202.html"')
+    expect(await readFile(path.join(out, '_contents.html'), 'utf8')).toContain('<a href="_contents%202.html">')
+  })
+
+  it('gives notes differing only in name case or normalization distinct pages', async () => {
+    const fake = fakeVault({
+      'A.md': 'upper\n',
+      'a.md': 'lower [u](A.md)\n',
+      'Caf\u00e9.md': 'nfc\n',
+      'Cafe\u0301.md': 'nfd\n',
+    })
+    await exportFolderHtml(fake, '', out)
+    expect(await readFile(path.join(out, 'A.html'), 'utf8')).toContain('upper')
+    expect(await readFile(path.join(out, 'a 2.html'), 'utf8')).toContain('lower')
+    expect(await readFile(path.join(out, 'a 2.html'), 'utf8')).toContain('href="A.html"')
+    expect(await readFile(path.join(out, 'Caf\u00e9.html'), 'utf8')).toContain('nfc')
+    expect(await readFile(path.join(out, 'Cafe\u0301 2.html'), 'utf8')).toContain('nfd')
+  })
+
   it('exports markdown with its assets folder renamed after the file', async () => {
     const target = path.join(out, 'Renamed.md')
     await exportNoteMarkdown(vault, 'work/todo.md', target)
