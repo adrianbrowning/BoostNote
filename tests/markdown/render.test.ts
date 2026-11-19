@@ -243,6 +243,29 @@ describe('vault export', () => {
     expect(await readFile(path.join(out, 'index.html'), 'utf8')).toContain('<a href="a%202.html">')
   })
 
+  it('on disk, leaves a link to a missing a.md as written beside a.MD and a.md.md', async (context) => {
+    await put('a.MD', '# Upper\n')
+    await put('a.md.md', '# Double\n')
+    await put('links.md', '[x](a.md)\n')
+    await vault.refresh()
+    if ((await vault.notes()).some((note) => note.id === 'a.md')) context.skip() // case-insensitive filesystem
+    await exportFolderHtml(vault, '', out)
+    expect(await readFile(path.join(out, 'links.html'), 'utf8')).toContain('href="a.md"')
+  })
+
+  it('on disk, gives A.md and a.md distinct pages', async (context) => {
+    await put('A.md', 'upper\n')
+    await put('a.md', 'lower\n')
+    await vault.refresh()
+    const ids = (await vault.notes()).map((note) => note.id).filter((id) => id.toLowerCase() === 'a.md')
+    if (ids.length < 2) context.skip() // case-insensitive filesystem: one file
+    await exportFolderHtml(vault, '', out)
+    const [first, second] = ids as [string, string]
+    const textOf: Record<string, string> = { 'A.md': 'upper', 'a.md': 'lower' }
+    expect(await readFile(path.join(out, `${first.slice(0, 1)}.html`), 'utf8')).toContain(textOf[first])
+    expect(await readFile(path.join(out, `${second.slice(0, 1)} 2.html`), 'utf8')).toContain(textOf[second])
+  })
+
   const fakeVault = (files: Record<string, string>): ExportVault => ({
     root,
     notes: async () => Object.keys(files).map((id) => ({ id, title: id })),
