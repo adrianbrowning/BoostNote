@@ -1,4 +1,3 @@
-import { statSync } from 'node:fs'
 import * as path from 'node:path'
 import {
   app,
@@ -15,7 +14,7 @@ import { DropGrants } from '../app/drop-grants.ts'
 import { createAppRouter } from '../app/router.ts'
 import { type CliTarget, defaultShimDirs, installShim, loginShellPath, windowsCommands } from '../cli/install.ts'
 import { findLegacyStorages } from '../migrate/index.ts'
-import { isNoteFileName } from '../shared/vault-ids.ts'
+import { markdownFilesIn } from './argv.ts'
 import { eventHub } from './events.ts'
 import { createExportServices } from './export.ts'
 import { installMenu } from './menu.ts'
@@ -49,15 +48,6 @@ const updater = createUpdater({
   automatic: app.isPackaged || updateUrl !== undefined,
   onUpdate: (update) => eventHub.broadcast({ type: 'update', ...update }),
 })
-
-/** Existing `.md` files on a command line (Windows/Linux file associations, `electron . note.md`). */
-function markdownFilesIn(argv: string[], cwd: string): string[] {
-  return argv
-    .slice(1)
-    .filter((arg) => !arg.startsWith('-') && isNoteFileName(path.basename(arg)))
-    .map((arg) => path.resolve(cwd, arg))
-    .filter((file) => statSync(file, { throwIfNoEntry: false })?.isFile() ?? false)
-}
 
 // A `.md` file opened from the OS is queued in VaultSession (takeOpenRequest decides whether it is a
 // note of a known vault or an outside file for a reader tab); the workspace takes queued requests on
