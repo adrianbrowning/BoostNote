@@ -28,7 +28,7 @@ import { copyFileAtomic, exists, isFile, writeFileAtomic } from './files.ts'
 import { type Frontmatter, keepUnchangedValues, parseNoteText, serializeNoteText } from './frontmatter.ts'
 import { type ImportFilesReport, type ImportOptions, planImport } from './import-files.ts'
 import { checkMoves, type LinkMove, rebaseNoteLinks, rewriteMovedLinks } from './links.ts'
-import { lowerCaseEntries, uniqueStem } from './names.ts'
+import { lowerCaseEntries, nameKey, uniqueStem } from './names.ts'
 import { findH1, hashText, type Note, type ReadonlyNoteMeta, toNote } from './note.ts'
 import {
   ASSETS_SUFFIX,
@@ -443,13 +443,13 @@ export class Vault {
           (await lowerCaseEntries(await resolveInside(this.root, folderSegments(note.folder))))
         taken.set(note.folder, names)
         // The note's own names are free (a case-only rename), the others' and earlier picks are not.
-        const own = stem.toLowerCase()
+        const own = nameKey(stem)
         const toStem = uniqueName(target, (candidate) => {
-          const lower = candidate.toLowerCase()
-          return lower !== own && (names.has(`${lower}.md`) || names.has(`${lower}${ASSETS_SUFFIX}`))
+          const key = nameKey(candidate)
+          return key !== own && (names.has(`${key}.md`) || names.has(`${key}${ASSETS_SUFFIX}`))
         })
-        names.add(`${toStem.toLowerCase()}.md`)
-        names.add(`${toStem.toLowerCase()}${ASSETS_SUFFIX}`)
+        names.add(`${nameKey(toStem)}.md`)
+        names.add(`${nameKey(toStem)}${ASSETS_SUFFIX}`)
         plan.renames.push({ from: id, to: joinId(note.folder, `${toStem}${splitNoteExtension(id).extension}`), title })
       }
       return plan
@@ -651,7 +651,7 @@ export class Vault {
         await this.#track(restoredId, target, next)
       } else {
         const names = await lowerCaseEntries(parentDir)
-        const name = uniqueName(lastSegment(entry.originalPath), (c) => names.has(c.toLowerCase()), ' ')
+        const name = uniqueName(lastSegment(entry.originalPath), (c) => names.has(nameKey(c)), ' ')
         restoredId = joinId(parent, name)
         folderSegments(restoredId)
         await rename(source, path.join(parentDir, name))
@@ -716,7 +716,7 @@ export class Vault {
       const trashParent = await resolveInside(this.root, [TRASH_DIR, ...folderSegments(parentOf(id))])
       await mkdir(trashParent, { recursive: true })
       const names = await lowerCaseEntries(trashParent)
-      const name = uniqueName(lastSegment(id), (c) => names.has(c.toLowerCase()), ' ')
+      const name = uniqueName(lastSegment(id), (c) => names.has(nameKey(c)), ' ')
       await rename(dir, path.join(trashParent, name))
       const folders: Record<string, FolderConfig> = {}
       for (const [key, folder] of Object.entries(this.#config.folders)) {
@@ -1101,13 +1101,9 @@ async function sameOrMissing(from: string, to: string): Promise<boolean> {
  * `self`, so a case-only rename of `self` is free.
  */
 async function nameTaken(file: string, self: string): Promise<boolean> {
-  const target = path.basename(file).normalize('NFC').toLowerCase()
+  const target = nameKey(path.basename(file))
   for (const name of await readdir(path.dirname(file))) {
-    if (
-      name.normalize('NFC').toLowerCase() === target &&
-      !(await sameOrMissing(self, path.join(path.dirname(file), name)))
-    )
-      return true
+    if (nameKey(name) === target && !(await sameOrMissing(self, path.join(path.dirname(file), name)))) return true
   }
   return false
 }
@@ -1139,6 +1135,16 @@ async function sharedAssetsOf(id: string, file: string): Promise<string | undefi
 
 /** True when both paths exist and resolve (following symlinks) to the same directory. */
 async function sameDirectory(a: string, b: string): Promise<boolean> {
-  const [x, y] = await Promise.all([stat(a).catch(() => null), stat(b).catch(() => null)])
+  const [x, y] = await Promise.all([statOrNull(a), statOrNull(b)])
   return x !== null && y !== null && x.ino === y.ino && x.dev === y.dev
+}
+
+/** `stat` of `file`, or `null` when it is absent (ENOENT, ENOTDIR); other errors are thrown. */
+async function statOrNull(file: string): Promise<Stats | null> {
+  try {
+    return await stat(file)
+  } catch (error) {
+    if (isNodeError(error, 'ENOENT') || isNodeError(error, 'ENOTDIR')) return null
+    throw error
+  }
 }

@@ -389,6 +389,33 @@ describe('extension-case twins (a.md beside a.MD)', () => {
     expect(await read('work/Caf\u0065\u0301.MD')).toBe('nfd\n')
     expect(await read('work/x.md')).toBe('x\n')
   })
+
+  it('moves an NFC note beside an NFD one of the same name with a " 2" suffix', async (ctx) => {
+    await put('work/Cafe\u0301.md', 'nfd\n')
+    await put('archive/Caf\u00e9.md', 'nfc\n')
+    await writeFile(path.join(root, 'work/Caf\u00e9.md'), 'probe\n', { flag: 'wx' }).then(
+      () => rm(path.join(root, 'work/Caf\u00e9.md')),
+      () => ctx.skip(),
+    )
+    vault = await openVault(root)
+    const moved = await vault.moveNote('archive/Caf\u00e9.md', 'work')
+    expect(moved.id).toBe('work/Caf\u00e9 2.md')
+    expect(await read('work/Cafe\u0301.md')).toBe('nfd\n')
+  })
+
+  it('refuses to rename a note when its twin’s assets folder cannot be checked', async (ctx) => {
+    const nfd = 'Cafe\u0301'
+    await put('work/Café.md', 'nfc\n')
+    await put('work/Café.assets/x.png', 'X')
+    await put(`work/${nfd}.md`, 'nfd\n')
+    if ((await readdir(path.join(root, 'work'))).length !== 3) ctx.skip()
+    // A symlink loop: stat fails with ELOOP, which is not absence.
+    await symlink(`${nfd}.assets`, path.join(root, 'work', `${nfd}.assets`))
+    vault = await openVault(root)
+    await expect(vault.renameNote('work/Café.md', 'b')).rejects.toMatchObject({ code: 'ELOOP' })
+    expect(await read('work/Café.assets/x.png')).toBe('X')
+    expect(await read('work/Café.md')).toBe('nfc\n')
+  })
 })
 
 describe('writeNote frontmatter', () => {
