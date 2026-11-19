@@ -1113,19 +1113,24 @@ async function nameTaken(file: string, self: string): Promise<boolean> {
 }
 
 /**
- * Vault path of the assets folder of note `id` (at `file`) when it exists and an extension-case
- * twin of the note (`a.md` beside `a.MD`) shares it, so it stays in place; else `undefined`.
- * Stems compare after NFC normalization, as `nameTaken` does. A twin that is a hard link of the
- * note (same inode) is not detected, so the assets move with it and no warning is given; this is
- * an accepted limit.
+ * Vault path of the assets folder of note `id` (at `file`) when it exists and another note shares
+ * it, so it stays in place; else `undefined`. A candidate is an extension-case twin (`a.md` beside
+ * `a.MD`, stems compared after NFC normalization as `nameTaken` does) whose own assets folder
+ * resolves to the same directory as the note's: on ext4 NFC `Café.md` and NFD `Café.md` keep
+ * separate folders, so neither is a twin. A twin that is a hard link of the note (same inode) is
+ * not detected, so the assets move with it and no warning is given; this is an accepted limit.
  */
 async function sharedAssetsOf(id: string, file: string): Promise<string | undefined> {
-  if (!(await exists(assetsDirOf(file)))) return undefined
+  const ours = assetsDirOf(file)
+  if (!(await exists(ours))) return undefined
   const dir = path.dirname(file)
   const stem = noteStem(file).normalize('NFC')
   for (const entry of await readdir(dir, { withFileTypes: true })) {
-    const twin = entry.isFile() && isNoteFileName(entry.name) && noteStem(entry.name).normalize('NFC') === stem
-    if (twin && !(await sameOrMissing(file, path.join(dir, entry.name)))) {
+    const other = path.join(dir, entry.name)
+    const candidate = entry.isFile() && isNoteFileName(entry.name) && noteStem(entry.name).normalize('NFC') === stem
+    if (!candidate || (await sameOrMissing(file, other))) continue
+    const theirs = assetsDirOf(other)
+    if (theirs === ours || ((await exists(theirs)) && (await sameOrMissing(ours, theirs)))) {
       return `${splitNoteExtension(id).base}${ASSETS_SUFFIX}`
     }
   }

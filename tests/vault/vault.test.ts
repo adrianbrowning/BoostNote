@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readdir, readFile, rm, symlink, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readdir, readFile, rm, stat, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import * as path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
@@ -288,6 +288,21 @@ describe('extension-case twins (a.md beside a.MD)', () => {
     const renamed = await vault.renameNote(`work/${nfd}.md`, 'b')
     expect(renamed.assetsLeftBehind).toBeDefined()
     expect(await read('work/Café.assets/x.png')).toBe('X')
+  })
+
+  it('renames an NFC note with its own assets folder when an NFD sibling has a separate one', async () => {
+    const nfd = 'Cafe\u0301'
+    await put('work/Café.md', 'nfc\n')
+    await put('work/Café.assets/x.png', 'X')
+    await put(`work/${nfd}.md`, 'nfd\n')
+    const [ours, theirs] = await Promise.all(
+      ['Café.assets', `${nfd}.assets`].map((name) => stat(path.join(root, 'work', name)).catch(() => null)),
+    )
+    if (!theirs || theirs.ino !== ours?.ino) await put(`work/${nfd}.assets/y.png`, 'Y')
+    vault = await openVault(root)
+    const renamed = await vault.renameNote('work/Café.md', 'b')
+    expect(renamed.assetsLeftBehind).toBeUndefined()
+    expect(await read('work/b.assets/x.png')).toBe('X')
   })
 
   it('moves one twin and leaves the shared assets folder in place, re-basing its links on it', async (ctx) => {
