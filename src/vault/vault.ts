@@ -1130,9 +1130,15 @@ async function sharedAssetsOf(id: string, file: string): Promise<string | undefi
     const candidate = entry.isFile() && isNoteFileName(entry.name) && noteStem(entry.name).normalize('NFC') === stem
     if (!candidate || (await sameOrMissing(file, other))) continue
     const theirs = assetsDirOf(other)
-    if (theirs === ours || ((await exists(theirs)) && (await sameOrMissing(ours, theirs)))) {
+    if (theirs === ours || (await sameDirectory(ours, theirs))) {
       return `${splitNoteExtension(id).base}${ASSETS_SUFFIX}`
     }
   }
   return undefined
+}
+
+/** True when both paths exist and resolve (following symlinks) to the same directory. */
+async function sameDirectory(a: string, b: string): Promise<boolean> {
+  const [x, y] = await Promise.all([stat(a).catch(() => null), stat(b).catch(() => null)])
+  return x !== null && y !== null && x.ino === y.ino && x.dev === y.dev
 }
