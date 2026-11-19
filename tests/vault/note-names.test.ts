@@ -251,4 +251,13 @@ describe('rename files from titles', () => {
     expect(report.skipped.map((skip) => skip.id)).toEqual(['missing.md', 'a.md', 'a.md', 'a.md'])
     expect(await read('a.md')).toBe('x')
   })
+
+  it('refuses a title rename that changes the note extension', async () => {
+    await put('a.MD', 'x')
+    vault = await openVault(root)
+    const report = await vault.applyTitleRenames({ renames: [{ from: 'a.MD', to: 'B.md', title: 'B' }] })
+    expect(report.renamed).toEqual([])
+    expect(report.skipped.map((skip) => skip.id)).toEqual(['a.MD'])
+    expect(await read('a.MD')).toBe('x')
+  })
 })

@@ -482,6 +482,9 @@ export class Vault {
           if (parentOf(rename.from) !== parentOf(rename.to)) {
             throw new VaultError('INVALID_PATH', `Not in the same folder: ${rename.from} → ${rename.to}`)
           }
+          if (splitNoteExtension(rename.to).extension !== splitNoteExtension(rename.from).extension) {
+            throw new VaultError('INVALID_PATH', `Extension changed: ${rename.from} → ${rename.to}`)
+          }
           if (sanitizeFileName(noteStem(rename.to)) !== noteStem(rename.to)) {
             throw new VaultError('INVALID_PATH', `Invalid note name: ${JSON.stringify(noteStem(rename.to))}`)
           }
@@ -1112,13 +1115,16 @@ async function nameTaken(file: string, self: string): Promise<boolean> {
 /**
  * Vault path of the assets folder of note `id` (at `file`) when it exists and an extension-case
  * twin of the note (`a.md` beside `a.MD`) shares it, so it stays in place; else `undefined`.
+ * Stems compare after NFC normalization, as `nameTaken` does. A twin that is a hard link of the
+ * note (same inode) is not detected, so the assets move with it and no warning is given; this is
+ * an accepted limit.
  */
 async function sharedAssetsOf(id: string, file: string): Promise<string | undefined> {
   if (!(await exists(assetsDirOf(file)))) return undefined
   const dir = path.dirname(file)
-  const stem = noteStem(file)
+  const stem = noteStem(file).normalize('NFC')
   for (const entry of await readdir(dir, { withFileTypes: true })) {
-    const twin = entry.isFile() && isNoteFileName(entry.name) && noteStem(entry.name) === stem
+    const twin = entry.isFile() && isNoteFileName(entry.name) && noteStem(entry.name).normalize('NFC') === stem
     if (twin && !(await sameOrMissing(file, path.join(dir, entry.name)))) {
       return `${splitNoteExtension(id).base}${ASSETS_SUFFIX}`
     }

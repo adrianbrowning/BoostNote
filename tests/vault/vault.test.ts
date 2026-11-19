@@ -277,6 +277,18 @@ describe('extension-case twins (a.md beside a.MD)', () => {
     expect(await read('index.md')).toBe('![x](work/a.assets/x.png)\n')
   })
 
+  it('renames an NFD twin beside an NFC one and leaves their shared assets folder in place', async (ctx) => {
+    const nfd = 'Cafe\u0301'
+    await put(`work/${nfd}.md`, 'lower\n')
+    await put('work/Café.MD', 'upper\n')
+    await put('work/Café.assets/x.png', 'X')
+    if ((await readdir(path.join(root, 'work'))).length !== 3) ctx.skip()
+    vault = await openVault(root)
+    const renamed = await vault.renameNote(`work/${nfd}.md`, 'b')
+    expect(renamed.assetsLeftBehind).toBeDefined()
+    expect(await read('work/Café.assets/x.png')).toBe('X')
+  })
+
   it('moves one twin and leaves the shared assets folder in place, re-basing its links on it', async (ctx) => {
     if (!(await seedTwins())) ctx.skip()
     await mkdir(path.join(root, 'archive'))
