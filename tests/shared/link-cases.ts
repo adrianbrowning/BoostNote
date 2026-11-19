@@ -120,13 +120,13 @@ export const LINK_CASES: readonly LinkCase[] = [
     moved: '../Guides/ch3.assets/a.png',
   },
   { kind: 'folder', href: 'notes/', relative: true, note: undefined, html: undefined, moved: '../Guides/notes' },
-  { kind: 'uppercase .MD', href: 'B.MD', relative: true, note: 'Guides/B.MD', html: 'B.MD', moved: '../Guides/B.MD' },
+  { kind: 'uppercase .MD', href: 'B.MD', relative: true, note: 'Guides/B.MD', html: 'B.html', moved: '../Guides/B.MD' },
   {
     kind: 'mixed-case .Md with ./ and #fragment',
     href: './Plan.Md#x',
     relative: true,
     note: 'Guides/Plan.Md',
-    html: 'Plan.Md#x',
+    html: 'Plan.html#x',
     moved: '../Guides/Plan.Md#x',
   },
   {

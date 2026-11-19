@@ -15,6 +15,7 @@ import { DropGrants } from '../app/drop-grants.ts'
 import { createAppRouter } from '../app/router.ts'
 import { type CliTarget, defaultShimDirs, installShim, loginShellPath, windowsCommands } from '../cli/install.ts'
 import { findLegacyStorages } from '../migrate/index.ts'
+import { isNoteFileName } from '../shared/vault-ids.ts'
 import { eventHub } from './events.ts'
 import { createExportServices } from './export.ts'
 import { installMenu } from './menu.ts'
@@ -53,7 +54,7 @@ const updater = createUpdater({
 function markdownFilesIn(argv: string[], cwd: string): string[] {
   return argv
     .slice(1)
-    .filter((arg) => !arg.startsWith('-') && /\.md$/i.test(arg))
+    .filter((arg) => !arg.startsWith('-') && isNoteFileName(path.basename(arg)))
     .map((arg) => path.resolve(cwd, arg))
     .filter((file) => statSync(file, { throwIfNoEntry: false })?.isFile() ?? false)
 }

@@ -3,6 +3,7 @@ import * as path from 'node:path'
 
 import { HttpError } from '../app/http.ts'
 import { ReaderGrants } from '../app/reader-grants.ts'
+import { isNoteFileName } from '../shared/vault-ids.ts'
 import { type ImportFilesReport, openVault, type Vault, VaultError } from '../vault/index.ts'
 import { isInside, noteSegments } from '../vault/paths.ts'
 import type { EventHub } from './events.ts'
@@ -101,7 +102,7 @@ export class VaultSession {
   async takeOpenRequest(): Promise<OpenRequest | undefined> {
     for (let file = this.#openRequests.shift(); file !== undefined; file = this.#openRequests.shift()) {
       const real = await realpath(file).catch(() => undefined)
-      if (real === undefined || !/\.md$/i.test(real)) continue
+      if (real === undefined || !isNoteFileName(path.basename(real))) continue
       const request = await this.#requestFor(real)
       if (request !== undefined) return request
     }
@@ -148,10 +149,7 @@ export class VaultSession {
       if (granted === undefined) throw new VaultError('NOT_FOUND', 'This file is no longer open; open it again')
       const id = path.basename(granted)
       if (!isNoteId(id)) {
-        throw new VaultError(
-          'INVALID_PATH',
-          `${id} cannot be a note: notes end in .md (lower case) and do not start with a dot`,
-        )
+        throw new VaultError('INVALID_PATH', `${id} cannot be a note: notes end in .md and do not start with a dot`)
       }
       const gone = () => new VaultError('NOT_FOUND', `${id} is gone; open it again`)
       if ((await this.readers.regularPath(ticket)) === undefined) throw gone()

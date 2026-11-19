@@ -1,6 +1,6 @@
 import { cp, mkdir, readFile, stat, writeFile } from 'node:fs/promises'
 import * as path from 'node:path'
-import { lastSegment, type NoteMeta, noteStem, parentOf } from '../shared/vault-ids.ts'
+import { lastSegment, type NoteMeta, noteStem, parentOf, splitNoteExtension } from '../shared/vault-ids.ts'
 import type { Note, Vault } from '../vault/index.ts'
 import { rewriteRelativeLinks } from '../vault/links.ts'
 import { htmlDocument } from './document.ts'
@@ -43,12 +43,12 @@ async function inlineImage(vault: ExportVault, noteId: string, src: string): Pro
 async function renderNotePage(
   vault: ExportVault,
   note: Pick<NoteMeta, 'id' | 'title'>,
-  options: ExportOptions & { linkNotes: boolean },
+  options: ExportOptions & { pages?: ReadonlyMap<string, string> },
 ): Promise<string> {
   const { raw } = await vault.readNote(note.id)
   const rendered = await renderMarkdown(raw, {
     resolveImage: (src) => inlineImage(vault, note.id, src),
-    ...(options.linkNotes ? { rewriteLink: (href: string) => noteLinkToHtml(note.id, href) } : {}),
+    ...(options.pages ? { rewriteLink: (href: string) => noteLinkToHtml(note.id, href, options.pages) } : {}),
     ...(options.renderMermaid ? { renderMermaid: options.renderMermaid } : {}),
   })
   return htmlDocument({ title: note.title, body: rendered.html, math: rendered.hasMath })
@@ -60,7 +60,7 @@ async function renderNotePage(
  */
 export async function noteToHtml(vault: Vault, id: string, options: ExportOptions = {}): Promise<string> {
   const note = (await vault.findNote(id)) ?? (await vault.readNote(id))
-  return renderNotePage(vault, note, { ...options, linkNotes: false })
+  return renderNotePage(vault, note, options)
 }
 
 const escapeHtml = (text: string) =>
@@ -70,9 +70,11 @@ const encodeHref = (relPath: string) => relPath.split('/').map(encodeURIComponen
 
 /**
  * Exports a folder (`''`: the whole vault) as a static site into `targetDir`: one page per note at
- * the same relative path with `.html` instead of `.md`, links between notes rewritten to match, and
- * an `index.html` listing every page by folder. When the folder has its own `index.md`, that page is
- * `index.html` and the listing is `_contents.html`. Returns the listing's path and the page count.
+ * the same relative path with `.html` instead of its `.md` (any case), links between notes
+ * rewritten to match, and an `index.html` listing every page by folder. Notes that differ only in
+ * extension case (`a.md`, `a.MD`) get unique pages in `vault.notes()` order: `a.html`, `a 2.html`.
+ * When the folder has its own `index.md`, that page is `index.html` and the listing is `_contents.html`.
+ * Returns the listing's path and the page count.
  */
 export async function exportFolderHtml(
   vault: ExportVault,
@@ -83,15 +85,26 @@ export async function exportFolderHtml(
   const prefix = folder === '' ? '' : `${folder}/`
   const notes = (await vault.notes()).filter((note) => note.id.startsWith(prefix))
   await mkdir(targetDir, { recursive: true })
+  // Page of each note as a vault id (`work/Plan.MD` → `work/Plan.html`). A twin's numbered page
+  // skips names another note has as its own (`a 2.md` keeps `a 2.html`).
+  const own = new Set(notes.map((note) => `${splitNoteExtension(note.id).base}.html`))
+  const pages = new Map<string, string>()
+  const taken = new Set<string>()
+  for (const note of notes) {
+    const base = splitNoteExtension(note.id).base
+    let page = `${base}.html`
+    for (let n = 2; taken.has(page) || (n > 2 && own.has(page)); n++) page = `${base} ${n}.html`
+    taken.add(page)
+    pages.set(note.id, page)
+  }
 
   const byFolder = new Map<string, Array<{ href: string; title: string }>>()
   for (const note of notes) {
-    const relId = note.id.slice(prefix.length)
-    const relHtml = relId.replace(/\.md$/, '.html')
+    const relHtml = (pages.get(note.id) as string).slice(prefix.length)
     const file = path.join(targetDir, ...relHtml.split('/'))
     await mkdir(path.dirname(file), { recursive: true })
-    await writeFile(file, await renderNotePage(vault, note, { ...options, linkNotes: true }))
-    const group = parentOf(relId)
+    await writeFile(file, await renderNotePage(vault, note, { ...options, pages }))
+    const group = parentOf(note.id.slice(prefix.length))
     byFolder.set(group, [...(byFolder.get(group) ?? []), { href: encodeHref(relHtml), title: note.title }])
   }
 

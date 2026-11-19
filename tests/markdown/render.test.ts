@@ -210,6 +210,39 @@ describe('vault export', () => {
     expect(titles).toEqual(['B', 'A'])
   })
 
+  it('writes an upper-case Plan.MD as Plan.html and points links to it there', async () => {
+    await put('Plan.MD', '# Plan\n')
+    await put('links.md', '[p](Plan.MD) [q](./Plan.MD#x)\n')
+    await vault.refresh()
+    await exportFolderHtml(vault, '', out)
+    expect(await readFile(path.join(out, 'Plan.html'), 'utf8')).toContain('<title>Plan</title>')
+    const links = await readFile(path.join(out, 'links.html'), 'utf8')
+    expect(links).toContain('href="Plan.html"')
+    expect(links).toContain('href="Plan.html#x"')
+    expect(await readFile(path.join(out, 'index.html'), 'utf8')).toContain('<a href="Plan.html">')
+  })
+
+  it('gives extension-case twins their own pages, the second one "a 2.html", and links each to its own page', async (context) => {
+    await put('a.md', '---\ntitle: Lower\n---\n[upper](a.MD)\n')
+    await put('a.MD', '---\ntitle: Upper\n---\n[lower](a.md)\n')
+    await vault.refresh()
+    const ids = (await vault.notes()).map((note) => note.id).filter((id) => id.startsWith('a.'))
+    if (ids.length < 2) context.skip() // case-insensitive filesystem: the twins are one file
+    await exportFolderHtml(vault, '', out)
+    const [first, second] = ids as [string, string]
+    const titleOf: Record<string, string> = { 'a.md': 'Lower', 'a.MD': 'Upper' }
+    const pageOf = (id: string) => (id === first ? 'a.html' : 'a 2.html')
+    expect(await readFile(path.join(out, 'a.html'), 'utf8')).toContain(`<title>${titleOf[first]}</title>`)
+    expect(await readFile(path.join(out, 'a 2.html'), 'utf8')).toContain(`<title>${titleOf[second]}</title>`)
+    expect(await readFile(path.join(out, pageOf('a.md')), 'utf8')).toContain(
+      `href="${encodeURIComponent(pageOf('a.MD'))}"`,
+    )
+    expect(await readFile(path.join(out, pageOf('a.MD')), 'utf8')).toContain(
+      `href="${encodeURIComponent(pageOf('a.md'))}"`,
+    )
+    expect(await readFile(path.join(out, 'index.html'), 'utf8')).toContain('<a href="a%202.html">')
+  })
+
   it('exports markdown with its assets folder renamed after the file', async () => {
     const target = path.join(out, 'Renamed.md')
     await exportNoteMarkdown(vault, 'work/todo.md', target)
