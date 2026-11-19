@@ -70,12 +70,14 @@ const escapeHtml = (text: string) =>
 const encodeHref = (relPath: string) => relPath.split('/').map(encodeURIComponent).join('/')
 
 /**
- * Exports a folder (`''`: the whole vault) as a static site into `targetDir`: one page per note at
- * the same relative path with `.html` instead of its `.md` (any case), links between notes
- * rewritten to match, and an `index.html` listing every page by folder. Notes that differ only in
- * extension case (`a.md`, `a.MD`) get unique pages in `vault.notes()` order: `a.html`, `a 2.html`.
- * When the folder has its own `index.md`, that page is `index.html` and the listing is `_contents.html`.
- * Returns the listing's path and the page count.
+ * Exports a folder (`''`: the whole vault) as a static site into `targetDir`, plus a listing of
+ * every page by folder. Each page sits at the note's path with `.html` in place of its `.md` (any
+ * case). A page name that clashes with one already given out, or with the reserved listing name
+ * (`index.html`, or `_contents.html` when the folder has its own `index.md`), gets ` 2`, ` 3`...
+ * Clashes are compared by `nameKey` (letter case and Unicode normalization ignored), so `A.md` and
+ * `a.md`, NFC and NFD `Café`, extension-case twins (`a.md`, `a.MD`) and a `_contents.md` beside
+ * `index.md` all get distinct pages. Links to a note point at its page; a link to a missing exact
+ * id stays as written. Returns the listing's path and the page count.
  */
 export async function exportFolderHtml(
   vault: ExportVault,
