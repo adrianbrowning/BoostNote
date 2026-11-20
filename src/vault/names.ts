@@ -27,6 +27,17 @@ export async function lowerCaseEntries(dir: string): Promise<Set<string>> {
   }
 }
 
+/** How many entries of `dir` have each `nameKey`; empty when it does not exist. */
+export async function entryKeyCounts(dir: string): Promise<Map<string, number>> {
+  const counts = new Map<string, number>()
+  try {
+    for (const name of await readdir(dir)) counts.set(nameKey(name), (counts.get(nameKey(name)) ?? 0) + 1)
+  } catch (error) {
+    if (!isNodeError(error, 'ENOENT')) throw error
+  }
+  return counts
+}
+
 /** First free stem in `dir` (checked by `nameKey` against both `<stem>.md` and `<stem>.assets`). */
 export async function uniqueStem(dir: string, base: string): Promise<string> {
   const names = await lowerCaseEntries(dir)

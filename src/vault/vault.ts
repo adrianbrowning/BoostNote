@@ -28,7 +28,7 @@ import { copyFileAtomic, exists, isFile, writeFileAtomic } from './files.ts'
 import { type Frontmatter, keepUnchangedValues, parseNoteText, serializeNoteText } from './frontmatter.ts'
 import { type ImportFilesReport, type ImportOptions, planImport } from './import-files.ts'
 import { checkMoves, type LinkMove, rebaseNoteLinks, rewriteMovedLinks } from './links.ts'
-import { isExtensionCaseTwin, lowerCaseEntries, nameKey, uniqueStem } from './names.ts'
+import { entryKeyCounts, isExtensionCaseTwin, lowerCaseEntries, nameKey, uniqueStem } from './names.ts'
 import { findH1, hashText, type Note, type ReadonlyNoteMeta, toNote } from './note.ts'
 import {
   ASSETS_SUFFIX,
@@ -425,8 +425,8 @@ export class Vault {
   planTitleRenames(): Promise<TitleRenamePlan> {
     return this.#exclusive(async () => {
       const plan: TitleRenamePlan = { renames: [], skipped: [] }
-      const taken = new Map<string, Set<string>>()
-      const keyCounts = new Map<string, Map<string, number>>()
+      // Per folder, from one read: the name keys in use (plus earlier picks) and how many entries share each.
+      const folders = new Map<string, { names: Set<string>; counts: Map<string, number> }>()
       // `x.md` before `x-2.md` before `x-10.md`, so the importer's original keeps the plain name.
       const order = (id: string) =>
         splitNoteExtension(id).base.replace(/-(\d+)$/, (_match, n: string) => `\uffff${n.padStart(9, '0')}`)
@@ -446,24 +446,23 @@ export class Vault {
           plan.skipped.push({ id, reason: `file name was not made from the title “${title}”` })
           continue
         }
-        const dir = await resolveInside(this.root, folderSegments(note.folder))
-        const names = taken.get(note.folder) ?? (await lowerCaseEntries(dir))
-        taken.set(note.folder, names)
+        let entries = folders.get(note.folder)
+        if (!entries) {
+          const counts = await entryKeyCounts(await resolveInside(this.root, folderSegments(note.folder)))
+          entries = { names: new Set(counts.keys()), counts }
+          folders.set(note.folder, entries)
+        }
+        const { names, counts } = entries
         // The note's own names are free (a case-only rename) unless another note file in the folder
         // has the same name key (an extension-case or NFD twin, which `nameTaken` would refuse);
         // the others' names and earlier picks are not.
-        const key = nameKey(`${stem}.md`)
-        let counts = keyCounts.get(note.folder)
-        if (!counts) {
-          counts = new Map()
-          for (const name of await readdir(dir)) counts.set(nameKey(name), (counts.get(nameKey(name)) ?? 0) + 1)
-          keyCounts.set(note.folder, counts)
-        }
-        const twin = (counts.get(key) ?? 0) > 1
+        const twin = (counts.get(nameKey(`${stem}.md`)) ?? 0) > 1
         const own = twin ? undefined : nameKey(stem)
         const toStem = uniqueName(target, (candidate) => {
-          const key = nameKey(candidate)
-          return key !== own && (names.has(`${key}.md`) || names.has(`${key}${ASSETS_SUFFIX}`))
+          const candidateKey = nameKey(candidate)
+          return (
+            candidateKey !== own && (names.has(`${candidateKey}.md`) || names.has(`${candidateKey}${ASSETS_SUFFIX}`))
+          )
         })
         names.add(`${nameKey(toStem)}.md`)
         names.add(`${nameKey(toStem)}${ASSETS_SUFFIX}`)
