@@ -372,7 +372,7 @@ note in the export, and then points at that note's page, relative to the exporte
 → `ch3.html#x`, `sub//../ch3.md` → `ch3.html`); a link to a note outside the exported folder, a link
 to a missing id (including an extension-case variant such as `a.md` beside `a.MD`) and a link that
 leaves the vault stay as written. It also writes an `index.html` listing (`_contents.html` when the
-folder has its own `index.md` in any case, which then becomes `index.html`). A page name clashing,
+folder has its own `index.md` in any case, which then becomes `index.html` with its stem's case kept, so `INDEX.MD` → `INDEX.html`). A page name clashing,
 by `nameKey`, with one already given out, with a folder a note sits in (`a.html/`) or with the
 listing's gets ` 2`, ` 3`... in `vault.notes()` order, so case, NFC/NFD and extension-case twins get
 distinct pages (`a.md`, `a.MD` → `a.html`, `a 2.html`), each linked from its own note's links; `exportNoteMarkdown` copies the file and its
