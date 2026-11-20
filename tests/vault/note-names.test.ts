@@ -92,6 +92,8 @@ describe('note titles', () => {
     vault = await openVault(root)
     expect((await vault.renameNote('a.md', ' Notes: today? ')).id).toBe('Notes- today-.md')
     await expect(vault.renameNote('Notes- today-.md', ' .. ')).rejects.toMatchObject({ code: 'INVALID_PATH' })
+    await expect(vault.renameNote('Notes- today-.md', '.md')).rejects.toMatchObject({ code: 'INVALID_PATH' })
+    await expect(vault.renameNote('Notes- today-.md', ' .MD ')).rejects.toMatchObject({ code: 'INVALID_PATH' })
   })
 
   it('strips a .md of any case from a new name; the note keeps its own extension', async () => {
@@ -233,6 +235,41 @@ describe('rename files from titles', () => {
     expect((await readdir(path.join(root, 'Work'))).sort()).toEqual(['Meeting notes.MD', 'Meeting notes.assets'])
     expect((await vault.readNote('Work/Meeting notes.MD')).body).toBe('![a](./Meeting%20notes.assets/a.png)\n')
     expect(await read('index.md')).toBe('[m](Work/Meeting%20notes.MD)\n')
+  })
+
+  it('gives the plain name to the original of upper-case .MD slug siblings, then numbers in -N order', async () => {
+    for (const stem of ['meeting-notes', 'meeting-notes-2', 'meeting-notes-10']) {
+      await put(`Work/${stem}.MD`, '---\ntitle: Meeting notes\n---\nbody\n')
+    }
+    vault = await openVault(root)
+    const plan = await vault.planTitleRenames()
+    expect(plan.renames).toEqual([
+      { from: 'Work/meeting-notes.MD', to: 'Work/Meeting notes.MD', title: 'Meeting notes' },
+      { from: 'Work/meeting-notes-2.MD', to: 'Work/Meeting notes 2.MD', title: 'Meeting notes' },
+      { from: 'Work/meeting-notes-10.MD', to: 'Work/Meeting notes 3.MD', title: 'Meeting notes' },
+    ])
+  })
+
+  it('treats a target name taken by an upper-case .MD note as taken', async () => {
+    await put('Work/meeting-notes.md', '---\ntitle: Meeting notes\n---\nbody\n')
+    await put('Work/Meeting notes.MD', 'already taken\n')
+    vault = await openVault(root)
+    const plan = await vault.planTitleRenames()
+    expect(plan.renames).toEqual([
+      { from: 'Work/meeting-notes.md', to: 'Work/Meeting notes 2.md', title: 'Meeting notes' },
+    ])
+  })
+
+  it('suffixes a case-only title rename that an extension-case twin blocks, and applies it', async (ctx) => {
+    await put('Work/hello.md', '# Hello\n')
+    await put('Work/hello.MD', 'twin\n')
+    if ((await readdir(path.join(root, 'Work'))).length !== 2) ctx.skip() // case-insensitive file system
+    vault = await openVault(root)
+    const plan = await vault.planTitleRenames()
+    expect(plan.renames).toEqual([{ from: 'Work/hello.md', to: 'Work/Hello 2.md', title: 'Hello' }])
+    const report = await vault.applyTitleRenames(plan)
+    expect(report.skipped).toEqual([])
+    expect((await readdir(path.join(root, 'Work'))).sort()).toEqual(['Hello 2.md', 'hello.MD'])
   })
 
   it('skips renames that no longer apply', async () => {

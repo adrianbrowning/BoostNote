@@ -5,7 +5,7 @@ import { ApiError, client, setPageVault } from './api.ts'
 import type { DropTicket } from './drop-import.ts'
 import { NoteSession } from './note-session.ts'
 import { folderChain } from './paths.ts'
-import { linkMovesAfterRelocate, linksUpdatedNotice } from './relocate.ts'
+import { linkMovesAfterRelocate, linksUpdatedNotice, linkUpdateFailedNotice } from './relocate.ts'
 import { type ReaderTab, type Tab, Tabs } from './tabs.ts'
 import type {
   FolderSummary,
@@ -685,7 +685,7 @@ export class WorkspaceModel extends TypedEventTarget<{
    * pending edits are saved first; if it was rewritten it reloads like any outside change).
    */
   async #offerLinkUpdates(move: LinkMove, warning?: string): Promise<void> {
-    await this.attempt(async () => {
+    try {
       const plan = await client.planLinkUpdates([move])
       if (plan.total === 0) return
       const name = noteStem(move.from)
@@ -709,7 +709,10 @@ export class WorkspaceModel extends TypedEventTarget<{
       await this.refresh()
       const notice = linksUpdatedNotice(report.total, warning)
       this.notify('info', notice.text, [], notice.sticky)
-    })
+    } catch (error) {
+      const notice = linkUpdateFailedNotice(error instanceof Error ? error.message : String(error), warning)
+      this.notify('error', notice.text, [], notice.sticky)
+    }
   }
 
   async chooseMoveTarget(id: string): Promise<void> {

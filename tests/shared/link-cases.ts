@@ -14,8 +14,10 @@ export interface LinkCase {
   /** `resolveNoteLink(FROM, href)`: the note it opens. */
   note: string | undefined
   /**
-   * `noteLinkToHtml(FROM, href)`: the link in exported HTML, relative to `FROM`. A link that leaves the
-   * vault, a dot-folder, or a non-note link stays as written (`undefined`).
+   * `noteLinkToHtml(FROM, href)` without a `pages` map: the resolved id with its any-case `.md`
+   * swapped for `.html`, relative to `FROM`. A link that leaves the vault, a dot-folder, or a
+   * non-note link stays as written (`undefined`). This is not what a vault export writes:
+   * `exportFolderHtml` passes `pages`, where a link to an id it did not export stays as written.
    */
   html: string | undefined
   /** The link after the vault moves `FROM` to `Archive/ch4.md`. */

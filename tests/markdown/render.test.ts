@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readdir, readFile, rm, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import * as path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
@@ -143,6 +143,10 @@ describe('vault export', () => {
     await writeFile(path.join(root, rel), content)
   }
 
+  /** Whether the root folder holds two files named `a.md` ignoring case (false on a case-insensitive disk). */
+  const caseSensitiveTwins = async () =>
+    (await readdir(root)).filter((name) => name.toLowerCase() === 'a.md').length === 2
+
   beforeEach(async () => {
     root = await mkdtemp(path.join(tmpdir(), 'export-vault-'))
     out = await mkdtemp(path.join(tmpdir(), 'export-out-'))
@@ -182,6 +186,8 @@ describe('vault export', () => {
 
     const sub = path.join(out, 'sub')
     expect((await exportFolderHtml(vault, 'work', sub)).pages).toBe(1)
+    // A link to a note outside the exported folder stays as written.
+    expect(await readFile(path.join(sub, 'todo.html'), 'utf8')).toContain('href="../other.md"')
     await writeFile(path.join(root, 'work/index.md'), '# Work index\n')
     await vault.refresh()
     const own = await exportFolderHtml(vault, 'work', sub)
@@ -225,9 +231,10 @@ describe('vault export', () => {
   it('gives extension-case twins their own pages, the second one "a 2.html", and links each to its own page', async (context) => {
     await put('a.md', '---\ntitle: Lower\n---\n[upper](a.MD)\n')
     await put('a.MD', '---\ntitle: Upper\n---\n[lower](a.md)\n')
+    if (!(await caseSensitiveTwins())) context.skip()
     await vault.refresh()
     const ids = (await vault.notes()).map((note) => note.id).filter((id) => id.startsWith('a.'))
-    if (ids.length < 2) context.skip() // case-insensitive filesystem: the twins are one file
+    expect(ids).toHaveLength(2)
     await exportFolderHtml(vault, '', out)
     const [first, second] = ids as [string, string]
     const titleOf: Record<string, string> = { 'a.md': 'Lower', 'a.MD': 'Upper' }
@@ -243,12 +250,29 @@ describe('vault export', () => {
     expect(await readFile(path.join(out, 'index.html'), 'utf8')).toContain('<a href="a%202.html">')
   })
 
-  it('on disk, leaves a link to a missing a.md as written beside a.MD and a.md.md', async (context) => {
+  it('on disk, gives a twin\u2019s numbered page a name another note does not own', async (context) => {
+    await put('a.md', '---\ntitle: Lower\n---\n')
+    await put('a.MD', '---\ntitle: Upper\n---\n')
+    await put('a 2.md', '---\ntitle: Two\n---\n')
+    if (!(await caseSensitiveTwins())) context.skip()
+    await vault.refresh()
+    const ids = (await vault.notes()).map((note) => note.id).filter((id) => id.toLowerCase() === 'a.md')
+    expect(ids).toHaveLength(2)
+    await exportFolderHtml(vault, '', out)
+    const [first, second] = ids as [string, string]
+    const titleOf: Record<string, string> = { 'a.md': 'Lower', 'a.MD': 'Upper' }
+    expect(await readFile(path.join(out, 'a.html'), 'utf8')).toContain(`<title>${titleOf[first]}</title>`)
+    expect(await readFile(path.join(out, 'a 2.html'), 'utf8')).toContain('<title>Two</title>')
+    expect(await readFile(path.join(out, 'a 3.html'), 'utf8')).toContain(`<title>${titleOf[second]}</title>`)
+    const index = await readFile(path.join(out, 'index.html'), 'utf8')
+    for (const page of ['a.html', 'a%202.html', 'a%203.html']) expect(index).toContain(`<a href="${page}">`)
+  })
+
+  it('on disk, leaves a link to a missing a.md as written beside a.MD and a.md.md', async () => {
     await put('a.MD', '# Upper\n')
     await put('a.md.md', '# Double\n')
     await put('links.md', '[x](a.md)\n')
     await vault.refresh()
-    if ((await vault.notes()).some((note) => note.id === 'a.md')) context.skip() // case-insensitive filesystem
     await exportFolderHtml(vault, '', out)
     expect(await readFile(path.join(out, 'links.html'), 'utf8')).toContain('href="a.md"')
   })
@@ -256,9 +280,10 @@ describe('vault export', () => {
   it('on disk, gives A.md and a.md distinct pages', async (context) => {
     await put('A.md', 'upper\n')
     await put('a.md', 'lower\n')
+    if (!(await caseSensitiveTwins())) context.skip()
     await vault.refresh()
     const ids = (await vault.notes()).map((note) => note.id).filter((id) => id.toLowerCase() === 'a.md')
-    if (ids.length < 2) context.skip() // case-insensitive filesystem: one file
+    expect(ids).toHaveLength(2)
     await exportFolderHtml(vault, '', out)
     const [first, second] = ids as [string, string]
     const textOf: Record<string, string> = { 'A.md': 'upper', 'a.md': 'lower' }
@@ -293,6 +318,34 @@ describe('vault export', () => {
     expect(await readFile(path.join(out, '_contents 2.html'), 'utf8')).toContain('contents note')
     expect(await readFile(path.join(out, 'links.html'), 'utf8')).toContain('href="_contents%202.html"')
     expect(await readFile(path.join(out, '_contents.html'), 'utf8')).toContain('<a href="_contents%202.html">')
+  })
+
+  it('reserves the listing name with the folder prefix in a folder export', async () => {
+    const fake = fakeVault({
+      'work/index.md': '# Home\n',
+      'work/_contents.md': 'contents note\n',
+      'work/links.md': '[c](_contents.md)\n',
+    })
+    expect((await exportFolderHtml(fake, 'work', out)).contents).toBe(path.join(out, '_contents.html'))
+    expect(await readFile(path.join(out, '_contents 2.html'), 'utf8')).toContain('contents note')
+    expect(await readFile(path.join(out, 'links.html'), 'utf8')).toContain('href="_contents%202.html"')
+  })
+
+  it('treats an upper-case INDEX.MD as the folder index: listing at _contents.html, the note keeps its page', async () => {
+    expect((await exportFolderHtml(fakeVault({ 'INDEX.MD': '# Home\n', 'b.md': 'b\n' }), '', out)).contents).toBe(
+      path.join(out, '_contents.html'),
+    )
+    expect(await readFile(path.join(out, 'INDEX.html'), 'utf8')).toContain('Home')
+  })
+
+  it('numbers a note page that would clash with a vault folder named <stem>.html', async () => {
+    const fake = fakeVault({ 'a.md': '# A\n', 'a.html/b.md': '# B\n', 'links.md': '[a](a.md) [b](a.html/b.md)\n' })
+    await exportFolderHtml(fake, '', out)
+    expect(await readFile(path.join(out, 'a 2.html'), 'utf8')).toContain('<title>a.md</title>')
+    expect(await readFile(path.join(out, 'a.html/b.html'), 'utf8')).toContain('<title>a.html/b.md</title>')
+    const links = await readFile(path.join(out, 'links.html'), 'utf8')
+    expect(links).toContain('href="a%202.html"')
+    expect(links).toContain('href="a.html/b.html"')
   })
 
   it('gives notes differing only in name case or normalization distinct pages', async () => {

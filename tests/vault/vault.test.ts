@@ -210,6 +210,22 @@ describe('vault notes', () => {
     expect((await vault.moveNote('a/note.md', 'b')).id).toBe('b/note 2.md')
   })
 
+  it.each([
+    ['work/plan.md', 'work/Plan.md'],
+    ['work/plan.MD', 'work/Plan.MD'],
+  ])('renames %s to a case-only variant of its own name, with its assets and incoming links', async (from, to) => {
+    await put(from, '![a](./plan.assets/a.png)\n')
+    await put('work/plan.assets/a.png', 'A')
+    await put('index.md', `[p](${from})\n![a](work/plan.assets/a.png)\n`)
+    vault = await openVault(root)
+    const renamed = await vault.renameNote(from, 'Plan')
+    expect(renamed.id).toBe(to)
+    expect((await readdir(path.join(root, 'work'))).sort()).toEqual(['Plan.assets', path.basename(to)].sort())
+    expect(renamed.body).toBe('![a](./Plan.assets/a.png)\n')
+    await vault.applyLinkUpdates([{ from, to, kind: 'note' }])
+    expect(await read('index.md')).toBe(`[p](${to})\n![a](work/Plan.assets/a.png)\n`)
+  })
+
   it('saves assets by content hash next to the note', async () => {
     await put('work/My Note.md', '# Note\n')
     vault = await openVault(root)
@@ -261,6 +277,16 @@ describe('extension-case twins (a.md beside a.MD)', () => {
     expect(await vault.listTrash()).toEqual([])
   })
 
+  it('restores a twin trashed before the other twin took the shared folder to the trash, not reporting the gone folder', async (ctx) => {
+    if (!(await seedTwins())) ctx.skip()
+    vault = await openVault(root)
+    const first = await vault.deleteNote('work/a.md')
+    expect(first.assetsLeftBehind).toBe('work/a.assets')
+    await vault.deleteNote('work/a.MD')
+    const restored = await vault.restore(first.id)
+    expect(restored).toEqual({ id: 'work/a.md', kind: 'note' })
+  })
+
   it('renames one twin and leaves the shared assets folder in place, its links still pointing at it', async (ctx) => {
     if (!(await seedTwins())) ctx.skip()
     await put('index.md', '![x](work/a.assets/x.png)\n')
@@ -290,11 +316,12 @@ describe('extension-case twins (a.md beside a.MD)', () => {
     expect(await read('work/Café.assets/x.png')).toBe('X')
   })
 
-  it('renames an NFC note with its own assets folder when an NFD sibling has a separate one', async () => {
+  it('renames an NFC note with its own assets folder when an NFD sibling has a separate one', async (ctx) => {
     const nfd = 'Cafe\u0301'
     await put('work/Café.md', 'nfc\n')
     await put('work/Café.assets/x.png', 'X')
     await put(`work/${nfd}.md`, 'nfd\n')
+    if ((await readdir(path.join(root, 'work'))).length !== 3) ctx.skip() // NFC and NFD names are one file
     const [ours, theirs] = await Promise.all(
       ['Café.assets', `${nfd}.assets`].map((name) => stat(path.join(root, 'work', name)).catch(() => null)),
     )
@@ -401,6 +428,51 @@ describe('extension-case twins (a.md beside a.MD)', () => {
     const moved = await vault.moveNote('archive/Caf\u00e9.md', 'work')
     expect(moved.id).toBe('work/Caf\u00e9 2.md')
     expect(await read('work/Cafe\u0301.md')).toBe('nfd\n')
+  })
+
+  it('title-renames a note to a " 2" name when an NFD neighbour takes the plain one', async (ctx) => {
+    await put('work/Cafe\u0301.md', 'nfd\n')
+    await put('work/caf\u00e9.md', '# Caf\u00e9\n')
+    await writeFile(path.join(root, 'work/Caf\u00e9.md'), 'probe\n', { flag: 'wx' }).then(
+      () => rm(path.join(root, 'work/Caf\u00e9.md')),
+      () => ctx.skip(),
+    )
+    vault = await openVault(root)
+    const plan = await vault.planTitleRenames()
+    expect(plan.renames).toEqual([{ from: 'work/caf\u00e9.md', to: 'work/Caf\u00e9 2.md', title: 'Caf\u00e9' }])
+    const report = await vault.applyTitleRenames(plan)
+    expect(report.renamed).toEqual(plan.renames)
+    expect(report.skipped).toEqual([])
+    expect(await read('work/Cafe\u0301.md')).toBe('nfd\n')
+  })
+
+  it('restores a trashed NFC folder beside an NFD one of the same name with a " 2" suffix', async (ctx) => {
+    await put('work/Caf\u00e9/n.md', 'nfc\n')
+    vault = await openVault(root)
+    const trashed = await vault.deleteFolder('work/Caf\u00e9')
+    await put('work/Cafe\u0301/m.md', 'nfd\n')
+    await mkdir(path.join(root, 'work/Caf\u00e9')).then(
+      () => rm(path.join(root, 'work/Caf\u00e9'), { recursive: true }),
+      () => ctx.skip(),
+    )
+    await vault.refresh()
+    const restored = await vault.restore(trashed.id)
+    expect(restored.id).toBe('work/Caf\u00e9 2')
+    expect(await read('work/Caf\u00e9 2/n.md')).toBe('nfc\n')
+    expect(await read('work/Cafe\u0301/m.md')).toBe('nfd\n')
+  })
+
+  it('trashes a folder beside a trashed one that differs only in Unicode normalization into a " 2" slot', async (ctx) => {
+    await put('work/Caf\u00e9/n.md', 'nfc\n')
+    await put('work/Cafe\u0301/m.md', 'nfd\n')
+    if ((await readdir(path.join(root, 'work'))).length !== 2) ctx.skip() // NFC and NFD names are one folder
+    vault = await openVault(root)
+    await vault.deleteFolder('work/Caf\u00e9')
+    await vault.deleteFolder('work/Cafe\u0301')
+    expect((await readdir(path.join(root, '.trash/work'))).map((name) => name.normalize('NFC')).sort()).toEqual([
+      'Caf\u00e9',
+      'Caf\u00e9 2',
+    ])
   })
 
   it('refuses to rename a note when its twin’s assets folder cannot be checked', async (ctx) => {

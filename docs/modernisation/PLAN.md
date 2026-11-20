@@ -365,9 +365,17 @@ sanitising too (`resolveImage`, async); relative link `href`s go through `rewrit
 `htmlDocument` wraps the body in a standalone page: inline CSS (the editor's light palette), KaTeX's
 stylesheet with its WOFF2 fonts inlined as `data:` URIs (only when the note has math), and a CSP meta
 tag that forbids scripts and any fetch except images. `noteToHtml` inlines a note's images
-(`vault.assetPath` → `data:` URI); `exportFolderHtml` writes one page per note at the same relative
-path, note links that resolve inside the vault (`resolveNoteLink` from the exported note) rewritten to `.html`, relative to the exported page (`ch3.md/#x` → `ch3.html#x`, `sub//../ch3.md` → `ch3.html`; a link that leaves the vault stays as written), plus an `index.html` listing (`_contents.html` when the folder
-has its own `index.md`, which then becomes `index.html`; a page name clashing, by `nameKey`, with one already given out or the listing's gets ` 2`, ` 3`..., so case, NFC/NFD and extension-case twins get distinct pages); `exportNoteMarkdown` copies the file and its
+(`vault.assetPath` → `data:` URI); `exportFolderHtml` writes one page per note at the note's
+relative path with its `.md` in any case swapped for `.html` (`Plan.MD` → `Plan.html`). A note link
+is rewritten only when it resolves (`resolveNoteLink` from the exported note, to the exact id) to a
+note in the export, and then points at that note's page, relative to the exported page (`ch3.md/#x`
+→ `ch3.html#x`, `sub//../ch3.md` → `ch3.html`); a link to a note outside the exported folder, a link
+to a missing id (including an extension-case variant such as `a.md` beside `a.MD`) and a link that
+leaves the vault stay as written. It also writes an `index.html` listing (`_contents.html` when the
+folder has its own `index.md` in any case, which then becomes `index.html`). A page name clashing,
+by `nameKey`, with one already given out, with a folder a note sits in (`a.html/`) or with the
+listing's gets ` 2`, ` 3`... in `vault.notes()` order, so case, NFC/NFD and extension-case twins get
+distinct pages (`a.md`, `a.MD` → `a.html`, `a 2.html`), each linked from its own note's links; `exportNoteMarkdown` copies the file and its
 `<stem>.assets/` (renamed after the new file name, links rewritten).
 
 ### Mermaid, PDF and printing (`src/main/export.ts`)
@@ -524,13 +532,16 @@ The file name **is** the note's name (as in Obsidian/Hubble); the first `# H1` i
   (also for moves, trash slots and restores). `createNote` makes `Untitled.md`, `Untitled 2.md`, … with an
   empty body. Link paths encode space, `#`, `%`, `(`, `)`, `<`, `>`.
 - **Extension case:** a note file ends in `.md` of any case (`splitNoteExtension` / `noteStem`,
-  `src/shared/vault-ids.ts`). New notes get `.md`; rename, title renames, moves, trash and restore
-  keep the note's own extension (`Plan.MD` renamed to Roadmap is `Roadmap.MD`, its `Plan.assets`
+  `src/shared/vault-ids.ts`). New notes get `.md`; rename, title renames, moves, trash, restore and
+  HTML export (`Plan.MD` → `Plan.html`) follow the note's own extension (`Plan.MD` renamed to Roadmap is `Roadmap.MD`, its `Plan.assets`
   follows), and a typed `.md` of any case is dropped from a new name. `x.md` and `x.MD` count as the
   same name. Two notes that differ only in extension case (`a.md` beside `a.MD`, on case-sensitive
   file systems) share `a.assets`: trashing, renaming or moving one leaves the folder for the other
   and the result says so (`assetsLeftBehind: 'work/a.assets'`, kept in the trash entry so `restore`
-  says it too); rename, move and restore keep the note's links on the folder's real place.
+  says it too, while the folder still exists); rename, move and restore keep the note's links on the
+  folder's real place. The check only sees twins present now: once one twin was renamed, moved or
+  trashed away from the folder, a later rename, move or trash of the other carries the folder and
+  the first note's links into it break (an accepted limit).
 - **Inline rename:** click the name in the editor header (or focus it and press F2/Enter); Enter or
   blur commits through `POST /api/notes/rename`, Esc cancels, `EXISTS`/`INVALID_PATH` show inline. A
   note whose name comes from a frontmatter `title` edits that key instead (tooltip says so; clearing

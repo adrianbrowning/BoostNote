@@ -72,13 +72,15 @@ const encodeHref = (relPath: string) => relPath.split('/').map(encodeURIComponen
 /**
  * Exports a folder (`''`: the whole vault) as a static site into `targetDir`, plus a listing of
  * every page by folder. Each page sits at the note's path with `.html` in place of its `.md` (any
- * case). A page name that clashes with one already given out, or with the reserved listing name
- * (`index.html`, or `_contents.html` when the folder has its own `index.md`), gets the next free
+ * case). A page name that clashes with one already given out, with a folder a note sits in (a
+ * vault folder `a.html/`), or with the reserved listing name (`index.html`, or `_contents.html`
+ * when the folder has its own `index.md`), gets the next free
  * ` N` suffix (` 2`, ` 3`...) in `vault.notes()` order. Clashes are compared by `nameKey` (letter
  * case and Unicode normalization ignored), so `A.md` and `a.md`, NFC and NFD `Café`, and
  * extension-case twins get distinct pages: `a.md`, `a.MD` → `a.html`, `a 2.html`; `_contents.md`
- * beside `index.md` → `_contents 2.html`. Links to a note point at its page; a link to a missing
- * exact id stays as written. Returns the listing's path and the page count.
+ * beside `index.md` → `_contents 2.html`. Links to an exported note point at its page; a link to
+ * a note outside the export, or to a missing exact id, stays as written. Returns the listing's
+ * path and the page count.
  */
 export async function exportFolderHtml(
   vault: ExportVault,
@@ -92,12 +94,16 @@ export async function exportFolderHtml(
   // Page of each note as a vault id (`work/Plan.MD` → `work/Plan.html`). Names are compared by
   // `nameKey`, so pages stay distinct on case- or normalization-insensitive disks (`A.md`, `a.md`
   // → `A.html`, `a 2.html`). A numbered page skips names another note has as its own (`a 2.md`
-  // keeps `a 2.html`) and the listing's name, reserved first.
+  // keeps `a 2.html`), the listing's name, reserved first, and the folders the notes sit in (a
+  // vault folder `a.html/` pushes `a.md` to `a 2.html`).
   const ownIndex = notes.some((note) => nameKey(note.id.slice(prefix.length)) === 'index.md')
   const listing = ownIndex ? '_contents.html' : 'index.html'
   const own = new Set(notes.map((note) => nameKey(`${splitNoteExtension(note.id).base}.html`)))
   const pages = new Map<string, string>()
   const taken = new Set<string>([nameKey(`${prefix}${listing}`)])
+  for (const note of notes) {
+    for (let dir = parentOf(note.id); dir !== ''; dir = parentOf(dir)) taken.add(nameKey(dir))
+  }
   for (const note of notes) {
     const base = splitNoteExtension(note.id).base
     let page = `${base}.html`

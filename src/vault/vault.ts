@@ -28,7 +28,7 @@ import { copyFileAtomic, exists, isFile, writeFileAtomic } from './files.ts'
 import { type Frontmatter, keepUnchangedValues, parseNoteText, serializeNoteText } from './frontmatter.ts'
 import { type ImportFilesReport, type ImportOptions, planImport } from './import-files.ts'
 import { checkMoves, type LinkMove, rebaseNoteLinks, rewriteMovedLinks } from './links.ts'
-import { lowerCaseEntries, nameKey, uniqueStem } from './names.ts'
+import { isExtensionCaseTwin, lowerCaseEntries, nameKey, uniqueStem } from './names.ts'
 import { findH1, hashText, type Note, type ReadonlyNoteMeta, toNote } from './note.ts'
 import {
   ASSETS_SUFFIX,
@@ -134,7 +134,11 @@ export interface TitleRenamePlan {
  * (`a.md` beside `a.MD`) shares its assets folder: the folder stayed in place for the twin.
  */
 export interface AssetsLeftBehind {
-  /** Vault path of the assets folder left in place (`work/a.assets`); the note's links into it may break. */
+  /**
+   * Vault path of the assets folder left in place for the twin (`work/a.assets`). The note's links
+   * keep pointing at it there; they break while the note is in the trash, or if the twin later
+   * moves or trashes the folder.
+   */
   assetsLeftBehind?: string
 }
 
@@ -401,6 +405,9 @@ export class Vault {
    */
   renameNote(id: string, name: string): Promise<Note & AssetsLeftBehind> {
     return this.#exclusive(async () => {
+      if (/^\.md$/i.test(name.trim())) {
+        throw new VaultError('INVALID_PATH', `Invalid note name: ${JSON.stringify(name)}`)
+      }
       const stem = sanitizeFileName(splitNoteExtension(name).base)
       if (stem === '') throw new VaultError('INVALID_PATH', `Invalid note name: ${JSON.stringify(name)}`)
       const toId = joinId(parentOf(id), `${stem}${splitNoteExtension(id).extension}`)
@@ -438,12 +445,15 @@ export class Vault {
           plan.skipped.push({ id, reason: `file name was not made from the title “${title}”` })
           continue
         }
-        const names =
-          taken.get(note.folder) ??
-          (await lowerCaseEntries(await resolveInside(this.root, folderSegments(note.folder))))
+        const dir = await resolveInside(this.root, folderSegments(note.folder))
+        const names = taken.get(note.folder) ?? (await lowerCaseEntries(dir))
         taken.set(note.folder, names)
-        // The note's own names are free (a case-only rename), the others' and earlier picks are not.
-        const own = nameKey(stem)
+        // The note's own names are free (a case-only rename) unless another note file in the folder
+        // has the same name key (an extension-case or NFD twin, which `nameTaken` would refuse);
+        // the others' names and earlier picks are not.
+        const key = nameKey(`${stem}.md`)
+        const twin = (await readdir(dir)).filter((name) => nameKey(name) === key).length > 1
+        const own = twin ? undefined : nameKey(stem)
         const toStem = uniqueName(target, (candidate) => {
           const key = nameKey(candidate)
           return key !== own && (names.has(`${key}.md`) || names.has(`${key}${ASSETS_SUFFIX}`))
@@ -458,9 +468,11 @@ export class Vault {
 
   /**
    * Applies (a possibly user-trimmed) `planTitleRenames` result: renames each file in place (its
-   * assets folder and own links follow, as with `renameNote`), drops a frontmatter `title` that now
-   * equals the file name, then rewrites the relative links of every note that pointed at a renamed
-   * note or into its assets folder. Renames that no longer apply are skipped with the reason.
+   * assets folder and own links follow as with `renameNote`, unless an extension-case twin shares
+   * the folder: then it stays in place and the `renamed` entry carries `assetsLeftBehind`), drops a
+   * frontmatter `title` that now equals the file name, then rewrites the relative links of every
+   * note that pointed at a renamed note, or into an assets folder that moved with it. Renames that
+   * no longer apply are skipped with the reason.
    */
   applyTitleRenames(plan: Pick<TitleRenamePlan, 'renames'>): Promise<TitleRenameReport> {
     return this.#exclusive(async () => {
@@ -619,7 +631,8 @@ export class Vault {
   /**
    * Puts a trashed note or folder back at its original path (recreating missing parent folders,
    * suffixing the name when the original is taken). Returns the restored note/folder id and its kind;
-   * a note trashed without its shared assets folder keeps its links on it and says so.
+   * a note trashed without its shared assets folder keeps its links on it and says so, while that
+   * folder still exists (the twin may have taken it to the trash or moved it since).
    */
   restore(trashId: string): Promise<{ id: string; kind: TrashKind } & AssetsLeftBehind> {
     return this.#exclusive(async () => {
@@ -632,6 +645,10 @@ export class Vault {
       const parentDir = await resolveInside(this.root, folderSegments(parent))
       await mkdir(parentDir, { recursive: true })
       const { assetsLeftBehind } = entry
+      const leftBehindStill =
+        assetsLeftBehind !== undefined && (await exists(path.join(this.root, ...assetsLeftBehind.split('/'))))
+          ? assetsLeftBehind
+          : undefined
       let restoredId: string
       if (entry.kind === 'note') {
         noteSegments(entry.originalPath)
@@ -663,7 +680,7 @@ export class Vault {
       }
       delete index.entries[trashId]
       await writeTrashIndex(this.root, index)
-      return { id: restoredId, kind: entry.kind, ...(assetsLeftBehind ? { assetsLeftBehind } : {}) }
+      return { id: restoredId, kind: entry.kind, ...(leftBehindStill ? { assetsLeftBehind: leftBehindStill } : {}) }
     })
   }
 
@@ -1097,8 +1114,9 @@ async function sameOrMissing(from: string, to: string): Promise<boolean> {
 }
 
 /**
- * Whether the folder of `file` has an entry named like it ignoring case (`x.md`, `x.MD`) other than
- * `self`, so a case-only rename of `self` is free.
+ * Whether the folder of `file` has an entry with the same `nameKey` as it (letter case and Unicode
+ * normalization ignored: `x.md`, `x.MD`, an NFD `Café.md`) other than `self`, so a case-only
+ * rename of `self` is free.
  */
 async function nameTaken(file: string, self: string): Promise<boolean> {
   const target = nameKey(path.basename(file))
@@ -1112,7 +1130,7 @@ async function nameTaken(file: string, self: string): Promise<boolean> {
  * Vault path of the assets folder of note `id` (at `file`) when it exists and another note shares
  * it, so it stays in place; else `undefined`. A candidate is an extension-case twin (`a.md` beside
  * `a.MD`, stems compared after NFC normalization as `nameTaken` does) whose own assets folder
- * resolves to the same directory as the note's: on ext4 NFC `Café.md` and NFD `Café.md` keep
+ * resolves to the same directory as the note's: on ext4 NFC `Caf\u00e9.md` and NFD `Cafe\u0301.md` keep
  * separate folders, so neither is a twin. A twin that is a hard link of the note (same inode) is
  * not detected, so the assets move with it and no warning is given; this is an accepted limit.
  */
@@ -1120,10 +1138,10 @@ async function sharedAssetsOf(id: string, file: string): Promise<string | undefi
   const ours = assetsDirOf(file)
   if (!(await exists(ours))) return undefined
   const dir = path.dirname(file)
-  const stem = noteStem(file).normalize('NFC')
+  const name = path.basename(file)
   for (const entry of await readdir(dir, { withFileTypes: true })) {
     const other = path.join(dir, entry.name)
-    const candidate = entry.isFile() && isNoteFileName(entry.name) && noteStem(entry.name).normalize('NFC') === stem
+    const candidate = entry.isFile() && isExtensionCaseTwin(entry.name, name)
     if (!candidate || (await sameOrMissing(file, other))) continue
     const theirs = assetsDirOf(other)
     if (theirs === ours || (await sameDirectory(ours, theirs))) {

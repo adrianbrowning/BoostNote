@@ -291,6 +291,20 @@ describe('notes', () => {
     expect(await readFile(path.join(vault.root, 'linker.md'), 'utf8')).toBe('[t](./New%20name.md#x)\n')
   })
 
+  it('passes a link move’s assets flag through to the vault', async () => {
+    const work = path.join(vault.root, 'work')
+    await mkdir(path.join(work, 'p.assets'), { recursive: true })
+    await writeFile(path.join(work, 'p.md'), '# P\n')
+    await writeFile(path.join(work, 'p.assets', 'x.png'), 'X')
+    await writeFile(path.join(vault.root, 'index.md'), '![x](work/p.assets/x.png)\n')
+    await vault.refresh()
+    await app.post(api.noteRename.href(), { id: 'work/p.md', name: 'q' })
+
+    const moves = [{ from: 'work/p.md', to: 'work/q.md', kind: 'note', assets: false }]
+    expect((await app.post(api.linksApply.href(), { moves })).status).toBe(200)
+    expect(await readFile(path.join(vault.root, 'index.md'), 'utf8')).toBe('![x](work/p.assets/x.png)\n')
+  })
+
   it('renames one extension-case twin, reports the shared assets folder stayed, and keeps links into it', async (ctx) => {
     const work = path.join(vault.root, 'work')
     await mkdir(path.join(work, 'a.assets'), { recursive: true })
