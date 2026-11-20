@@ -309,6 +309,7 @@ describe('extension-case twins (a.md beside a.MD)', () => {
     await put('work/Café.MD', 'upper\n')
     await put('work/Café.assets/x.png', 'X')
     const shared = await readFile(path.join(root, `work/${nfd}.assets/x.png`), 'utf8').catch(() => null)
+    // Needs a case-sensitive, normalization-insensitive file system (case-sensitive APFS): skips on ext4 and on default macOS.
     if ((await readdir(path.join(root, 'work'))).length !== 3 || shared !== 'X') ctx.skip()
     vault = await openVault(root)
     const renamed = await vault.renameNote(`work/${nfd}.md`, 'b')
@@ -397,6 +398,7 @@ describe('extension-case twins (a.md beside a.MD)', () => {
     await put('work/Caf\u0065\u0301.md', 'nfd\n')
     await put('work/x.md', 'x\n')
     if ((await readdir(path.join(root, 'work'))).length !== 2) ctx.skip()
+    // Needs a normalization-insensitive file system (APFS): skips on ext4, where NFC and NFD names are two files.
     await writeFile(path.join(root, 'work/Caf\u00e9.md'), 'probe\n', { flag: 'wx' }).then(
       () => ctx.skip(),
       () => undefined,
