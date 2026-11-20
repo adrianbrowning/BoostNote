@@ -8,3 +8,6 @@
 - Smoke-run the real app on a copy of a vault with `pnpm smoke` (see `scripts/smoke.ts`); the committed
   sample vault works out of the box: `pnpm smoke --vault-copy tests/fixtures/sample-vault`. Never point
   the app or a test at the user's own vault.
+- Tests that skip on the default macOS disk (extension-case twins `a.md` beside `a.MD`, NFC/NFD names) run with
+  `pnpm test:linux [paths]` (Docker, ext4) and `pnpm test:case-sensitive [paths]` (macOS, temporary case-sensitive
+  APFS image as TMPDIR); see `scripts/test-linux.sh` and `scripts/test-case-sensitive.sh`.

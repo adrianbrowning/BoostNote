@@ -41,8 +41,8 @@ Rules a reviewer checks on a diff. Mechanical rules live in Biome, `tsc` and the
 - **E2e tests find elements by role, accessible name or a `data-*` hook.**
 - **E2e helpers come from `tests/e2e/fixtures.ts`.** A spec reuses `readSettings`, `openLooseFile`,
   `cspViolations` and the other helpers there, and a new shared helper goes there too.
-- **E2e specs are split by concern.** A new test joins the spec for its concern (`styles.spec.ts`,
-  `layout.spec.ts`, `csp.spec.ts`, …) or starts a new one, keeping `app.spec.ts` from growing.
+- **E2e specs are split by concern.** A new test joins the spec for its concern or starts a new one;
+  `pnpm run check` fails when `app.spec.ts` grows (`scripts/check-app-spec.ts`).
 
 ## Docs
 

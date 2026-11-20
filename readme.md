@@ -132,9 +132,11 @@ pnpm dev
 | Script | What it does |
 | --- | --- |
 | `pnpm dev` | Run the app from source; browser modules recompile on change (reload the window), main-process changes need a restart. |
-| `pnpm check` / `pnpm fix` | Biome lint + format check / apply safe fixes. |
+| `pnpm check` / `pnpm fix` | Biome lint + format check / apply safe fixes; `check` also fails when `tests/e2e/app.spec.ts` grows past its test cap. |
 | `pnpm typecheck` | TypeScript (strict, `noEmit`). |
 | `pnpm test` | Vitest unit tests (`tests/`, excluding `tests/e2e`). |
+| `pnpm test:linux [paths]` | Vitest in Docker on Linux (ext4), for tests that skip on the default macOS disk. |
+| `pnpm test:case-sensitive [paths]` | Vitest on macOS with TMPDIR on a temporary case-sensitive APFS image. |
 | `pnpm test:e2e` | Playwright smoke tests driving the real Electron app (`tests/e2e`). |
 | `pnpm build` | Typecheck, then render the app with production settings and compile every browser asset. |
 | `pnpm dist` | `pnpm build`, then installers in `dist/` via electron-builder (build each on its own OS). |
