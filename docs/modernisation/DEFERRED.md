@@ -96,9 +96,7 @@ per finding: id, location, title, problem and suggested fix. Later factory runs 
 
 - Location: `src/app/actions/public/workspace/relocate.ts:31`
 - Title: `sticky` is stored next to `warning` but is always just `warning !== undefined`
-- Problem: RelocateOutcome has both `warning` and `sticky`, and linksUpdatedNotice also returns `sticky: warning !== undefined`. The two fields cannot disagree, so `sticky` is derived state stored as a second field and computed in two places. A reader has to check that they always agree, and a later change to one rule (for example, a sticky notice with no warning) would have to be made in both functions.
-- Suggested fix: Either drop `sticky` and let the one caller that shows a notice pass `warning !== undefined`, or keep `sticky` as the only output and compute it in one place (one small helper both functions use).
-- Slice 04: `linkUpdateFailedNotice` in the same file adds a third copy (`sticky: warning !== undefined`); the fix should cover it too.
+- Problem: RelocateOutcome has both `warning` and `sticky`, and linksUpdatedNotice and linkUpdateFailedNotice also return `sticky: warning !== undefined`. The fields cannot disagree, so `sticky` is derived state stored as a second field and computed in three places. A reader has to check that they always agree, and a later change to one rule (for example, a sticky notice with no warning) would have to be made in every copy.
 
 ### thermo-shared-assets-own-stem-key
 
@@ -139,11 +137,11 @@ per finding: id, location, title, problem and suggested fix. Later factory runs 
 
 ### thermo-export-page-names-reimplement-unique-name
 
-- Location: `src/markdown/export.ts:96`
+- Location: `src/markdown/export.ts:120`
 - Title: Export page numbering re-implements uniqueName with an `n > 2` sentinel
-- Problem: src/markdown/export.ts:96 | `for (let n = 2; taken.has(page) || (n > 2 && own.has(page)); n++) page = `${base} ${n}.html`` hand-rolls the `base`, `base 2`, `base 3` search that `uniqueName` in src/vault/paths.ts already owns, and uses `n > 2` as a hidden 'this is a numbered candidate' flag (at n = 2 the page is still the unnumbered one). The behaviour is correct, but a reader has to trace the loop to see that the note's own page is exempt from the `own` check. The ' N' suffix rule now lives in two places, so a change to it (separator, start number) has to be made twice.
+- Problem: src/markdown/export.ts:120 | `for (let n = 2; taken.has(nameKey(page)) || (n > 2 && own.has(nameKey(page))); n++) page = `${base} ${n}.html`` hand-rolls the `base`, `base 2`, `base 3` search that `uniqueName` in src/vault/paths.ts already owns, and uses `n > 2` as a hidden 'this is a numbered candidate' flag (at n = 2 the page is still the unnumbered one). The behaviour is correct, but a reader has to trace the loop to see that the note's own page is exempt from the `own` check. The ' N' suffix rule now lives in two places, so a change to it (separator, start number) has to be made twice.
 - Suggested fix: Use the existing helper: `const stem = uniqueName(base, (c) => taken.has(`${c}.html`) || (c !== base && own.has(`${c}.html`)))`, then `page = `${stem}.html``.
-- Slice 04: the listing loop (`for (let n = 2; ; n++)` at `src/markdown/export.ts:111`) is a second copy of the same `n > 2` sentinel search; the page loop is now at export.ts:120. Move both to `uniqueName`.
+- Slice 04: the listing loop (`for (let n = 2; ; n++)` at `src/markdown/export.ts:111`) is a second copy of the same `n > 2` sentinel search. Move both to `uniqueName`.
 
 ### thermo-html-page-name-rule-in-two-modules
 
@@ -189,11 +187,10 @@ per finding: id, location, title, problem and suggested fix. Later factory runs 
 
 ### comments-export-page-allocator-comment-repeats-doc
 
-- Location: `src/markdown/export.ts:92`
-- Title: Inline page-allocator comment repeats the exportFolderHtml doc and blurs which pages skip the listing name
-- Problem: src/markdown/export.ts:92-95 | `// Page of each note as a vault id (...). Names are compared by nameKey, so pages stay distinct ... A numbered page skips names another note has as its own (`a 2.md` keeps `a 2.html`) and the listing's name, reserved first.` | The JSDoc a few lines above already states the same rule: nameKey comparison, ` N` suffixes, the reserved listing name, and the A.md/a.md example. Two copies of one rule can drift apart. The last sentence also reads as if only numbered pages skip the listing name. In the code every candidate, including the unnumbered `<base>.html`, is checked against `taken`, and `taken` starts with the listing name (that is how `_contents.md` ends up as `_contents 2.html`).
+- Location: `src/markdown/export.ts:94`
+- Title: Inline page-allocator comment repeats the exportFolderHtml doc
+- Problem: src/markdown/export.ts:94-101 | `// Page of each note as a vault id (...). Names are compared by `nameKey` (...). A numbered page skips names another note has as its own (`a 2.md` keeps `a 2.html`), the folders the notes sit in (...) and the listing's name. The listing is named first: it skips those folders (...), and only a numbered listing name also skips the notes' own pages, so the plain listing name wins over a note's own page (`_contents.md` beside `index.md` → `_contents 2.html`).` | The JSDoc a few lines above already states the same rules: nameKey comparison, ` N` suffixes, the reserved listing name, the folder clash, and the A.md/a.md example. Two copies of one rule can drift apart.
 - Suggested fix: Cut the inline comment down to what the JSDoc leaves out: page values are vault ids (prefix included), and the `n > 2 && own` clause lets a numbered candidate skip another note's own page. For example: `// pages: note id → page as a vault id (`work/Plan.MD` → `work/Plan.html`). `taken` starts with the listing; a numbered candidate also skips another note's own page (`a 2.md` keeps `a 2.html`).`
-- Slice 04: the inline comment above `ownIndex` was rewritten and now reads: "Page of each note as a vault id (...). Names are compared by `nameKey` (...). A numbered page skips names another note has as its own (`a 2.md` keeps `a 2.html`), the folders the notes sit in (a vault folder `a.html/` pushes `a.md` to `a 2.html`) and the listing's name. The listing is named first: it skips those folders (...), and only a numbered listing name also skips the notes' own pages, so the plain listing name wins over a note's own page (`_contents.md` beside `index.md` → `_contents 2.html`)." It still repeats the JSDoc, which also gained the folder-clash rule.
 
 ### comments-vault-session-test-mdx-comment-restates
 
