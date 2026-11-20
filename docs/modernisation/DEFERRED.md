@@ -97,6 +97,7 @@ per finding: id, location, title, problem and suggested fix. Later factory runs 
 - Location: `src/app/actions/public/workspace/relocate.ts:31`
 - Title: `sticky` is stored next to `warning` but is always just `warning !== undefined`
 - Problem: RelocateOutcome has both `warning` and `sticky`, and linksUpdatedNotice and linkUpdateFailedNotice also return `sticky: warning !== undefined`. The fields cannot disagree, so `sticky` is derived state stored as a second field and computed in three places. A reader has to check that they always agree, and a later change to one rule (for example, a sticky notice with no warning) would have to be made in every copy.
+- Suggested fix: Either drop `sticky` and let the one caller that shows a notice pass `warning !== undefined`, or keep `sticky` as the only output and compute it in one place (one small helper all three functions use).
 
 ### thermo-shared-assets-own-stem-key
 
