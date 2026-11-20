@@ -338,6 +338,13 @@ describe('vault export', () => {
     expect(await readFile(path.join(out, 'INDEX.html'), 'utf8')).toContain('Home')
   })
 
+  it('numbers the listing when a vault folder is named index.html', async () => {
+    const fake = fakeVault({ 'index.html/b.md': '# B\n', 'c.md': '# C\n' })
+    expect((await exportFolderHtml(fake, '', out)).contents).toBe(path.join(out, 'index 2.html'))
+    expect(await readFile(path.join(out, 'index 2.html'), 'utf8')).toContain('<a href="index.html/b.html">')
+    expect(await readFile(path.join(out, 'index.html/b.html'), 'utf8')).toContain('<title>index.html/b.md</title>')
+  })
+
   it('numbers a note page that would clash with a vault folder named <stem>.html', async () => {
     const fake = fakeVault({ 'a.md': '# A\n', 'a.html/b.md': '# B\n', 'links.md': '[a](a.md) [b](a.html/b.md)\n' })
     await exportFolderHtml(fake, '', out)
