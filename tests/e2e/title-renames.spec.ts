@@ -6,7 +6,7 @@ test('the title-rename report lists an assets folder that stayed for an extensio
   const { page, vault } = app
   await writeFiles(vault, { 'work/meeting-notes.md': '# Meeting notes\n' })
   await expect(page.locator('[data-note="work/meeting-notes.md"]')).toBeAttached({ timeout: 15_000 })
-  // Twins can't exist on this disk, so the apply answer gets the twin's `assetsLeftBehind` added.
+  // Twins can't exist on a case-insensitive disk (default APFS), so to run the same on every CI runner the apply answer gets the twin's `assetsLeftBehind` added.
   // (`page.route` does not see `boost://` requests, so the page's fetch is wrapped.)
   await page.evaluate(() => {
     const original = window.fetch

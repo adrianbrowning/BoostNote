@@ -95,8 +95,10 @@ export async function exportFolderHtml(
   // `nameKey`, so pages stay distinct on case- or normalization-insensitive disks (`A.md`, `a.md`
   // → `A.html`, `a 2.html`). A numbered page skips names another note has as its own (`a 2.md`
   // keeps `a 2.html`), the folders the notes sit in (a vault folder `a.html/` pushes `a.md` to
-  // `a 2.html`) and the listing's name, which is picked first and itself skips those folders and
-  // the notes' own pages (a folder `index.html/` makes the listing `index 2.html`).
+  // `a 2.html`) and the listing's name. The listing is named first: it skips those folders (a
+  // folder `index.html/` makes the listing `index 2.html`), and only a numbered listing name also
+  // skips the notes' own pages, so the plain listing name wins over a note's own page
+  // (`_contents.md` beside `index.md` → `_contents 2.html`).
   const ownIndex = notes.some((note) => nameKey(note.id.slice(prefix.length)) === 'index.md')
   const own = new Set(notes.map((note) => nameKey(`${splitNoteExtension(note.id).base}.html`)))
   const pages = new Map<string, string>()

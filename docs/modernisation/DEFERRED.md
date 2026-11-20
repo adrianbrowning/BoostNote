@@ -41,6 +41,7 @@ per finding: id, location, title, problem and suggested fix. Later factory runs 
 - Title: linkMovesAfterRelocate makes trash and restore pass an id it never reads, so deleteNote builds a fake one
 - Problem: `linkMovesAfterRelocate` requires `result.id`, but it reads it only when `from` is set (rename and move). WorkspaceModel's delete path has no note result, so it builds `{ id, ...trashed }`. The real `noteDelete` response is the whole TrashEntry (controller.ts:214 returns `vault.deleteNote(...)`), and its own `id` (the trash id) comes after the note id in the spread and replaces it. This only works because `client.deleteNote` is typed `post<AssetsLeftBehind>`, which is narrower than the actual payload, and because the id is never read. The function's docs ("renamed, moved or restored", "restore (no `from`)") also leave out trash, which the model now sends through it. Today this is harmless, but the type does not describe what callers must supply, and the object it builds has the wrong id.
 - Suggested fix: Make the input type say what is used: e.g. `{ move?: { from: string; to: string }; assetsLeftBehind?: string; done?: string }`, or keep `result` only on the rename/move branch. Then deleteNote passes `trashed.assetsLeftBehind` directly with no fake id. Mention trash in the docs.
+- Status: partly fixed in slice 04: the relocate.ts docs now name trash. The type half (the forced `id`) remains.
 
 ### thermo-assets-left-behind-conditional-spread-repeated
 
@@ -97,13 +98,15 @@ per finding: id, location, title, problem and suggested fix. Later factory runs 
 - Title: `sticky` is stored next to `warning` but is always just `warning !== undefined`
 - Problem: RelocateOutcome has both `warning` and `sticky`, and linksUpdatedNotice also returns `sticky: warning !== undefined`. The two fields cannot disagree, so `sticky` is derived state stored as a second field and computed in two places. A reader has to check that they always agree, and a later change to one rule (for example, a sticky notice with no warning) would have to be made in both functions.
 - Suggested fix: Either drop `sticky` and let the one caller that shows a notice pass `warning !== undefined`, or keep `sticky` as the only output and compute it in one place (one small helper both functions use).
+- Slice 04: `linkUpdateFailedNotice` in the same file adds a third copy (`sticky: warning !== undefined`); the fix should cover it too.
 
 ### thermo-shared-assets-own-stem-key
 
-- Location: `src/vault/vault.ts:1126`
+- Location: `src/vault/names.ts:16` (`isExtensionCaseTwin`, called from sharedAssetsOf in `src/vault/vault.ts:1150`)
 - Title: sharedAssetsOf compares twin stems with its own NFC-only key, not nameKey
 - Problem: This diff adds `nameKey` in src/vault/names.ts (NFC plus lower case) as the key under which two names in a folder clash, and nameTaken, uniqueStem, planTitleRenames and import all use it. sharedAssetsOf builds a third key by hand: `noteStem(file).normalize('NFC')` compared against `noteStem(entry.name).normalize('NFC')`, which is NFC but keeps case. Its doc says stems are compared 'after NFC normalization as `nameTaken` does', but nameTaken also lower-cases, so the doc and the code disagree. The stem test is only a pre-filter (the real decision is `theirs === ours || sameDirectory(ours, theirs)`), so using the shared key costs nothing. Keeping a separate key means the next change to the clash rule (nameKey) has to find this copy too, and a `A.md` beside `a.MD` whose assets folders resolve to the same directory (for example through a symlink, as the NFD symlink test sets up) is never even checked.
 - Suggested fix: Pre-filter candidates with `nameKey(noteStem(entry.name)) === nameKey(noteStem(file))` and fix the doc to say the stems are compared by nameKey, the same as nameTaken.
+- Slice 04: the check moved to `isExtensionCaseTwin`: `noteStem(a).normalize('NFC') === noteStem(b).normalize('NFC')`. Applying the nameKey fix also flips the `['a.md', 'A.md', false]` row in `tests/vault/names.test.ts`, which pins the case-keeping comparison; change that row with it.
 
 ### thermo-stem-taken-predicate-copied-three-times
 
@@ -118,6 +121,7 @@ per finding: id, location, title, problem and suggested fix. Later factory runs 
 - Title: linksUpdatedNotice adds a `?? done` fallback that can never be used
 - Problem: joinNotice returns `string | undefined` so that linkMovesAfterRelocate can return no notice. linksUpdatedNotice always passes a defined `done`, so joinNotice cannot return undefined there, and `?? done` is never used. It exists only to narrow the type. A reader has to work out that the fallback can never run.
 - Suggested fix: Build the text directly here (`warning === undefined ? done : `${done}. ${warning}``). Or give joinNotice an overload, or a required first part, that returns `string` when that part is defined.
+- Slice 04: `linkUpdateFailedNotice` in the same file adds a second dead fallback (`joinNotice(message, warning) ?? message`); the fix should cover it too.
 
 ### thermo-split-note-extension-redundant-check
 
@@ -139,6 +143,7 @@ per finding: id, location, title, problem and suggested fix. Later factory runs 
 - Title: Export page numbering re-implements uniqueName with an `n > 2` sentinel
 - Problem: src/markdown/export.ts:96 | `for (let n = 2; taken.has(page) || (n > 2 && own.has(page)); n++) page = `${base} ${n}.html`` hand-rolls the `base`, `base 2`, `base 3` search that `uniqueName` in src/vault/paths.ts already owns, and uses `n > 2` as a hidden 'this is a numbered candidate' flag (at n = 2 the page is still the unnumbered one). The behaviour is correct, but a reader has to trace the loop to see that the note's own page is exempt from the `own` check. The ' N' suffix rule now lives in two places, so a change to it (separator, start number) has to be made twice.
 - Suggested fix: Use the existing helper: `const stem = uniqueName(base, (c) => taken.has(`${c}.html`) || (c !== base && own.has(`${c}.html`)))`, then `page = `${stem}.html``.
+- Slice 04: the listing loop (`for (let n = 2; ; n++)` at `src/markdown/export.ts:111`) is a second copy of the same `n > 2` sentinel search; the page loop is now at export.ts:120. Move both to `uniqueName`.
 
 ### thermo-html-page-name-rule-in-two-modules
 
@@ -188,6 +193,7 @@ per finding: id, location, title, problem and suggested fix. Later factory runs 
 - Title: Inline page-allocator comment repeats the exportFolderHtml doc and blurs which pages skip the listing name
 - Problem: src/markdown/export.ts:92-95 | `// Page of each note as a vault id (...). Names are compared by nameKey, so pages stay distinct ... A numbered page skips names another note has as its own (`a 2.md` keeps `a 2.html`) and the listing's name, reserved first.` | The JSDoc a few lines above already states the same rule: nameKey comparison, ` N` suffixes, the reserved listing name, and the A.md/a.md example. Two copies of one rule can drift apart. The last sentence also reads as if only numbered pages skip the listing name. In the code every candidate, including the unnumbered `<base>.html`, is checked against `taken`, and `taken` starts with the listing name (that is how `_contents.md` ends up as `_contents 2.html`).
 - Suggested fix: Cut the inline comment down to what the JSDoc leaves out: page values are vault ids (prefix included), and the `n > 2 && own` clause lets a numbered candidate skip another note's own page. For example: `// pages: note id → page as a vault id (`work/Plan.MD` → `work/Plan.html`). `taken` starts with the listing; a numbered candidate also skips another note's own page (`a 2.md` keeps `a 2.html`).`
+- Slice 04: the inline comment above `ownIndex` was rewritten and now reads: "Page of each note as a vault id (...). Names are compared by `nameKey` (...). A numbered page skips names another note has as its own (`a 2.md` keeps `a 2.html`), the folders the notes sit in (a vault folder `a.html/` pushes `a.md` to `a 2.html`) and the listing's name. The listing is named first: it skips those folders (...), and only a numbered listing name also skips the notes' own pages, so the plain listing name wins over a note's own page (`_contents.md` beside `index.md` → `_contents 2.html`)." It still repeats the JSDoc, which also gained the folder-clash rule.
 
 ### comments-vault-session-test-mdx-comment-restates
 
