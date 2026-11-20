@@ -15,7 +15,7 @@ const run = (script: string, PATH: string) => {
   return { status: result.status, stderr: result.stderr }
 }
 
-describe('test scripts error branches', () => {
+describe.skipIf(process.platform === 'win32')('test scripts error branches', () => {
   let bin: string
   beforeEach(async () => {
     bin = await mkdtemp(path.join(tmpdir(), 'boost-script-bin-'))
