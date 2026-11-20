@@ -426,6 +426,7 @@ export class Vault {
     return this.#exclusive(async () => {
       const plan: TitleRenamePlan = { renames: [], skipped: [] }
       const taken = new Map<string, Set<string>>()
+      const keyCounts = new Map<string, Map<string, number>>()
       // `x.md` before `x-2.md` before `x-10.md`, so the importer's original keeps the plain name.
       const order = (id: string) =>
         splitNoteExtension(id).base.replace(/-(\d+)$/, (_match, n: string) => `\uffff${n.padStart(9, '0')}`)
@@ -452,7 +453,13 @@ export class Vault {
         // has the same name key (an extension-case or NFD twin, which `nameTaken` would refuse);
         // the others' names and earlier picks are not.
         const key = nameKey(`${stem}.md`)
-        const twin = (await readdir(dir)).filter((name) => nameKey(name) === key).length > 1
+        let counts = keyCounts.get(note.folder)
+        if (!counts) {
+          counts = new Map()
+          for (const name of await readdir(dir)) counts.set(nameKey(name), (counts.get(nameKey(name)) ?? 0) + 1)
+          keyCounts.set(note.folder, counts)
+        }
+        const twin = (counts.get(key) ?? 0) > 1
         const own = twin ? undefined : nameKey(stem)
         const toStem = uniqueName(target, (candidate) => {
           const key = nameKey(candidate)
