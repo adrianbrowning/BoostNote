@@ -10,7 +10,8 @@ command -v docker >/dev/null 2>&1 || { echo 'test:linux: docker is not on PATH' 
 docker info >/dev/null 2>&1 || { echo 'test:linux: the Docker daemon is not running (start Docker Desktop)' >&2; exit 1; }
 
 root="$(cd "$(dirname "$0")/.." && pwd)"
-# Under /tmp, which Docker Desktop shares with its VM by default.
+# Under /tmp, which Docker Desktop shares with its VM by default. The mktemp folder stays 0700 so other local
+# users cannot reach the copy; only the repo subfolder inside it is opened up for the container's `node` user.
 copy="$(mktemp -d /tmp/boost-linux.XXXXXX)"
 # Retried: macOS can write .DS_Store files into the folder while it is being deleted.
 cleanup() {
@@ -18,10 +19,10 @@ cleanup() {
   echo "test:linux: could not delete $copy" >&2
 }
 trap cleanup EXIT
-rsync -a --exclude .git --filter=':- .gitignore' "$root/" "$copy/"
-chmod -R a+rX "$copy"
+rsync -a --exclude .git --exclude .scratch/ --exclude '.env*' --filter=':- .gitignore' "$root/" "$copy/repo/"
+chmod -R a+rX "$copy/repo"
 
-docker run --rm --user node -v "$copy:/src:ro" node:24-bookworm bash -c '
+docker run --rm --user node -v "$copy/repo:/src:ro" node:24-bookworm bash -c '
   set -e
   cp -r /src "$HOME/work"
   cd "$HOME/work"
