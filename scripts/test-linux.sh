@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Runs vitest on Linux (ext4, case-sensitive) in Docker: `pnpm test:linux [vitest args/paths]`.
 # Use it for tests that skip on the default macOS disk, such as the extension-case twin tests (a.md beside a.MD).
-# Copies the repository (only what .gitignore keeps, without .git) to a temp folder, mounts it read-only into
+# Copies the repository to a temp folder: what .gitignore keeps, minus .git, .scratch/ and .env* (untracked
+# private files stay out of /tmp). It then mounts the copy read-only into
 # node:24-bookworm, installs from the lockfile and runs vitest as the image's unprivileged `node` user, so
 # tests that need a read-only folder (tests/cli/install.test.ts) behave as on a developer machine.
 set -euo pipefail
