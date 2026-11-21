@@ -108,6 +108,26 @@ describe('preview widgets', () => {
     expect(widgets('| a | b |\n| - | - |\n| 1 | ‸2 |')).toEqual([])
   })
 
+  it('unwraps <...> image destinations in table cells before the relative-link check', () => {
+    const resolved: string[] = []
+    const host = editorHost.of({
+      resolveAssetUrl: (relPath) => {
+        resolved.push(relPath)
+        return `asset:${relPath}`
+      },
+      saveAsset: async () => '',
+      onOpenLink: () => {},
+    })
+    const [table] = widgets(
+      '| a | b |\n| - | - |\n| ![a](<https://x/a.png>) | ![a](<my note.assets/1.png>) |\n\n‸',
+      host,
+    )
+    const html = table?.widget instanceof TableWidget ? table.widget.html : ''
+    expect(html).toContain('<td><img src="https://x/a.png" alt="a"></td>')
+    expect(html).toContain('<td><img src="asset:my note.assets/1.png" alt="a"></td>')
+    expect(resolved).toEqual(['my note.assets/1.png'])
+  })
+
   it('renders images through resolveAssetUrl with alt text and size', () => {
     const host = editorHost.of({
       resolveAssetUrl: (relPath) => `boost://app/vault-asset/${relPath}`,
