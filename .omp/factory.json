@@ -1,5 +1,6 @@
 {
   "baseRef": "origin/master",
   "trunk": "master",
-  "checks": ["pnpm run check", "pnpm run typecheck", "pnpm run test", "pnpm test:e2e", "pnpm run build"]
+  "checks": ["pnpm run check", "pnpm run typecheck", "pnpm run test", "pnpm test:e2e", "pnpm run build"],
+  "deferred": { "kind": "file", "path": "docs/modernisation/DEFERRED.md" }
 }

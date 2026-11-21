@@ -315,7 +315,10 @@ export async function moveNote(
   return relocated(vault, id, await vault.moveNote(id, normalizeFolder(folder)), options)
 }
 
-/** Moves the note (and its assets) to the vault's `.trash/`; nothing is deleted. */
+/**
+ * Moves the note and its assets folder to the vault's `.trash/` (the folder stays, and
+ * `assetsLeftBehind` says so, when an extension-case twin shares it); nothing is deleted.
+ */
 export async function trashNote(vault: Vault, input: string): Promise<TrashResult> {
   const entry = await vault.deleteNote(await resolveNoteId(vault, input))
   const { assetsLeftBehind } = entry

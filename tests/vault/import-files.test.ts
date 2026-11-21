@@ -87,6 +87,21 @@ describe('importFiles', () => {
     expect(await read('work/notes 3.md')).toBe('b')
   })
 
+  it('suffixes an imported NFC note when an NFD note of the same name is in the folder', async (ctx) => {
+    await put(root, 'work/Cafe\u0301.md', 'nfd')
+    await writeFile(path.join(root, 'work/Caf\u00e9.md'), 'probe', { flag: 'wx' }).then(
+      () => rm(path.join(root, 'work/Caf\u00e9.md')),
+      () => ctx.skip(),
+    )
+    await vault.refresh()
+    const file = await put(src, 'Caf\u00e9.md', 'nfc')
+
+    const report = await vault.importFiles([file], 'work')
+
+    expect(report.notes.map((note) => note.id)).toEqual(['work/Caf\u00e9 2.md'])
+    expect(await read('work/Cafe\u0301.md')).toBe('nfd')
+  })
+
   it('copies linked images into the note’s assets folder and rewrites only those links', async () => {
     await put(src, 'my image.png', 'PNG1')
     await put(src, 'img/b.gif', 'GIF')

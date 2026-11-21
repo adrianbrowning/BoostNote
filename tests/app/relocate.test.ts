@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest'
 
-import { linkMovesAfterRelocate, linksUpdatedNotice } from '../../src/app/actions/public/workspace/relocate.ts'
+import {
+  linkMovesAfterRelocate,
+  linksUpdatedNotice,
+  linkUpdateFailedNotice,
+} from '../../src/app/actions/public/workspace/relocate.ts'
 
 describe('linkMovesAfterRelocate', () => {
   it('a twin rename leaves the shared assets out of the link move and names the folder', () => {
@@ -21,13 +25,13 @@ describe('linkMovesAfterRelocate', () => {
 
   it('an ordinary rename moves the assets with the note and gives no notice', () => {
     const outcome = linkMovesAfterRelocate({ from: 'a.md', result: { id: 'b.md' } })
-    expect(outcome.moves).toEqual([{ from: 'a.md', to: 'b.md', kind: 'note' }])
+    expect(outcome.moves).toEqual([{ from: 'a.md', to: 'b.md', kind: 'note', assets: true }])
     expect(outcome.notice).toBeUndefined()
   })
 
   it('an ordinary move gives only the done text', () => {
     const outcome = linkMovesAfterRelocate({ from: 'a.md', result: { id: 'sub/a.md' }, done: 'Moved to sub' })
-    expect(outcome.moves).toEqual([{ from: 'a.md', to: 'sub/a.md', kind: 'note' }])
+    expect(outcome.moves).toEqual([{ from: 'a.md', to: 'sub/a.md', kind: 'note', assets: true }])
     expect(outcome.notice).toBe('Moved to sub')
   })
 
@@ -66,5 +70,18 @@ describe('sticky assets warning', () => {
 
   it('the links-updated notice without a warning closes on its own', () => {
     expect(linksUpdatedNotice(1)).toEqual({ text: 'Updated 1 link', sticky: false })
+  })
+})
+
+describe('link-update failure notice', () => {
+  it('keeps the assets warning beside the error and stays open', () => {
+    expect(linkUpdateFailedNotice('Server unreachable', 'The assets folder a.assets stayed in place')).toEqual({
+      text: 'Server unreachable. The assets folder a.assets stayed in place',
+      sticky: true,
+    })
+  })
+
+  it('without a warning is only the error and closes on its own', () => {
+    expect(linkUpdateFailedNotice('Server unreachable')).toEqual({ text: 'Server unreachable', sticky: false })
   })
 })

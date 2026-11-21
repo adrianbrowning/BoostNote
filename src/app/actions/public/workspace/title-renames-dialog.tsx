@@ -99,6 +99,29 @@ export function TitleRenamesDialog(handle: Handle<{ model: WorkspaceModel }>) {
       </details>
     )
 
+  /** The renamed notes whose assets folder stayed in place for a note with the same name. */
+  const assetsStayedList = (renamed: TitleRenameReport['renamed']) => {
+    const stayed = renamed.filter((rename) => rename.assetsLeftBehind)
+    return stayed.length === 0 ? null : (
+      <details data-title-renames-assets-stayed open>
+        <summary>
+          {stayed.length} {stayed.length === 1 ? 'assets folder' : 'assets folders'} stayed in place
+        </summary>
+        <ul mix={itemsStyle}>
+          {stayed.map((rename) => (
+            <li key={rename.from}>
+              {rename.to}{' '}
+              <span mix={muted}>
+                — {rename.assetsLeftBehind} stayed in place for the note with the same name; this note’s links into it
+                may break.
+              </span>
+            </li>
+          ))}
+        </ul>
+      </details>
+    )
+  }
+
   const body = () => {
     if (report) {
       return (
@@ -108,6 +131,7 @@ export function TitleRenamesDialog(handle: Handle<{ model: WorkspaceModel }>) {
             {report.notesUpdated} notes; removed {report.titlesRemoved} frontmatter titles that now match the file name.
           </p>
           {skippedList(report.skipped, ['note was not renamed', 'notes were not renamed'])}
+          {assetsStayedList(report.renamed)}
         </div>
       )
     }
@@ -124,7 +148,8 @@ export function TitleRenamesDialog(handle: Handle<{ model: WorkspaceModel }>) {
       <>
         <p data-title-renames-count>
           {plan.renames.length} files in {byFolder(plan.renames).length} folders will be renamed after their titles.
-          Assets folders move with them and links to them are updated.
+          Assets folders move with them and links to them are updated, except a folder shared with a note whose name
+          differs only in extension case (<code>a.md</code> and <code>a.MD</code>), which stays in place.
         </p>
         {renameList(plan.renames)}
         {skippedList(plan.skipped, LEFT_ALONE)}

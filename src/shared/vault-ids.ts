@@ -6,7 +6,10 @@
  * `''` (the root). A note file name ends in `.md` in any letter case (`.md`, `.MD`, `.Md`, `.mD`) and
  * has a stem; new notes are written with a lowercase `.md`. Two notes that differ only in extension
  * case (`a.md` and `a.MD`, possible on case-sensitive filesystems) share the asset folder `a.assets`;
- * this is an accepted limit (trashing, renaming or moving one leaves the folder for the other).
+ * this is an accepted limit (trashing, renaming or moving one leaves the folder for the other). The
+ * check only sees twins present now: once one twin has been renamed, moved or trashed away from the
+ * shared folder, a later rename, move or trash of the remaining twin carries the folder, and the
+ * first note's links into it break. Restore then no longer reports the folder it can't find.
  */
 
 /** What the index and lists know about a note; also the JSON the client gets for a note list. */
