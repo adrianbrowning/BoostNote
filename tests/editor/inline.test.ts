@@ -48,3 +48,9 @@ describe('renderInlineMarkdown images', () => {
     expect(html).toBe(`<img src="${escapeAttr(relative ? `asset:${src}` : src)}" alt="a">`)
   })
 })
+
+describe('renderInlineMarkdown links', () => {
+  it('unwraps the angle-bracket link destination', () => {
+    expect(renderInlineMarkdown('[a](<my note.md>)', (p) => p)).toBe('<a href="my note.md">a</a>')
+  })
+})

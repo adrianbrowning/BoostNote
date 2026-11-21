@@ -142,6 +142,29 @@ describe('preview widgets', () => {
     // Not relative under the shared isRelativeLink rule, so used as written.
     const [anchor] = widgets('![x](#top)\n‸', host)
     expect(anchor?.widget).toEqual(new ImageWidget('#top', 'x', undefined, undefined))
+    const [bracketed] = widgets('![a](<my note.assets/1.png>)\n‸', host)
+    expect(bracketed?.widget).toEqual(
+      new ImageWidget('boost://app/vault-asset/my note.assets/1.png', 'a', undefined, undefined),
+    )
+    const [bracketedRemote] = widgets('![a](<https://x/a.png>)\n‸', host)
+    expect(bracketedRemote?.widget).toEqual(new ImageWidget('https://x/a.png', 'a', undefined, undefined))
+  })
+
+  it('renders an empty image destination as an empty src and keeps reference images as text', () => {
+    const resolved: string[] = []
+    const host = editorHost.of({
+      resolveAssetUrl: (relPath) => {
+        resolved.push(relPath)
+        return `asset:${relPath}`
+      },
+      saveAsset: async () => '',
+      onOpenLink: () => {},
+    })
+    const [empty] = widgets('![a]()\n‸', host)
+    expect(empty?.widget).toEqual(new ImageWidget('', 'a', undefined, undefined))
+    expect(widgets('![a][ref]\n\n[ref]: x.png\n‸', host)).toEqual([])
+    expect(widgets('![a]\n‸', host)).toEqual([])
+    expect(resolved).toEqual([])
   })
 
   it('renders task markers as checkboxes unless the cursor touches the marker', () => {
