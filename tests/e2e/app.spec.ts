@@ -515,19 +515,19 @@ test('"Add to vault…" that imports nothing keeps the reader tab, so another fo
   const app = await launchApp({
     'inside.md': '# Inside\n',
     'work/keep.md': '# Keep\n',
-    'README.MD': '# Upper readme\n',
+    '.README.md': '# Upper readme\n',
   })
   try {
     const { page } = app
     await expect(page.locator('[data-note="inside.md"]')).toBeVisible({ timeout: 20_000 })
-    // An upper-case .MD of the vault is no note there: it opens in a reader tab.
+    // A dot-name file of the vault is no note there: it opens in a reader tab.
     await app.electronApp.evaluate(
       ({ app: electronApp }, target) => {
         electronApp.emit('open-file', { preventDefault() {} }, target)
       },
-      path.join(app.vault, 'README.MD'),
+      path.join(app.vault, '.README.md'),
     )
-    const reader = page.locator('[role="tab"][data-reader-tab="README.MD"]')
+    const reader = page.locator('[role="tab"][data-reader-tab=".README.md"]')
     await expect(reader).toHaveAttribute('aria-selected', 'true', { timeout: 20_000 })
     await expect(page.locator('[data-reader-body] h1')).toHaveText('Upper readme')
 
@@ -538,7 +538,7 @@ test('"Add to vault…" that imports nothing keeps the reader tab, so another fo
     await dialog.getByRole('button', { name: 'Add' }).click()
     await expect(dialog).toHaveCount(0)
     await expect(page.locator('[data-notice]')).toContainText(
-      'Nothing imported: README.MD is already in the vault root',
+      'Nothing imported: .README.md is already in the vault root',
     )
     await expect(reader).toHaveAttribute('aria-selected', 'true')
     await expect(page.locator('[data-reader-body] h1')).toHaveText('Upper readme')

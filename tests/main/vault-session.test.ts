@@ -330,25 +330,22 @@ describe('VaultSession', () => {
       await session.dispose()
     })
 
-    it('opens upper-case .MD files and dot-names read-only in both preference modes, also inside a known vault', async () => {
+    it('opens dot-names read-only in both preference modes, and an upper-case .MD inside a known vault as its note', async () => {
       const settings = new SettingsStore(file)
       const session = new VaultSession({ settings, events })
       const vault = await session.open(await folder('upper-vault'))
       await writeFile(path.join(vault.root, 'NOTES.MD'), '# In vault\n')
       const loose = await folder('names')
-      await writeFile(path.join(loose, 'README.MD'), '# Upper\n')
       await writeFile(path.join(loose, '.hidden.md'), '# Hidden\n')
       const reader = (name: string) => ({ kind: 'external', ticket: expect.any(String), name })
 
-      // No vault would hold these as notes (notes end in lower-case .md and never start with a dot).
+      // No vault would hold a dot-name as a note; a `.md` in any case is a note of its vault.
       for (const outsideFile of ['reader', 'vault'] as const) {
         settings.update({ ui: { ...settings.ui, outsideFile } })
-        session.requestOpen(path.join(loose, 'README.MD'))
         session.requestOpen(path.join(loose, '.hidden.md'))
         session.requestOpen(path.join(vault.root, 'NOTES.MD'))
-        expect(await session.takeOpenRequest()).toEqual(reader('README.MD'))
         expect(await session.takeOpenRequest()).toEqual(reader('.hidden.md'))
-        expect(await session.takeOpenRequest()).toEqual(reader('NOTES.MD'))
+        expect(await session.takeOpenRequest()).toEqual({ kind: 'note', vault: vault.root, id: 'NOTES.MD' })
         expect(await session.takeOpenRequest()).toBeUndefined()
       }
       expect(session.current?.root).toBe(vault.root)

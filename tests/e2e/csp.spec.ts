@@ -167,7 +167,17 @@ test.describe('vault and reader asset documents', () => {
       })
       await window.loadURL(target)
     }, url)
-    const page = electronApp.windows().find((window) => window.url() === url)
+    // Playwright registers the new window (and its URL) a moment after `loadURL` resolves.
+    let page: Page | undefined
+    await expect
+      .poll(
+        () => {
+          page = electronApp.windows().find((window) => window.url() === url)
+          return page !== undefined
+        },
+        { message: `no window shows ${url}` },
+      )
+      .toBe(true)
     if (!page) throw new Error(`no window shows ${url}`)
     return page
   }

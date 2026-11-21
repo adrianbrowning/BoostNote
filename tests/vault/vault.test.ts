@@ -68,6 +68,36 @@ describe('vault notes', () => {
     expect(vault.folders).toContain('new')
   })
 
+  it('lists, reads and saves a note whose extension is upper or mixed case, keeping its file name', async () => {
+    await put('work/Plan.MD', 'old\n')
+    await put('Idea.mD', 'idea\n')
+    vault = await openVault(root)
+    expect((await vault.notes()).map((note) => note.id).sort()).toEqual(['Idea.mD', 'work/Plan.MD'])
+    const note = await vault.readNote('work/Plan.MD')
+    expect(note.title).toBe('Plan')
+    const written = await vault.writeNote('work/Plan.MD', { body: 'new\n', frontmatter: note.frontmatter })
+    if (written.status !== 'saved') throw new Error('expected saved')
+    expect(written.note.id).toBe('work/Plan.MD')
+    expect(await readdir(path.join(root, 'work'))).toEqual(['Plan.MD'])
+    expect((await read('work/Plan.MD')).endsWith('new\n')).toBe(true)
+    expect((await vault.createNote('work', 'Fresh')).id).toBe('work/Fresh.md')
+  })
+
+  it('trashes and restores an upper-case .MD note with its assets, and saves assets beside it', async () => {
+    await put('work/Plan.MD', '![a](./Plan.assets/a.png)\n')
+    await put('work/Plan.assets/a.png', 'A')
+    vault = await openVault(root)
+    const link = await vault.saveAsset('work/Plan.MD', new Uint8Array([1, 2]), 'png')
+    expect(link).toMatch(/^\.\/Plan\.assets\/[0-9a-f]+\.png$/)
+    expect((await readdir(path.join(root, 'work/Plan.assets'))).length).toBe(2)
+    const entry = await vault.deleteNote('work/Plan.MD')
+    expect(await readdir(path.join(root, 'work'))).toEqual([])
+    const restored = await vault.restore(entry.id)
+    const stem = restored.id.replace(/^work\/|\.md$/gi, '')
+    expect(stem).toBe('Plan')
+    expect(await read('work/Plan.assets/a.png')).toBe('A')
+  })
+
   it('creates notes named after the title, unique ignoring case', async () => {
     vault = await openVault(root)
     const first = await vault.createNote('', 'Hello, World!')

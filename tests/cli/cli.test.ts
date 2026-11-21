@@ -189,9 +189,11 @@ describe('note ids', () => {
     expect((await cli(['--help'])).code).toBe(0)
   })
 
-  it('strips a lowercase .md from a bare name only; .MD is part of the name', async () => {
+  it('strips a .md in any case from a bare name, and finds a note by its stem whatever its extension case', async () => {
     expect((await cli(['read', 'plan.md', '--json'])).json().id).toBe('work/plan.md')
-    expect((await cli(['read', 'plan.MD'])).code).toBe(4)
+    expect((await cli(['read', 'plan.MD', '--json'])).json().id).toBe('work/plan.md')
+    await put('ideas/Roadmap.MD', 'r\n')
+    expect((await cli(['read', 'Roadmap', '--json'])).json().id).toBe('ideas/Roadmap.MD')
   })
 })
 

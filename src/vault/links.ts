@@ -1,6 +1,13 @@
 import * as path from 'node:path'
 
-import { isRelativeLink, linkPath, normalizeLinkPath, parentOf } from '../shared/vault-ids.ts'
+import {
+  isNoteFileName,
+  isRelativeLink,
+  lastSegment,
+  linkPath,
+  normalizeLinkPath,
+  parentOf,
+} from '../shared/vault-ids.ts'
 import { VaultError } from './errors.ts'
 import { ASSETS_SUFFIX, encodeBracketedLinkPath, encodeLinkPath, folderSegments, noteSegments } from './paths.ts'
 
@@ -88,8 +95,9 @@ export function rewriteRelativeLinks(
         const suffixIndex = destination.search(/[#?]/)
         const suffix = suffixIndex === -1 ? '' : destination.slice(suffixIndex)
         const relPath = linkPath(destination)
-        // `note.md/#anchor` (common in notes copied from GitHub) is a link to `note.md`; the slash stays.
-        const slash = relPath.endsWith('.md/') ? '/' : ''
+        // `note.md/#anchor` (`.md` in any case; common in notes copied from GitHub) is a link to
+        // `note.md`; the slash stays.
+        const slash = relPath.endsWith('/') && isNoteFileName(lastSegment(relPath.slice(0, -1))) ? '/' : ''
         const next = map(slash === '' ? relPath : relPath.slice(0, -1))
         if (next === undefined) return whole
         const encoded = bracketed

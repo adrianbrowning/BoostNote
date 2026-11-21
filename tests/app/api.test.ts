@@ -678,18 +678,16 @@ describe('reader', () => {
 
   it('refuses to open the folder of a file that is gone or can be no note there, keeping the vault', async () => {
     const vault = await app.openVault()
-    // Neither name can be a note of the folder as a vault (dot-name, upper-case .MD).
-    for (const name of ['.hidden.md', 'README.MD']) {
-      const reader = await openOutside(name, '# Not a note name\n')
-      const refused = await app.post(api.readerOpenFolder.href({ ticket: reader.ticket }))
-      expect(refused.status, name).toBe(400)
-      const text = await refused.text()
-      expect(text).not.toContain(app.dir)
-      expect(JSON.parse(text)).toMatchObject({ error: 'INVALID_PATH', message: expect.stringContaining(name) })
-      expect(app.settings.read().lastVault).toBe(vault.root)
-      // The reader keeps working.
-      expect((await app.get(api.readerRead.href({ ticket: reader.ticket }))).status).toBe(200)
-    }
+    // A dot-name can be no note of the folder as a vault.
+    const reader = await openOutside('.hidden.md', '# Not a note name\n')
+    const refused = await app.post(api.readerOpenFolder.href({ ticket: reader.ticket }))
+    expect(refused.status).toBe(400)
+    const text = await refused.text()
+    expect(text).not.toContain(app.dir)
+    expect(JSON.parse(text)).toMatchObject({ error: 'INVALID_PATH', message: expect.stringContaining('.hidden.md') })
+    expect(app.settings.read().lastVault).toBe(vault.root)
+    // The reader keeps working.
+    expect((await app.get(api.readerRead.href({ ticket: reader.ticket }))).status).toBe(200)
 
     const gone = await openOutside('gone.md', '# Gone\n')
     await rm(gone.file)
@@ -697,6 +695,17 @@ describe('reader', () => {
     expect(missing.status).toBe(404)
     expect(await missing.text()).not.toContain(app.dir)
     expect(app.vaults.current?.root).toBe(vault.root)
+  })
+
+  it('opens the folder of an upper-case .MD file as a vault with that note', async () => {
+    await app.openVault()
+    const { file, ticket } = await openOutside('README.MD', '# Readme\n')
+    const response = await app.post(api.readerOpenFolder.href({ ticket }))
+    expect(response.status).toBe(200)
+    const result = await readJson<ReaderFolderResult>(response)
+    expect(result.id).toBe('README.MD')
+    expect(result.workspace.vault?.root).toBe(await realpath(path.dirname(file)))
+    expect(result.workspace.notes.map((note) => note.id)).toEqual(['README.MD'])
   })
 
   it('stores "Opening a .md outside a vault" (default Read only); "Open its folder as vault" opens outside files as before', async () => {
@@ -746,8 +755,8 @@ describe('reader', () => {
   it('keeps the ticket when adding a reader’s file imports no note, so another folder can be chosen', async () => {
     const vault = await app.openVault()
     await vault.createFolder('', 'work')
-    // An upper-case .MD in the vault root opens in a reader; adding it to the root skips it.
-    const file = path.join(vault.root, 'README.MD')
+    // A dot-name file in the vault root is no note, so it opens in a reader; adding it to the root skips it.
+    const file = path.join(vault.root, '.readme.md')
     await writeFile(file, '# Readme\n')
     app.vaults.requestOpen(file)
     const request = await readJson<OpenRequest | null>(await app.post(api.openRequest.href()))
@@ -758,13 +767,13 @@ describe('reader', () => {
     expect(skipped.status).toBe(201)
     const { report } = await readJson<ReaderImportResult>(skipped)
     expect(report.notes).toEqual([])
-    expect(report.skipped).toEqual([{ source: 'README.MD', reason: expect.stringContaining('already in') }])
+    expect(report.skipped).toEqual([{ source: '.readme.md', reason: expect.stringContaining('already in') }])
     expect((await app.get(api.readerRead.href({ ticket }))).status).toBe(200)
 
     const imported = await app.post(api.readerImport.href({ ticket }), { folder: 'work' })
     expect(imported.status).toBe(201)
     const result = await readJson<ReaderImportResult>(imported)
-    expect(result.report.notes).toEqual([{ source: 'README.MD', id: expect.stringMatching(/^work\/README\.md$/i) }])
+    expect(result.report.notes).toEqual([{ source: '.readme.md', id: 'work/readme.md' }])
     expect((await app.get(api.readerRead.href({ ticket }))).status).toBe(404)
   })
 

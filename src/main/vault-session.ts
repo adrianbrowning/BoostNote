@@ -23,8 +23,7 @@ export interface VaultSessionOptions {
  * vault when the file is a note of it, else (outside every known vault, or in a hidden or `*.assets`
  * folder) a read-only reader: a `ReaderGrants` ticket and the file's base name, never its path. With
  * the preference `outsideFile: 'vault'` such a file is a note of its own folder as the vault instead,
- * unless its name can be no note there (a dot-name or upper-case `.MD`), which still opens read-only.
- * An upper-case `.MD` file inside a known vault is no note of it either and opens read-only too.
+ * unless its name can be no note there (a dot-name), which still opens read-only.
  */
 export type OpenRequest =
   | {
@@ -139,7 +138,7 @@ export class VaultSession {
    * (also while this waited its turn behind another vault switch), its file is no longer a regular
    * file at its real path, or the folder resolved to another folder while it loaded (a parent swapped
    * for a symlink), and `VaultError('INVALID_PATH')` when its name can be no note (a
-   * dot-name, upper-case `.MD`); the vault and the ticket then stay as they were. Runs in the vault
+   * dot-name); the vault and the ticket then stay as they were. Runs in the vault
    * queue, as `closeReader` does, so a close either comes first (and this opens nothing) or finds
    * the ticket revoked. Messages name the file's base name at most.
    */

@@ -4,7 +4,7 @@
  * data so the CLI (`--json`) and the MCP tools return the same shapes.
  */
 import { type TaskProgress, taskProgress } from '../app/actions/public/workspace/tasks.ts'
-import { type NoteMeta, noteStem } from '../shared/vault-ids.ts'
+import { isNoteFileName, lastSegment, type NoteMeta, noteStem } from '../shared/vault-ids.ts'
 import {
   type FolderNode,
   type Frontmatter,
@@ -166,16 +166,24 @@ export function normalizeFolder(folder: string): string {
 }
 
 /**
- * The note id `input` names: an exact id (with or without `.md`), else a bare name matching one
+ * The note id `input` names: an exact id (with or without `.md`, in any case), else a bare name matching one
  * note's file name or title (exactly, then ignoring case). Several matches is an error listing them.
  */
 export async function resolveNoteId(vault: Vault, input: string): Promise<string> {
   const id = input.replace(/\\/g, '/').replace(/^\/+/, '')
   if (id === '') throw new CommandError('USAGE', 'Missing note id')
   if (await vault.hasNote(id)) return id
-  if (!id.endsWith('.md') && (await vault.hasNote(`${id}.md`))) return `${id}.md`
-  const name = id.replace(/\.md$/, '')
-  const named = (await vault.notes()).map((meta) => ({ id: meta.id, stem: noteStem(meta.id), title: meta.title }))
+  const isNoteName = isNoteFileName(lastSegment(id))
+  const name = isNoteName ? id.slice(0, -3) : id
+  const notes = await vault.notes()
+  // Every note id ends in a 3-character `.md` of some case, so the path minus it matches in any case.
+  const byPath = notes.filter((meta) => meta.id.slice(0, -3) === name)
+  if (byPath.length > 1) {
+    const ids = byPath.map((meta) => meta.id)
+    throw new CommandError('AMBIGUOUS', `"${input}" matches ${ids.length} notes: ${ids.join(', ')}`, { matches: ids })
+  }
+  if (byPath[0]) return byPath[0].id
+  const named = notes.map((meta) => ({ id: meta.id, stem: noteStem(meta.id), title: meta.title }))
   const exact = named.filter((note) => note.stem === name || note.title === name)
   const lower = name.toLowerCase()
   const matches =
