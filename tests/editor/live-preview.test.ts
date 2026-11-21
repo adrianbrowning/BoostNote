@@ -165,10 +165,23 @@ describe('preview widgets', () => {
     expect(widgets('![a][ref]\n\n[ref]: x.png\n‸', host)).toEqual([])
     expect(widgets('![a]\n‸', host)).toEqual([])
     expect(resolved).toEqual([])
+  })
+
+  it('renders ![a]( "t") with the CommonMark destination "t", the same src as table cells', () => {
+    const resolved: string[] = []
+    const host = editorHost.of({
+      resolveAssetUrl: (relPath) => {
+        resolved.push(relPath)
+        return `asset:${relPath}`
+      },
+      saveAsset: async () => '',
+      onOpenLink: () => {},
+    })
     // CommonMark: with no destination before it, ` "t"` is the destination, not a title,
     // so this path gives the same src as renderInlineMarkdown.
     const [titled] = widgets('![a]( "t")\n‸', host)
     expect(titled?.widget).toEqual(new ImageWidget('asset:"t"', 'a', undefined, undefined))
+    expect(resolved).toEqual(['"t"'])
   })
 
   it('renders task markers as checkboxes unless the cursor touches the marker', () => {
