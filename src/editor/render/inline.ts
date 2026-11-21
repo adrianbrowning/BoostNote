@@ -14,6 +14,11 @@ function escapeHtml(text: string): string {
   return text.replace(/[&<>"']/g, (ch) => HTML_ESCAPES[ch] ?? ch)
 }
 
+/** A link or image destination as written, without the `<` `>` of the CommonMark `<...>` form. */
+export function linkDestination(raw: string): string {
+  return raw.startsWith('<') && raw.endsWith('>') ? raw.slice(1, -1) : raw
+}
+
 const WRAPPERS: Record<string, string> = { Emphasis: 'em', StrongEmphasis: 'strong', Strikethrough: 'del' }
 const MARKS: Record<string, true> = { EmphasisMark: true, StrikethroughMark: true, CodeMark: true, MathMark: true }
 
@@ -61,7 +66,7 @@ export function renderInlineMarkdown(text: string, resolveAssetUrl: (relPath: st
         const source = text.slice(node.from, node.to)
         // No URL: `![a]()` is an inline image with an empty src; `![a][ref]` / `![a]` stay as text.
         if (!url && !source.endsWith(')')) return escapeHtml(source)
-        const src = url ? text.slice(url.from, url.to) : ''
+        const src = url ? linkDestination(text.slice(url.from, url.to)) : ''
         const alt = label ? text.slice(label.from, label.to) : ''
         return `<img src="${escapeHtml(isRelativeLink(src) ? resolveAssetUrl(src) : src)}" alt="${escapeHtml(alt)}">`
       }

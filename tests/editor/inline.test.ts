@@ -34,4 +34,17 @@ describe('renderInlineMarkdown images', () => {
     expect(resolved).toEqual(relative ? [href] : [])
     expect(html).toBe(`<img src="${escapeAttr(relative ? `asset:${href}` : href)}" alt="a">`)
   })
+
+  it.each([
+    { md: '![a](<https://x/a.png>)', src: 'https://x/a.png', relative: false },
+    { md: '![a](<my note.assets/1.png>)', src: 'my note.assets/1.png', relative: true },
+  ])('unwraps the angle-bracket destination $md', ({ md, src, relative }) => {
+    const resolved: string[] = []
+    const html = renderInlineMarkdown(md, (p) => {
+      resolved.push(p)
+      return `asset:${p}`
+    })
+    expect(resolved).toEqual(relative ? [src] : [])
+    expect(html).toBe(`<img src="${escapeAttr(relative ? `asset:${src}` : src)}" alt="a">`)
+  })
 })
