@@ -193,4 +193,32 @@ describe('unfocused editor', () => {
       parent.remove()
     }
   })
+
+  it('renders a mounted view’s image src through resolveAssetUrl only for relative links', () => {
+    const parent = document.createElement('div')
+    document.body.append(parent)
+    const view = new EditorView({
+      parent,
+      state: EditorState.create({
+        doc: '![cat](./note.assets/cat.png)\n\n![top](#top)\n\ntext',
+        extensions: [
+          markdownSupport(),
+          editorFocusTracking,
+          previewWidgets,
+          editorHost.of({
+            resolveAssetUrl: (relPath) => `boost://app/vault-asset/${relPath}`,
+            saveAsset: async () => '',
+            onOpenLink: () => {},
+          }),
+        ],
+      }),
+    })
+    try {
+      const srcs = [...view.dom.querySelectorAll('img.cm-lp-image')].map((img) => img.getAttribute('src'))
+      expect(srcs).toEqual(['boost://app/vault-asset/./note.assets/cat.png', '#top'])
+    } finally {
+      view.destroy()
+      parent.remove()
+    }
+  })
 })
