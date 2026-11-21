@@ -10,6 +10,7 @@ import {
   noteStem,
   parentOf,
   resolveLinkPath,
+  splitNoteExtension,
 } from '../shared/vault-ids.ts'
 import {
   type FolderConfig,
@@ -27,7 +28,7 @@ import { copyFileAtomic, exists, isFile, writeFileAtomic } from './files.ts'
 import { type Frontmatter, keepUnchangedValues, parseNoteText, serializeNoteText } from './frontmatter.ts'
 import { type ImportFilesReport, type ImportOptions, planImport } from './import-files.ts'
 import { checkMoves, type LinkMove, rebaseNoteLinks, rewriteMovedLinks } from './links.ts'
-import { lowerCaseEntries, uniqueStem } from './names.ts'
+import { lowerCaseEntries, nameKey, uniqueStem } from './names.ts'
 import { findH1, hashText, type Note, type ReadonlyNoteMeta, toNote } from './note.ts'
 import {
   ASSETS_SUFFIX,
@@ -128,8 +129,17 @@ export interface TitleRenamePlan {
   skipped: TitleRenameSkip[]
 }
 
+/**
+ * Part of the result of trashing, restoring, renaming or moving a note whose extension-case twin
+ * (`a.md` beside `a.MD`) shares its assets folder: the folder stayed in place for the twin.
+ */
+export interface AssetsLeftBehind {
+  /** Vault path of the assets folder left in place (`work/a.assets`); the note's links into it may break. */
+  assetsLeftBehind?: string
+}
+
 export interface TitleRenameReport {
-  renamed: TitleRename[]
+  renamed: (TitleRename & AssetsLeftBehind)[]
   skipped: TitleRenameSkip[]
   /** Frontmatter `title` keys removed because they equal the new file name. */
   titlesRemoved: number
@@ -384,12 +394,16 @@ export class Vault {
     })
   }
 
-  /** Renames the file — the note's name — to `<name>.md`; its assets folder follows and links are rewritten. */
-  renameNote(id: string, name: string): Promise<Note> {
+  /**
+   * Renames the file — the note's name — to `name` with the note's extension as the file has it
+   * (`Plan.MD` → `Roadmap.MD`); its assets folder follows (unless an extension-case twin shares it)
+   * and its own links are rewritten.
+   */
+  renameNote(id: string, name: string): Promise<Note & AssetsLeftBehind> {
     return this.#exclusive(async () => {
-      const stem = sanitizeFileName(name.replace(/\.md$/, ''))
+      const stem = sanitizeFileName(splitNoteExtension(name).base)
       if (stem === '') throw new VaultError('INVALID_PATH', `Invalid note name: ${JSON.stringify(name)}`)
-      const toId = joinId(parentOf(id), `${stem}.md`)
+      const toId = joinId(parentOf(id), `${stem}${splitNoteExtension(id).extension}`)
       return this.#relocateNote(id, toId)
     })
   }
@@ -406,7 +420,8 @@ export class Vault {
       const plan: TitleRenamePlan = { renames: [], skipped: [] }
       const taken = new Map<string, Set<string>>()
       // `x.md` before `x-2.md` before `x-10.md`, so the importer's original keeps the plain name.
-      const order = (id: string) => id.replace(/-(\d+)\.md$/, (_match, n: string) => `\uffff${n.padStart(9, '0')}`)
+      const order = (id: string) =>
+        splitNoteExtension(id).base.replace(/-(\d+)$/, (_match, n: string) => `\uffff${n.padStart(9, '0')}`)
       const ids = this.#index
         .all()
         .map((meta) => meta.id)
@@ -428,14 +443,14 @@ export class Vault {
           (await lowerCaseEntries(await resolveInside(this.root, folderSegments(note.folder))))
         taken.set(note.folder, names)
         // The note's own names are free (a case-only rename), the others' and earlier picks are not.
-        const own = stem.toLowerCase()
+        const own = nameKey(stem)
         const toStem = uniqueName(target, (candidate) => {
-          const lower = candidate.toLowerCase()
-          return lower !== own && (names.has(`${lower}.md`) || names.has(`${lower}${ASSETS_SUFFIX}`))
+          const key = nameKey(candidate)
+          return key !== own && (names.has(`${key}.md`) || names.has(`${key}${ASSETS_SUFFIX}`))
         })
-        names.add(`${toStem.toLowerCase()}.md`)
-        names.add(`${toStem.toLowerCase()}${ASSETS_SUFFIX}`)
-        plan.renames.push({ from: id, to: joinId(note.folder, `${toStem}.md`), title })
+        names.add(`${nameKey(toStem)}.md`)
+        names.add(`${nameKey(toStem)}${ASSETS_SUFFIX}`)
+        plan.renames.push({ from: id, to: joinId(note.folder, `${toStem}${splitNoteExtension(id).extension}`), title })
       }
       return plan
     })
@@ -456,7 +471,7 @@ export class Vault {
         linksRewritten: 0,
         notesUpdated: 0,
       }
-      const moved = new Map<string, string>()
+      const moves: LinkMove[] = []
       // An unexpected error stops further renames, but links to the files already renamed are
       // still rewritten below before it is rethrown, so the vault is never left with dangling links.
       let fatal: { error: unknown } | undefined
@@ -467,12 +482,16 @@ export class Vault {
           if (parentOf(rename.from) !== parentOf(rename.to)) {
             throw new VaultError('INVALID_PATH', `Not in the same folder: ${rename.from} → ${rename.to}`)
           }
+          if (splitNoteExtension(rename.to).extension !== splitNoteExtension(rename.from).extension) {
+            throw new VaultError('INVALID_PATH', `Extension changed: ${rename.from} → ${rename.to}`)
+          }
           if (sanitizeFileName(noteStem(rename.to)) !== noteStem(rename.to)) {
             throw new VaultError('INVALID_PATH', `Invalid note name: ${JSON.stringify(noteStem(rename.to))}`)
           }
           const note = await this.#relocateNote(rename.from, rename.to)
-          moved.set(rename.from, rename.to)
-          report.renamed.push(rename)
+          const { assetsLeftBehind } = note
+          moves.push({ from: rename.from, to: rename.to, kind: 'note', assets: assetsLeftBehind === undefined })
+          report.renamed.push(assetsLeftBehind ? { ...rename, assetsLeftBehind } : rename)
           const { title: _title, ...rest } = note.frontmatter
           if (note.frontmatter.title === noteStem(rename.to)) {
             const text = parseNoteText(note.raw)
@@ -490,14 +509,11 @@ export class Vault {
           report.skipped.push({ id: rename.from, reason: error.message })
         }
       }
-      if (moved.size === 0) {
+      if (moves.length === 0) {
         if (fatal) throw fatal.error
         return report
       }
-      const links = await this.#rewriteIncomingLinks(
-        [...moved].map(([from, to]): LinkMove => ({ from, to, kind: 'note' })),
-        true,
-      )
+      const links = await this.#rewriteIncomingLinks(moves, true)
       report.linksRewritten = links.total
       report.notesUpdated = links.notes.length
       if (fatal) throw fatal.error
@@ -511,7 +527,9 @@ export class Vault {
    * number of such links in each. Nothing is written.
    */
   planLinkUpdates(moves: readonly LinkMove[]): Promise<LinkUpdateReport> {
-    return this.#exclusive(() => this.#rewriteIncomingLinks(checkMoves(moves), false))
+    return this.#exclusive(async () =>
+      this.#rewriteIncomingLinks(await this.#withAssetsState(checkMoves(moves)), false),
+    )
   }
 
   /**
@@ -519,20 +537,42 @@ export class Vault {
    * and a leading `./` are kept; links in code are not touched). Returns what was written.
    */
   applyLinkUpdates(moves: readonly LinkMove[]): Promise<LinkUpdateReport> {
-    return this.#exclusive(() => this.#rewriteIncomingLinks(checkMoves(moves), true))
+    return this.#exclusive(async () => this.#rewriteIncomingLinks(await this.#withAssetsState(checkMoves(moves)), true))
   }
 
-  /** Moves a note into `folder`, keeping its file name unless taken (then ` 2`, …). */
-  moveNote(id: string, folder: string): Promise<Note> {
+  /**
+   * Note moves that do not say whether their assets folder moved get `assets: false` when the
+   * folder is still at the old place (an extension-case twin kept it), so links into it stay.
+   */
+  async #withAssetsState(moves: readonly LinkMove[]): Promise<LinkMove[]> {
+    return Promise.all(
+      moves.map(async (move) => {
+        if (move.kind !== 'note' || move.assets !== undefined) return move
+        const from = assetsDirOf(await resolveInside(this.root, noteSegments(move.from)))
+        const to = assetsDirOf(await resolveInside(this.root, noteSegments(move.to)))
+        const stayed = (await exists(from)) && !((await exists(to)) && (await sameOrMissing(from, to)))
+        return { ...move, assets: !stayed }
+      }),
+    )
+  }
+
+  /**
+   * Moves a note into `folder`, keeping its file name (extension case too) unless taken (then ` 2`,
+   * …); its assets folder follows unless an extension-case twin shares it.
+   */
+  moveNote(id: string, folder: string): Promise<Note & AssetsLeftBehind> {
     return this.#exclusive(async () => {
       if (parentOf(id) === folder) return this.readNote(id)
       const dir = await this.#existingFolder(folder)
-      const toId = joinId(folder, `${await uniqueStem(dir, noteStem(id))}.md`)
+      const toId = joinId(folder, `${await uniqueStem(dir, noteStem(id))}${splitNoteExtension(id).extension}`)
       return this.#relocateNote(id, toId)
     })
   }
 
-  /** Moves a note and its assets into `.trash/`. */
+  /**
+   * Moves a note and its assets (unless an extension-case twin shares them) into `.trash/`, keeping
+   * its file name (extension case too) unless taken.
+   */
   deleteNote(id: string): Promise<TrashEntry> {
     return this.#exclusive(async () => {
       const file = await resolveInside(this.root, noteSegments(id))
@@ -540,11 +580,20 @@ export class Vault {
       const trashDir = await resolveInside(this.root, [TRASH_DIR, ...folderSegments(parentOf(id))])
       await mkdir(trashDir, { recursive: true })
       const trashStem = await uniqueStem(trashDir, noteStem(id))
-      const trashId = joinId(parentOf(id), `${trashStem}.md`)
-      await rename(file, path.join(trashDir, `${trashStem}.md`))
-      await renameIfExists(assetsDirOf(file), path.join(trashDir, `${trashStem}${ASSETS_SUFFIX}`))
+      const trashName = `${trashStem}${splitNoteExtension(id).extension}`
+      const trashId = joinId(parentOf(id), trashName)
+      const assetsLeftBehind = await sharedAssetsOf(id, file)
+      await rename(file, path.join(trashDir, trashName))
+      if (assetsLeftBehind === undefined) {
+        await renameIfExists(assetsDirOf(file), path.join(trashDir, `${trashStem}${ASSETS_SUFFIX}`))
+      }
       this.#untrack(id)
-      return this.#addTrashEntry(trashId, { kind: 'note', originalPath: id, deletedAt: new Date().toISOString() })
+      return this.#addTrashEntry(trashId, {
+        kind: 'note',
+        originalPath: id,
+        deletedAt: new Date().toISOString(),
+        ...(assetsLeftBehind ? { assetsLeftBehind } : {}),
+      })
     })
   }
 
@@ -569,9 +618,10 @@ export class Vault {
 
   /**
    * Puts a trashed note or folder back at its original path (recreating missing parent folders,
-   * suffixing the name when the original is taken). Returns the restored note/folder id and its kind.
+   * suffixing the name when the original is taken). Returns the restored note/folder id and its kind;
+   * a note trashed without its shared assets folder keeps its links on it and says so.
    */
-  restore(trashId: string): Promise<{ id: string; kind: TrashKind }> {
+  restore(trashId: string): Promise<{ id: string; kind: TrashKind } & AssetsLeftBehind> {
     return this.#exclusive(async () => {
       const index = await readTrashIndex(this.root)
       const entry = index.entries[trashId]
@@ -581,23 +631,27 @@ export class Vault {
       const parent = parentOf(entry.originalPath)
       const parentDir = await resolveInside(this.root, folderSegments(parent))
       await mkdir(parentDir, { recursive: true })
+      const { assetsLeftBehind } = entry
       let restoredId: string
       if (entry.kind === 'note') {
         noteSegments(entry.originalPath)
-        restoredId = joinId(parent, `${await uniqueStem(parentDir, noteStem(entry.originalPath))}.md`)
+        const stem = await uniqueStem(parentDir, noteStem(entry.originalPath))
+        restoredId = joinId(parent, `${stem}${splitNoteExtension(entry.originalPath).extension}`)
         const target = path.join(this.root, ...restoredId.split('/'))
         await rename(source, target)
-        await renameIfExists(assetsDirOf(source), assetsDirOf(target))
+        if (assetsLeftBehind === undefined) await renameIfExists(assetsDirOf(source), assetsDirOf(target))
         const raw = await readFile(target, 'utf8')
         const text = parseNoteText(raw)
-        const body = rebaseNoteLinks(text.body, entry.originalPath, restoredId)
+        const body = rebaseNoteLinks(text.body, entry.originalPath, restoredId, [
+          { from: entry.originalPath, to: restoredId, kind: 'note', assets: assetsLeftBehind === undefined },
+        ])
         const next = body === text.body ? raw : raw.slice(0, raw.length - text.body.length) + body
         if (next !== raw) await writeFileAtomic(target, next)
         this.#addAncestors(restoredId)
         await this.#track(restoredId, target, next)
       } else {
         const names = await lowerCaseEntries(parentDir)
-        const name = uniqueName(lastSegment(entry.originalPath), (c) => names.has(c.toLowerCase()), ' ')
+        const name = uniqueName(lastSegment(entry.originalPath), (c) => names.has(nameKey(c)), ' ')
         restoredId = joinId(parent, name)
         folderSegments(restoredId)
         await rename(source, path.join(parentDir, name))
@@ -609,7 +663,7 @@ export class Vault {
       }
       delete index.entries[trashId]
       await writeTrashIndex(this.root, index)
-      return { id: restoredId, kind: entry.kind }
+      return { id: restoredId, kind: entry.kind, ...(assetsLeftBehind ? { assetsLeftBehind } : {}) }
     })
   }
 
@@ -662,7 +716,7 @@ export class Vault {
       const trashParent = await resolveInside(this.root, [TRASH_DIR, ...folderSegments(parentOf(id))])
       await mkdir(trashParent, { recursive: true })
       const names = await lowerCaseEntries(trashParent)
-      const name = uniqueName(lastSegment(id), (c) => names.has(c.toLowerCase()), ' ')
+      const name = uniqueName(lastSegment(id), (c) => names.has(nameKey(c)), ' ')
       await rename(dir, path.join(trashParent, name))
       const folders: Record<string, FolderConfig> = {}
       for (const [key, folder] of Object.entries(this.#config.folders)) {
@@ -851,24 +905,33 @@ export class Vault {
     for (let folder = parentOf(id); folder !== ''; folder = parentOf(folder)) this.#folders.add(folder)
   }
 
-  async #relocateNote(fromId: string, toId: string): Promise<Note> {
+  async #relocateNote(fromId: string, toId: string): Promise<Note & AssetsLeftBehind> {
     const from = await resolveInside(this.root, noteSegments(fromId))
     const to = await resolveInside(this.root, noteSegments(toId))
     const raw = await readOptional(from)
     if (raw === undefined) throw new VaultError('NOT_FOUND', `Note not found: ${fromId}`)
     if (fromId === toId) return this.#track(fromId, from, raw)
-    if (!(await sameOrMissing(from, to)) || !(await sameOrMissing(assetsDirOf(from), assetsDirOf(to)))) {
+    const assetsLeftBehind = await sharedAssetsOf(fromId, from)
+    const assetsMove = assetsLeftBehind === undefined
+    if (
+      !(await sameOrMissing(from, to)) ||
+      (await nameTaken(to, from)) ||
+      !(await sameOrMissing(assetsDirOf(from), assetsDirOf(to)))
+    ) {
       throw new VaultError('EXISTS', `Already exists: ${toId}`)
     }
     // Rename first (also handles case-only renames on case-insensitive file systems), then fix links.
     await rename(from, to)
-    await renameIfExists(assetsDirOf(from), assetsDirOf(to))
+    if (assetsMove) await renameIfExists(assetsDirOf(from), assetsDirOf(to))
     const text = parseNoteText(raw)
-    const body = rebaseNoteLinks(text.body, fromId, toId)
+    const body = rebaseNoteLinks(text.body, fromId, toId, [
+      { from: fromId, to: toId, kind: 'note', assets: assetsMove },
+    ])
     const next = body === text.body ? raw : raw.slice(0, raw.length - text.body.length) + body
     if (next !== raw) await writeFileAtomic(to, next)
     this.#untrack(fromId)
-    return this.#track(toId, to, next)
+    const note = await this.#track(toId, to, next)
+    return assetsLeftBehind ? { ...note, assetsLeftBehind } : note
   }
 
   /**
@@ -1031,4 +1094,57 @@ async function sameOrMissing(from: string, to: string): Promise<boolean> {
   if (!(await exists(from))) return false
   const [a, b] = await Promise.all([lstat(from), lstat(to)])
   return a.ino === b.ino && a.dev === b.dev
+}
+
+/**
+ * Whether the folder of `file` has an entry named like it ignoring case (`x.md`, `x.MD`) other than
+ * `self`, so a case-only rename of `self` is free.
+ */
+async function nameTaken(file: string, self: string): Promise<boolean> {
+  const target = nameKey(path.basename(file))
+  for (const name of await readdir(path.dirname(file))) {
+    if (nameKey(name) === target && !(await sameOrMissing(self, path.join(path.dirname(file), name)))) return true
+  }
+  return false
+}
+
+/**
+ * Vault path of the assets folder of note `id` (at `file`) when it exists and another note shares
+ * it, so it stays in place; else `undefined`. A candidate is an extension-case twin (`a.md` beside
+ * `a.MD`, stems compared after NFC normalization as `nameTaken` does) whose own assets folder
+ * resolves to the same directory as the note's: on ext4 NFC `Café.md` and NFD `Café.md` keep
+ * separate folders, so neither is a twin. A twin that is a hard link of the note (same inode) is
+ * not detected, so the assets move with it and no warning is given; this is an accepted limit.
+ */
+async function sharedAssetsOf(id: string, file: string): Promise<string | undefined> {
+  const ours = assetsDirOf(file)
+  if (!(await exists(ours))) return undefined
+  const dir = path.dirname(file)
+  const stem = noteStem(file).normalize('NFC')
+  for (const entry of await readdir(dir, { withFileTypes: true })) {
+    const other = path.join(dir, entry.name)
+    const candidate = entry.isFile() && isNoteFileName(entry.name) && noteStem(entry.name).normalize('NFC') === stem
+    if (!candidate || (await sameOrMissing(file, other))) continue
+    const theirs = assetsDirOf(other)
+    if (theirs === ours || (await sameDirectory(ours, theirs))) {
+      return `${splitNoteExtension(id).base}${ASSETS_SUFFIX}`
+    }
+  }
+  return undefined
+}
+
+/** True when both paths exist and resolve (following symlinks) to the same directory. */
+async function sameDirectory(a: string, b: string): Promise<boolean> {
+  const [x, y] = await Promise.all([statOrNull(a), statOrNull(b)])
+  return x !== null && y !== null && x.ino === y.ino && x.dev === y.dev
+}
+
+/** `stat` of `file`, or `null` when it is absent (ENOENT, ENOTDIR); other errors are thrown. */
+async function statOrNull(file: string): Promise<Stats | null> {
+  try {
+    return await stat(file)
+  } catch (error) {
+    if (isNodeError(error, 'ENOENT') || isNodeError(error, 'ENOTDIR')) return null
+    throw error
+  }
 }

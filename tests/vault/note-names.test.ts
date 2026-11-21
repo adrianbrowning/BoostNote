@@ -94,11 +94,13 @@ describe('note titles', () => {
     await expect(vault.renameNote('Notes- today-.md', ' .. ')).rejects.toMatchObject({ code: 'INVALID_PATH' })
   })
 
-  it('strips only a lowercase .md from a new name; .MD stays part of it', async () => {
+  it('strips a .md of any case from a new name; the note keeps its own extension', async () => {
     await put('a.md', 'x')
+    await put('Plan.MD', 'y')
     vault = await openVault(root)
     expect((await vault.renameNote('a.md', 'B.md')).id).toBe('B.md')
-    expect((await vault.renameNote('B.md', 'C.MD')).id).toBe('C.MD.md')
+    expect((await vault.renameNote('B.md', 'C.MD')).id).toBe('C.md')
+    expect((await vault.renameNote('Plan.MD', 'Roadmap.md')).id).toBe('Roadmap.MD')
   })
 })
 
@@ -217,6 +219,22 @@ describe('rename files from titles', () => {
     expect((await vault.findNote('notes/My plan.md'))?.title).toBe('My plan')
   })
 
+  it('proposes and applies a title rename that keeps an upper-case .MD extension', async () => {
+    await put('Work/meeting-notes.MD', '---\ntitle: Meeting notes\n---\n![a](./meeting-notes.assets/a.png)\n')
+    await put('Work/meeting-notes.assets/a.png', 'A')
+    await put('index.md', '[m](Work/meeting-notes.MD)\n')
+    vault = await openVault(root)
+    const plan = await vault.planTitleRenames()
+    expect(plan.renames).toEqual([
+      { from: 'Work/meeting-notes.MD', to: 'Work/Meeting notes.MD', title: 'Meeting notes' },
+    ])
+    const report = await vault.applyTitleRenames(plan)
+    expect(report.renamed).toEqual(plan.renames)
+    expect((await readdir(path.join(root, 'Work'))).sort()).toEqual(['Meeting notes.MD', 'Meeting notes.assets'])
+    expect((await vault.readNote('Work/Meeting notes.MD')).body).toBe('![a](./Meeting%20notes.assets/a.png)\n')
+    expect(await read('index.md')).toBe('[m](Work/Meeting%20notes.MD)\n')
+  })
+
   it('skips renames that no longer apply', async () => {
     await put('a.md', 'x')
     await put('B.md', 'taken')
@@ -232,5 +250,14 @@ describe('rename files from titles', () => {
     expect(report.renamed).toEqual([])
     expect(report.skipped.map((skip) => skip.id)).toEqual(['missing.md', 'a.md', 'a.md', 'a.md'])
     expect(await read('a.md')).toBe('x')
+  })
+
+  it('refuses a title rename that changes the note extension', async () => {
+    await put('a.MD', 'x')
+    vault = await openVault(root)
+    const report = await vault.applyTitleRenames({ renames: [{ from: 'a.MD', to: 'B.md', title: 'B' }] })
+    expect(report.renamed).toEqual([])
+    expect(report.skipped.map((skip) => skip.id)).toEqual(['a.MD'])
+    expect(await read('a.MD')).toBe('x')
   })
 })

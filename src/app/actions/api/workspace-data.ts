@@ -2,17 +2,18 @@ import * as path from 'node:path'
 
 import type { MigrationReport } from '../../../migrate/index.ts'
 import { toMeta } from '../../../shared/vault-ids.ts'
-import { type FolderNode, type Note, toJsonValue, type Vault } from '../../../vault/index.ts'
+import { type AssetsLeftBehind, type FolderNode, type Note, toJsonValue, type Vault } from '../../../vault/index.ts'
 import { HttpError } from '../../http.ts'
 import type { AppServices } from '../../services.ts'
 import type { FolderSummary, ImportSummary, NoteDocument, WorkspaceData } from '../public/workspace/types.ts'
 
-export function toNoteDocument(note: Note): NoteDocument {
+export function toNoteDocument(note: Note & AssetsLeftBehind): NoteDocument {
   return {
     ...toMeta(note),
     frontmatter: toJsonValue(note.frontmatter) as NoteDocument['frontmatter'],
     body: note.body,
     hash: note.hash,
+    ...(note.assetsLeftBehind ? { assetsLeftBehind: note.assetsLeftBehind } : {}),
   }
 }
 

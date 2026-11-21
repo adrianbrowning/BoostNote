@@ -5,6 +5,7 @@ import { ApiError, client, setPageVault } from './api.ts'
 import type { DropTicket } from './drop-import.ts'
 import { NoteSession } from './note-session.ts'
 import { folderChain } from './paths.ts'
+import { linkMovesAfterRelocate, linksUpdatedNotice } from './relocate.ts'
 import { type ReaderTab, type Tab, Tabs } from './tabs.ts'
 import type {
   FolderSummary,
@@ -637,7 +638,9 @@ export class WorkspaceModel extends TypedEventTarget<{
     this.#rebaseTabs((path) => (path === id ? renamed.id : path))
     if (this.openId === id) this.session.relocated(renamed)
     await this.refresh()
-    void this.#offerLinkUpdates({ from: id, to: renamed.id, kind: 'note' })
+    const outcome = linkMovesAfterRelocate({ from: id, result: renamed })
+    if (outcome.notice) this.notify('info', outcome.notice, [], outcome.sticky)
+    for (const move of outcome.moves) void this.#offerLinkUpdates(move, outcome.warning)
   }
 
   setTitleRenamesOpen(open: boolean): void {
@@ -670,8 +673,9 @@ export class WorkspaceModel extends TypedEventTarget<{
       this.#rebaseTabs((path) => (path === id ? moved.id : path))
       if (this.openId === id) this.session.relocated(moved)
       await this.refresh()
-      this.notify('info', `Moved to ${this.folderName(folder)}`)
-      void this.#offerLinkUpdates({ from: id, to: moved.id, kind: 'note' })
+      const outcome = linkMovesAfterRelocate({ from: id, result: moved, done: `Moved to ${this.folderName(folder)}` })
+      if (outcome.notice) this.notify('info', outcome.notice, [], outcome.sticky)
+      for (const move of outcome.moves) void this.#offerLinkUpdates(move, outcome.warning)
     })
   }
 
@@ -680,7 +684,7 @@ export class WorkspaceModel extends TypedEventTarget<{
    * asks whether to update those links, and rewrites them on "Update links" (the open note's
    * pending edits are saved first; if it was rewritten it reloads like any outside change).
    */
-  async #offerLinkUpdates(move: LinkMove): Promise<void> {
+  async #offerLinkUpdates(move: LinkMove, warning?: string): Promise<void> {
     await this.attempt(async () => {
       const plan = await client.planLinkUpdates([move])
       if (plan.total === 0) return
@@ -703,7 +707,8 @@ export class WorkspaceModel extends TypedEventTarget<{
       const openId = this.openId
       if (openId !== null && report.notes.some((note) => note.id === openId)) await this.session.externalChange()
       await this.refresh()
-      this.notify('info', `Updated ${report.total === 1 ? '1 link' : `${report.total} links`}`)
+      const notice = linksUpdatedNotice(report.total, warning)
+      this.notify('info', notice.text, [], notice.sticky)
     })
   }
 
@@ -733,10 +738,11 @@ export class WorkspaceModel extends TypedEventTarget<{
     }
     if (this.openId === id) await this.session.flush()
     await this.attempt(async () => {
-      await client.deleteNote(id)
+      const trashed = await client.deleteNote(id)
       await this.#forgetTabs((path) => path === id)
       await this.refresh()
-      this.notify('info', 'Moved to Trash')
+      const { notice, sticky } = linkMovesAfterRelocate({ result: { id, ...trashed }, done: 'Moved to Trash' })
+      if (notice) this.notify('info', notice, [], sticky)
     })
   }
 
@@ -1032,10 +1038,11 @@ export class WorkspaceModel extends TypedEventTarget<{
 
   async restore(trashId: string): Promise<void> {
     await this.attempt(async () => {
-      const { id } = await client.restore(trashId)
+      const restored = await client.restore(trashId)
       this.selectedTrashId = null
       await this.refresh()
-      this.notify('info', `Restored ${id}`)
+      const { notice, sticky } = linkMovesAfterRelocate({ result: restored, done: `Restored ${restored.id}` })
+      if (notice) this.notify('info', notice, [], sticky)
     })
   }
 
@@ -1258,11 +1265,11 @@ export class WorkspaceModel extends TypedEventTarget<{
     this.changed()
   }
 
-  notify(kind: Notice['kind'], text: string, details: string[] = []): void {
+  notify(kind: Notice['kind'], text: string, details: string[] = [], sticky = false): void {
     clearTimeout(this.#noticeTimer)
     this.notice = details.length > 0 ? { kind, text, details } : { kind, text }
-    // A notice with details stays until dismissed: it is read, not glanced at.
-    if (details.length === 0) {
+    // A notice with details, or a sticky one, stays until dismissed: it is read, not glanced at.
+    if (details.length === 0 && !sticky) {
       this.#noticeTimer = setTimeout(() => this.dismissNotice(), kind === 'error' ? 8000 : 3000)
     }
     this.changed()

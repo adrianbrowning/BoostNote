@@ -1,5 +1,6 @@
 import { routes } from '../../../routes.ts'
 import type {
+  AssetsLeftBehind,
   ExportResult,
   ImportCandidate,
   ImportFilesReport,
@@ -108,7 +109,7 @@ export const client = {
     post<NoteDocument>(api.noteSave.href(), input),
   renameNote: (id: string, name: string) => post<NoteDocument>(api.noteRename.href(), { id, name }),
   moveNote: (id: string, folder: string) => post<NoteDocument>(api.noteMove.href(), { id, folder }),
-  deleteNote: (id: string) => post<unknown>(api.noteDelete.href(), { id }),
+  deleteNote: (id: string) => post<AssetsLeftBehind>(api.noteDelete.href(), { id }),
   revealNote: (id: string) => post<unknown>(api.noteReveal.href(), { id }),
   planTitleRenames: () => request<TitleRenamePlan>(api.titleRenamesPlan.href()),
   applyTitleRenames: (renames: TitleRename[]) => post<TitleRenameReport>(api.titleRenamesApply.href(), { renames }),
@@ -122,7 +123,7 @@ export const client = {
   deleteFolder: (id: string) => post<unknown>(api.folderDelete.href(), { id }),
   setFolderColor: (id: string, color: string | null) => post<unknown>(api.folderColor.href(), { id, color }),
 
-  restore: (id: string) => post<{ id: string }>(api.trashRestore.href(), { id }),
+  restore: (id: string) => post<{ id: string } & AssetsLeftBehind>(api.trashRestore.href(), { id }),
   emptyTrash: () => post<unknown>(api.trashEmpty.href()),
 
   uploadAsset: (noteId: string, file: File) => {

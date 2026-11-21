@@ -7,18 +7,21 @@ import {
   linkPath,
   normalizeLinkPath,
   parentOf,
+  splitNoteExtension,
 } from '../shared/vault-ids.ts'
 import { VaultError } from './errors.ts'
 import { ASSETS_SUFFIX, encodeBracketedLinkPath, encodeLinkPath, folderSegments, noteSegments } from './paths.ts'
 
 /**
  * A note or folder that was renamed or moved, by id. A note move also covers its `<stem>.assets/`
- * folder; a folder move covers every note, asset and subfolder under it.
+ * folder unless `assets` is `false`; a folder move covers every note, asset and subfolder under it.
  */
 export interface LinkMove {
   from: string
   to: string
   kind: 'note' | 'folder'
+  /** Note moves: `false` when the note's assets folder stayed in place (shared with an extension-case twin). */
+  assets?: boolean
 }
 
 /** Validates link-update moves (note or non-root folder ids) and drops the no-op ones. */
@@ -112,18 +115,17 @@ export function rewriteRelativeLinks(
 /** The paths `moves` relocate, longest first, so the most specific move wins. */
 function movedPrefixes(moves: readonly LinkMove[]): MovedPrefix[] {
   return moves
-    .flatMap((move): MovedPrefix[] =>
-      move.kind === 'note'
-        ? [
-            { from: move.from, to: move.to, exact: true },
-            {
-              from: move.from.replace(/\.md$/, ASSETS_SUFFIX),
-              to: move.to.replace(/\.md$/, ASSETS_SUFFIX),
-              exact: false,
-            },
-          ]
-        : [{ from: move.from, to: move.to, exact: false }],
-    )
+    .flatMap((move): MovedPrefix[] => {
+      if (move.kind === 'folder') return [{ from: move.from, to: move.to, exact: false }]
+      const note = { from: move.from, to: move.to, exact: true }
+      if (move.assets === false) return [note]
+      const assets = {
+        from: `${splitNoteExtension(move.from).base}${ASSETS_SUFFIX}`,
+        to: `${splitNoteExtension(move.to).base}${ASSETS_SUFFIX}`,
+        exact: false,
+      }
+      return [note, assets]
+    })
     .sort((a, b) => b.from.length - a.from.length)
 }
 

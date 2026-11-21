@@ -65,7 +65,14 @@ function readMoves(body: Record<string, unknown>): LinkMove[] {
     const move = typeof item === 'object' && item !== null ? (item as Record<string, unknown>) : {}
     if (move.kind !== 'note' && move.kind !== 'folder')
       throw new HttpError(400, 'BAD_REQUEST', 'Missing or invalid "kind"')
-    return { from: requireString(move.from, 'from'), to: requireString(move.to, 'to'), kind: move.kind }
+    if (move.assets !== undefined && typeof move.assets !== 'boolean')
+      throw new HttpError(400, 'BAD_REQUEST', 'Invalid "assets"')
+    return {
+      from: requireString(move.from, 'from'),
+      to: requireString(move.to, 'to'),
+      kind: move.kind,
+      ...(move.assets === undefined ? {} : { assets: move.assets }),
+    }
   })
 }
 
@@ -284,7 +291,8 @@ export function createApiController(services: AppServices) {
       trashRestore: guarded(async ({ request }: { request: Request }) => {
         const vault = requireVault(services, request)
         const body = await readJsonObject(request)
-        return json({ id: (await vault.restore(requireString(body.id, 'id'))).id })
+        const { id, assetsLeftBehind } = await vault.restore(requireString(body.id, 'id'))
+        return json(assetsLeftBehind ? { id, assetsLeftBehind } : { id })
       }),
 
       trashEmpty: guarded(async ({ request }: { request: Request }) => {

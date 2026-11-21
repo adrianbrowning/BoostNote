@@ -4,8 +4,9 @@
  * data so the CLI (`--json`) and the MCP tools return the same shapes.
  */
 import { type TaskProgress, taskProgress } from '../app/actions/public/workspace/tasks.ts'
-import { isNoteFileName, lastSegment, type NoteMeta, noteStem } from '../shared/vault-ids.ts'
+import { type NoteMeta, noteStem, splitNoteExtension } from '../shared/vault-ids.ts'
 import {
+  type AssetsLeftBehind,
   type FolderNode,
   type Frontmatter,
   type LinkMove,
@@ -85,7 +86,7 @@ export interface SearchResult {
   score: number
 }
 
-export interface RelocateResult extends WriteResult {
+export interface RelocateResult extends WriteResult, AssetsLeftBehind {
   previousId: string
   /** Links in other notes rewritten to follow the note (0 with `updateLinks: false`). */
   linksUpdated: number
@@ -94,14 +95,14 @@ export interface RelocateResult extends WriteResult {
   linksNotUpdated?: number
 }
 
-export interface TrashResult {
+export interface TrashResult extends AssetsLeftBehind {
   /** Pass to `restore`. */
   trashId: string
   originalPath: string
   deletedAt: string
 }
 
-export interface RestoreResult {
+export interface RestoreResult extends AssetsLeftBehind {
   /** Where the note or folder now is (its original place, suffixed when that is taken). */
   id: string
   kind: 'note' | 'folder'
@@ -173,23 +174,19 @@ export async function resolveNoteId(vault: Vault, input: string): Promise<string
   const id = input.replace(/\\/g, '/').replace(/^\/+/, '')
   if (id === '') throw new CommandError('USAGE', 'Missing note id')
   if (await vault.hasNote(id)) return id
-  const isNoteName = isNoteFileName(lastSegment(id))
-  const name = isNoteName ? id.slice(0, -3) : id
-  const notes = await vault.notes()
-  // Every note id ends in a 3-character `.md` of some case, so the path minus it matches in any case.
-  const byPath = notes.filter((meta) => meta.id.slice(0, -3) === name)
-  if (byPath.length > 1) {
-    const ids = byPath.map((meta) => meta.id)
-    throw new CommandError('AMBIGUOUS', `"${input}" matches ${ids.length} notes: ${ids.join(', ')}`, { matches: ids })
-  }
-  if (byPath[0]) return byPath[0].id
-  const named = notes.map((meta) => ({ id: meta.id, stem: noteStem(meta.id), title: meta.title }))
+  const name = splitNoteExtension(id).base
+  const named = (await vault.notes()).map((meta) => ({ id: meta.id, stem: noteStem(meta.id), title: meta.title }))
+  // A path names the note whose id minus its extension equals it exactly: `ideas/Roadmap` and
+  // `ideas/Roadmap.md` match `ideas/Roadmap.MD`; only the extension's case is ignored, not the folder's or stem's.
+  const byPath = named.filter((note) => splitNoteExtension(note.id).base === name)
   const exact = named.filter((note) => note.stem === name || note.title === name)
   const lower = name.toLowerCase()
   const matches =
-    exact.length > 0
-      ? exact
-      : named.filter((note) => note.stem.toLowerCase() === lower || note.title.toLowerCase() === lower)
+    byPath.length > 0
+      ? byPath
+      : exact.length > 0
+        ? exact
+        : named.filter((note) => note.stem.toLowerCase() === lower || note.title.toLowerCase() === lower)
   const [first, ...rest] = matches
   if (!first) throw new CommandError('NOT_FOUND', `Note not found: ${input}`)
   if (rest.length > 0) {
@@ -321,7 +318,13 @@ export async function moveNote(
 /** Moves the note (and its assets) to the vault's `.trash/`; nothing is deleted. */
 export async function trashNote(vault: Vault, input: string): Promise<TrashResult> {
   const entry = await vault.deleteNote(await resolveNoteId(vault, input))
-  return { trashId: entry.id, originalPath: entry.originalPath, deletedAt: entry.deletedAt }
+  const { assetsLeftBehind } = entry
+  return {
+    trashId: entry.id,
+    originalPath: entry.originalPath,
+    deletedAt: entry.deletedAt,
+    ...(assetsLeftBehind ? { assetsLeftBehind } : {}),
+  }
 }
 
 /** Puts a trashed note (or a folder the app trashed) back; returns where it now is. */
@@ -374,10 +377,22 @@ function conflictChecked(id: string, result: WriteNoteResult): Note {
   throw conflict(id, result.current?.hash ?? null)
 }
 
-async function relocated(vault: Vault, fromId: string, note: Note, options: RelocateOptions): Promise<RelocateResult> {
-  const result: RelocateResult = { ...written(note), previousId: fromId, linksUpdated: 0, notesUpdated: 0 }
+async function relocated(
+  vault: Vault,
+  fromId: string,
+  note: Note & AssetsLeftBehind,
+  options: RelocateOptions,
+): Promise<RelocateResult> {
+  const { assetsLeftBehind } = note
+  const result: RelocateResult = {
+    ...written(note),
+    previousId: fromId,
+    linksUpdated: 0,
+    notesUpdated: 0,
+    ...(assetsLeftBehind ? { assetsLeftBehind } : {}),
+  }
   if (note.id === fromId) return result
-  const moves: LinkMove[] = [{ from: fromId, to: note.id, kind: 'note' }]
+  const moves: LinkMove[] = [{ from: fromId, to: note.id, kind: 'note', assets: assetsLeftBehind === undefined }]
   if (options.updateLinks === false) {
     result.linksNotUpdated = (await vault.planLinkUpdates(moves)).total
     return result

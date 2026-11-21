@@ -32,6 +32,11 @@ export interface TrashEntry {
   deletedAt: string
   /** Folder settings (colours) of a deleted folder and its subfolders, keyed relative to the folder. */
   folders?: Record<string, FolderConfig>
+  /**
+   * A deleted note's assets folder that stayed in place (`work/a.assets`), shared with an
+   * extension-case twin (`a.md` beside `a.MD`); `restore` keeps the note's links pointing at it.
+   */
+  assetsLeftBehind?: string
 }
 
 /** `<vault>/.trash/.index.json`. */
@@ -77,6 +82,7 @@ const TrashIndexSchema = object({
       originalPath: string(),
       deletedAt: defaulted(string(), new Date(0).toISOString()),
       folders: optional(record(string(), FolderConfigSchema)),
+      assetsLeftBehind: optional(string()),
     }),
   ),
 })

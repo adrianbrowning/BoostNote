@@ -389,12 +389,12 @@ async function run(command: string, context: Context, vault: Vault): Promise<Out
       const result = await trashNote(vault, first)
       return {
         data: result,
-        text: `Moved ${result.originalPath} to the trash.\nRestore with: boostnote restore ${quoteArg(result.trashId)}`,
+        text: `Moved ${result.originalPath} to the trash.\nRestore with: boostnote restore ${quoteArg(result.trashId)}${assetsStayedText(result)}`,
       }
     }
     case 'restore': {
       const result = await restoreFromTrash(vault, first)
-      return { data: result, text: `Restored ${result.kind} ${result.id}` }
+      return { data: result, text: `Restored ${result.kind} ${result.id}${assetsStayedText(result)}` }
     }
     case 'tags': {
       const tags = await listTags(vault)
@@ -467,7 +467,12 @@ function relocateText(verb: string, result: RelocateResult): string {
     result.linksNotUpdated !== undefined
       ? `Links not updated: ${result.linksNotUpdated} link(s) still point at ${result.previousId}.`
       : `Updated ${result.linksUpdated} link(s) in ${result.notesUpdated} note(s).`
-  return `${verb} ${result.previousId} → ${result.id}\n${links}\nhash: ${result.hash}`
+  return `${verb} ${result.previousId} → ${result.id}\n${links}\nhash: ${result.hash}${assetsStayedText(result)}`
+}
+
+/** A line saying an extension-case twin kept the shared assets folder, or nothing. */
+function assetsStayedText({ assetsLeftBehind }: { assetsLeftBehind?: string }): string {
+  return assetsLeftBehind ? `\nAssets folder ${assetsLeftBehind} stayed in place for the note with the same name.` : ''
 }
 
 function treeText(tree: FolderTree): string {
