@@ -367,7 +367,7 @@ stylesheet with its WOFF2 fonts inlined as `data:` URIs (only when the note has 
 tag that forbids scripts and any fetch except images. `noteToHtml` inlines a note's images
 (`vault.assetPath` → `data:` URI); `exportFolderHtml` writes one page per note at the same relative
 path, note links that resolve inside the vault (`resolveNoteLink` from the exported note) rewritten to `.html`, relative to the exported page (`ch3.md/#x` → `ch3.html#x`, `sub//../ch3.md` → `ch3.html`; a link that leaves the vault stays as written), plus an `index.html` listing (`_contents.html` when the folder
-has its own `index.md`, which then becomes `index.html`); `exportNoteMarkdown` copies the file and its
+has its own `index.md`, which then becomes `index.html`; a page name clashing, by `nameKey`, with one already given out or the listing's gets ` 2`, ` 3`..., so case, NFC/NFD and extension-case twins get distinct pages); `exportNoteMarkdown` copies the file and its
 `<stem>.assets/` (renamed after the new file name, links rewritten).
 
 ### Mermaid, PDF and printing (`src/main/export.ts`)

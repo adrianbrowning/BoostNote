@@ -210,6 +210,106 @@ describe('vault export', () => {
     expect(titles).toEqual(['B', 'A'])
   })
 
+  it('writes an upper-case Plan.MD as Plan.html and points links to it there', async () => {
+    await put('Plan.MD', '# Plan\n')
+    await put('links.md', '[p](Plan.MD) [q](./Plan.MD#x)\n')
+    await vault.refresh()
+    await exportFolderHtml(vault, '', out)
+    expect(await readFile(path.join(out, 'Plan.html'), 'utf8')).toContain('<title>Plan</title>')
+    const links = await readFile(path.join(out, 'links.html'), 'utf8')
+    expect(links).toContain('href="Plan.html"')
+    expect(links).toContain('href="Plan.html#x"')
+    expect(await readFile(path.join(out, 'index.html'), 'utf8')).toContain('<a href="Plan.html">')
+  })
+
+  it('gives extension-case twins their own pages, the second one "a 2.html", and links each to its own page', async (context) => {
+    await put('a.md', '---\ntitle: Lower\n---\n[upper](a.MD)\n')
+    await put('a.MD', '---\ntitle: Upper\n---\n[lower](a.md)\n')
+    await vault.refresh()
+    const ids = (await vault.notes()).map((note) => note.id).filter((id) => id.startsWith('a.'))
+    if (ids.length < 2) context.skip() // case-insensitive filesystem: the twins are one file
+    await exportFolderHtml(vault, '', out)
+    const [first, second] = ids as [string, string]
+    const titleOf: Record<string, string> = { 'a.md': 'Lower', 'a.MD': 'Upper' }
+    const pageOf = (id: string) => (id === first ? 'a.html' : 'a 2.html')
+    expect(await readFile(path.join(out, 'a.html'), 'utf8')).toContain(`<title>${titleOf[first]}</title>`)
+    expect(await readFile(path.join(out, 'a 2.html'), 'utf8')).toContain(`<title>${titleOf[second]}</title>`)
+    expect(await readFile(path.join(out, pageOf('a.md')), 'utf8')).toContain(
+      `href="${encodeURIComponent(pageOf('a.MD'))}"`,
+    )
+    expect(await readFile(path.join(out, pageOf('a.MD')), 'utf8')).toContain(
+      `href="${encodeURIComponent(pageOf('a.md'))}"`,
+    )
+    expect(await readFile(path.join(out, 'index.html'), 'utf8')).toContain('<a href="a%202.html">')
+  })
+
+  it('on disk, leaves a link to a missing a.md as written beside a.MD and a.md.md', async (context) => {
+    await put('a.MD', '# Upper\n')
+    await put('a.md.md', '# Double\n')
+    await put('links.md', '[x](a.md)\n')
+    await vault.refresh()
+    if ((await vault.notes()).some((note) => note.id === 'a.md')) context.skip() // case-insensitive filesystem
+    await exportFolderHtml(vault, '', out)
+    expect(await readFile(path.join(out, 'links.html'), 'utf8')).toContain('href="a.md"')
+  })
+
+  it('on disk, gives A.md and a.md distinct pages', async (context) => {
+    await put('A.md', 'upper\n')
+    await put('a.md', 'lower\n')
+    await vault.refresh()
+    const ids = (await vault.notes()).map((note) => note.id).filter((id) => id.toLowerCase() === 'a.md')
+    if (ids.length < 2) context.skip() // case-insensitive filesystem: one file
+    await exportFolderHtml(vault, '', out)
+    const [first, second] = ids as [string, string]
+    const textOf: Record<string, string> = { 'A.md': 'upper', 'a.md': 'lower' }
+    expect(await readFile(path.join(out, `${first.slice(0, 1)}.html`), 'utf8')).toContain(textOf[first])
+    expect(await readFile(path.join(out, `${second.slice(0, 1)} 2.html`), 'utf8')).toContain(textOf[second])
+  })
+
+  const fakeVault = (files: Record<string, string>): ExportVault => ({
+    root,
+    notes: async () => Object.keys(files).map((id) => ({ id, title: id })),
+    readNote: async (id: string) => ({ raw: files[id] as string }),
+    assetPath: async () => {
+      throw new Error('no assets')
+    },
+  })
+
+  it('leaves a link to a missing exact id as written, not pointed at a case-variant note page', async () => {
+    await exportFolderHtml(fakeVault({ 'a.MD': '# Upper\n', 'links.md': '[x](a.md) [y](b.md)\n' }), '', out)
+    const links = await readFile(path.join(out, 'links.html'), 'utf8')
+    expect(links).toContain('href="a.md"')
+    expect(links).toContain('href="b.md"')
+    expect(links).not.toContain('href="a.html"')
+  })
+
+  it('reserves the _contents.html listing name so a _contents.md note keeps its own page', async () => {
+    const fake = fakeVault({
+      'index.md': '# Home\n',
+      '_contents.md': 'contents note\n',
+      'links.md': '[c](_contents.md)\n',
+    })
+    expect((await exportFolderHtml(fake, '', out)).contents).toBe(path.join(out, '_contents.html'))
+    expect(await readFile(path.join(out, '_contents 2.html'), 'utf8')).toContain('contents note')
+    expect(await readFile(path.join(out, 'links.html'), 'utf8')).toContain('href="_contents%202.html"')
+    expect(await readFile(path.join(out, '_contents.html'), 'utf8')).toContain('<a href="_contents%202.html">')
+  })
+
+  it('gives notes differing only in name case or normalization distinct pages', async () => {
+    const fake = fakeVault({
+      'A.md': 'upper\n',
+      'a.md': 'lower [u](A.md)\n',
+      'Caf\u00e9.md': 'nfc\n',
+      'Cafe\u0301.md': 'nfd\n',
+    })
+    await exportFolderHtml(fake, '', out)
+    expect(await readFile(path.join(out, 'A.html'), 'utf8')).toContain('upper')
+    expect(await readFile(path.join(out, 'a 2.html'), 'utf8')).toContain('lower')
+    expect(await readFile(path.join(out, 'a 2.html'), 'utf8')).toContain('href="A.html"')
+    expect(await readFile(path.join(out, 'Caf\u00e9.html'), 'utf8')).toContain('nfc')
+    expect(await readFile(path.join(out, 'Cafe\u0301 2.html'), 'utf8')).toContain('nfd')
+  })
+
   it('exports markdown with its assets folder renamed after the file', async () => {
     const target = path.join(out, 'Renamed.md')
     await exportNoteMarkdown(vault, 'work/todo.md', target)
