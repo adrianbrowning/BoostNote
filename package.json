@@ -22,7 +22,7 @@
   },
   "scripts": {
     "dev": "electron .",
-    "check": "biome check .",
+    "check": "biome check . && node scripts/check-app-spec.ts",
     "fix": "biome check --write .",
     "typecheck": "tsc",
     "test": "vitest run",
@@ -32,6 +32,8 @@
     "cli": "node src/cli/index.js",
     "test:e2e": "playwright test",
     "smoke": "node --import remix/node-tsx scripts/smoke.ts",
+    "test:linux": "bash scripts/test-linux.sh",
+    "test:case-sensitive": "bash scripts/test-case-sensitive.sh",
     "prepare": "git config core.hooksPath .githooks || true"
   },
   "pnpm": {

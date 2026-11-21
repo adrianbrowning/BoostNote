@@ -72,6 +72,8 @@ Things that are easy to get wrong:
   accessible name or a `data-*` hook: `tests/e2e/rules.grit`, loaded by a `biome.json` override on
   `tests/e2e/**`, makes `pnpm check` reject `getComputedStyle` and `locator('..')` there
   (tested in `tests/lint/e2e-rules.test.ts`).
+- `pnpm check` also runs `scripts/check-app-spec.ts`, which fails when `tests/e2e/app.spec.ts` holds more
+  tests than its cap: a new e2e test goes into the spec for its concern (tested in `tests/lint/app-spec-cap.test.ts`).
 - Never top-level `await app.whenReady()` in the main-process import graph: Electron emits `ready`
   only after the entry module has evaluated.
 - Every app keyboard shortcut is a native menu accelerator defined in the shared command table
