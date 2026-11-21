@@ -119,6 +119,9 @@ describe('preview widgets', () => {
     const [remote] = widgets('![logo](https://example.com/logo.svg)\n‸', host)
     expect(remote?.widget).toEqual(new ImageWidget('https://example.com/logo.svg', 'logo', undefined, undefined))
     expect(widgets('![logo](https://example.com/l‸ogo.svg)')).toEqual([])
+    // Not relative under the shared isRelativeLink rule, so used as written.
+    const [anchor] = widgets('![x](#top)\n‸', host)
+    expect(anchor?.widget).toEqual(new ImageWidget('#top', 'x', undefined, undefined))
   })
 
   it('renders task markers as checkboxes unless the cursor touches the marker', () => {

@@ -34,8 +34,3 @@ export const editorHost = Facet.define<EditorHost, EditorHost>({
 export const editorTheme = Facet.define<EditorTheme, EditorTheme>({
   combine: (values) => values[0] ?? 'light',
 })
-
-/** `http:`, `data:`, `blob:`, … and protocol-relative/absolute paths are used as-is; everything else is note-relative. */
-export function isExternalUrl(url: string): boolean {
-  return /^[a-z][a-z\d+.-]*:/i.test(url) || url.startsWith('//') || url.startsWith('/')
-}

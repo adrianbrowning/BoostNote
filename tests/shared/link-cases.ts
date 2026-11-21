@@ -1,7 +1,8 @@
 /**
  * The one table of link hrefs, as written in note `FROM`, that the shared resolver
  * (`tests/shared/vault-ids.test.ts`), export's `noteLinkToHtml` (`tests/markdown/render.test.ts`) and
- * the vault's link rewriting (`tests/vault/link-updates.test.ts`) are all asserted against.
+ * the vault's link rewriting (`tests/vault/link-updates.test.ts`) and the editor's image
+ * rendering (`tests/editor/inline.test.ts`) are all asserted against.
  */
 export const FROM = 'Guides/ch4.md'
 

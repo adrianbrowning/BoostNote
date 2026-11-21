@@ -3,7 +3,8 @@ import { type EditorState, type Range, StateField } from '@codemirror/state'
 import { Decoration, type DecorationSet, EditorView, type WidgetType } from '@codemirror/view'
 import type { SyntaxNode } from '@lezer/common'
 
-import { editorHost, editorTheme, isExternalUrl } from '../config.ts'
+import { isRelativeLink } from '../../shared/vault-ids.ts'
+import { editorHost, editorTheme } from '../config.ts'
 import { renderInlineMarkdown } from '../render/inline.ts'
 import { editorFocused, selectionTouches } from './selection.ts'
 import {
@@ -63,7 +64,7 @@ export function buildPreviewWidgets(state: EditorState): DecorationSet {
           if (selectionTouches(state, node.from, node.to)) return false
           const image = parseImage(state, node)
           if (!image) return false
-          const src = isExternalUrl(image.url) ? image.url : host.resolveAssetUrl(image.url)
+          const src = isRelativeLink(image.url) ? host.resolveAssetUrl(image.url) : image.url
           decorations.push(
             Decoration.replace({ widget: new ImageWidget(src, image.alt, image.width, image.height) }).range(
               node.from,
