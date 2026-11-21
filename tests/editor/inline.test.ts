@@ -26,7 +26,6 @@ describe('renderInlineMarkdown images', () => {
       return `asset:${p}`
     })
     expect(resolved).toEqual(relative ? [href] : [])
-    // An empty destination is not an image to CommonMark; it stays as text.
-    if (href !== '') expect(html).toBe(`<img src="${escapeAttr(relative ? `asset:${href}` : href)}" alt="a">`)
+    expect(html).toBe(`<img src="${escapeAttr(relative ? `asset:${href}` : href)}" alt="a">`)
   })
 })
