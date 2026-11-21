@@ -58,6 +58,9 @@ export function renderInlineMarkdown(text: string, resolveAssetUrl: (relPath: st
       case 'Image': {
         const url = node.getChild('URL')
         const label = linkLabel(node)
+        const source = text.slice(node.from, node.to)
+        // No URL: `![a]()` is an inline image with an empty src; `![a][ref]` / `![a]` stay as text.
+        if (!url && !source.endsWith(')')) return escapeHtml(source)
         const src = url ? text.slice(url.from, url.to) : ''
         const alt = label ? text.slice(label.from, label.to) : ''
         return `<img src="${escapeHtml(isRelativeLink(src) ? resolveAssetUrl(src) : src)}" alt="${escapeHtml(alt)}">`
