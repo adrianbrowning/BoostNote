@@ -601,10 +601,15 @@ export class WorkspaceModel extends TypedEventTarget<{
     this.session.loadTheirs()
   }
 
-  /** A conflict-bar save that did not leave the note saved shows an error notice; the bar shows the new state. */
+  /**
+   * A conflict-bar save that failed shows an error notice; the bar shows the new state. A save that worked
+   * while newer edits arrived leaves the note dirty, with those edits already queued for autosave: no notice.
+   */
   async #resolved(save: Promise<boolean>): Promise<void> {
-    if (await save) return
-    const reason = this.session.state === 'error' ? `: ${this.session.error}` : ''
+    await save
+    const { state } = this.session
+    if (state !== 'error' && state !== 'conflict' && state !== 'removed') return
+    const reason = state === 'error' ? `: ${this.session.error}` : ''
     this.notify('error', `Could not save the note${reason}`)
   }
 

@@ -11,8 +11,10 @@ const bar = (page: Page) => page.locator('[data-conflict]')
 
 declare global {
   interface Window {
-    /** This spec's page-side fetch wrapper: every note save fails while `fail` is set. */
-    failingSaves?: { fail: boolean }
+    /** This spec's page-side fetch wrapper: every note save fails while `fail` is set, after `delayMs`. */
+    failingSaves?: { fail: boolean; delayMs: number }
+    /** Texts of every notice shown since a test started recording them. */
+    noticesSeen?: string[]
   }
 }
 
@@ -22,12 +24,15 @@ async function openWithFailableSaves(page: Page): Promise<(fail: boolean) => Pro
   await expect(editor(page)).toContainText('Start.')
   await page.evaluate(() => {
     const original = window.fetch
-    const state = { fail: false }
+    const state = { fail: false, delayMs: 0 }
     window.failingSaves = state
-    window.fetch = (input, init) => {
+    window.fetch = async (input, init) => {
       const { pathname } = new URL(String(input), location.href)
-      if (pathname === '/api/notes/save' && state.fail) {
-        return Promise.resolve(new Response(JSON.stringify({ error: 'IO', message: 'Disk full' }), { status: 500 }))
+      if (pathname === '/api/notes/save') {
+        if (state.delayMs) await new Promise((resolve) => setTimeout(resolve, state.delayMs))
+        if (state.fail) {
+          return new Response(JSON.stringify({ error: 'IO', message: 'Disk full' }), { status: 500 })
+        }
       }
       return original(input, init)
     }
@@ -75,6 +80,61 @@ test('Retry shows a notice while the save still fails, and saves once it works',
   await expect.poll(onDisk(vault, 'a.md'), { timeout: 10_000 }).toMatch(/Start\.\n\nMine\.$/)
   await expect(bar(page)).toHaveCount(0)
   expect(await page.evaluate(() => window.boostFlushPendingSave?.())).toBe(true)
+})
+
+test('typing while Retry’s save is in flight shows no notice once the save works', async ({ app }) => {
+  const { page, vault } = app
+  const failSaves = await openWithFailableSaves(page)
+  await typeUnsaved(page, failSaves, { stayInEditor: true })
+
+  await failSaves(false)
+  await page.evaluate(() => {
+    if (window.failingSaves) window.failingSaves.delayMs = 1_500
+    // A notice auto-dismisses after a few seconds, so record any that appears.
+    const seen: string[] = []
+    window.noticesSeen = seen
+    new MutationObserver(() => {
+      for (const notice of document.querySelectorAll('[data-notice]')) seen.push(notice.textContent ?? '')
+    }).observe(document.body, { childList: true, subtree: true })
+  })
+  await bar(page).getByRole('button', { name: 'Retry' }).click()
+  await page.keyboard.type(' More.', { delay: 20 })
+  await expect.poll(onDisk(vault, 'a.md'), { timeout: 10_000 }).toMatch(/Mine\. More\.$/)
+  await expect(bar(page)).toHaveCount(0)
+  expect(await page.evaluate(() => window.noticesSeen)).toEqual([])
+})
+
+test('leaving the editor saves at once with no notice', async ({ app }) => {
+  const { page, vault } = app
+  await openWithFailableSaves(page)
+  await editor(page).click()
+  await page.keyboard.press('ControlOrMeta+End')
+  await page.keyboard.type('\nBlurred.')
+  await editor(page).blur()
+  // Well inside the 500 ms autosave delay: only the focusout save can have written it.
+  await expect.poll(onDisk(vault, 'a.md'), { timeout: 400, intervals: [50] }).toMatch(/Blurred\.$/)
+  await expect(page.locator('[data-notice]')).toHaveCount(0)
+})
+
+test('hiding the window saves at once', async ({ app }) => {
+  const { page, vault } = app
+  await openWithFailableSaves(page)
+  await editor(page).click()
+  await page.keyboard.press('ControlOrMeta+End')
+  await page.keyboard.type('\nHidden.')
+  await page.evaluate(() => {
+    Object.defineProperty(document, 'visibilityState', { value: 'hidden', configurable: true })
+    document.dispatchEvent(new Event('visibilitychange'))
+  })
+  await expect.poll(onDisk(vault, 'a.md'), { timeout: 400, intervals: [50] }).toMatch(/Hidden\.$/)
+  await expect(page.locator('[data-notice]')).toHaveCount(0)
+})
+
+test('a failing save on leaving the editor shows the bar but no notice', async ({ app }) => {
+  const { page } = app
+  const failSaves = await openWithFailableSaves(page)
+  await typeUnsaved(page, failSaves)
+  await expect(page.locator('[data-notice][data-kind="error"]')).toHaveCount(0)
 })
 
 test('Keep mine overwrites the version that changed on disk', async ({ app }) => {
