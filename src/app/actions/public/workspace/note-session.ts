@@ -1,13 +1,10 @@
 import { TypedEventTarget } from 'remix/component'
 
-import { ApiError, type Client } from './api.ts'
+import { ApiError, type NoteApi } from './api.ts'
 import type { JsonValue, NoteDocument } from './types.ts'
 
 /** Quiet period after the last keystroke before the note is written. */
 export const AUTOSAVE_DELAY_MS = 500
-
-/** The API calls a session makes: the page's `client`, or one over the router in tests (`createClient`). */
-export type NoteSessionApi = Pick<Client, 'readNote' | 'saveNote'>
 
 /**
  * - `saved`: the editor matches the file.
@@ -69,9 +66,10 @@ export class NoteSession extends TypedEventTarget<{ change: Event; doc: DocEvent
   #timer: ReturnType<typeof setTimeout> | undefined
   #inflight: Promise<SaveOutcome> | undefined
   #frontmatter: Record<string, JsonValue> | undefined
-  readonly #api: NoteSessionApi
+  readonly #api: NoteApi
 
-  constructor(api: NoteSessionApi) {
+  /** `api`: the page's `client`, or one over the router in tests (`createClient`). */
+  constructor(api: NoteApi) {
     super()
     this.#api = api
   }

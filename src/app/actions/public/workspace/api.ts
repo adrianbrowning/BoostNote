@@ -67,6 +67,20 @@ function inVault(href: string): string {
 /** Sends a request to this app's own router: the page's `fetch`, or the router itself in tests. */
 export type Transport = (href: string, init?: RequestInit) => Promise<Response>
 
+/** A note save: the body, the hash it is based on (`null`: no note may exist there yet), and new frontmatter. */
+export interface NoteSaveInput {
+  id: string
+  body: string
+  baseHash: string | null
+  frontmatter?: Record<string, JsonValue>
+}
+
+/** A client's note read and save calls (all `NoteSession` uses); `createClient` types its own with these. */
+export interface NoteApi {
+  readNote: (id: string) => Promise<NoteDocument>
+  saveNote: (input: NoteSaveInput) => Promise<NoteDocument>
+}
+
 function withQuery(href: string, params: Record<string, string>): string {
   return `${href}?${new URLSearchParams(params)}`
 }
@@ -97,6 +111,9 @@ export function createClient(transport: Transport) {
     })
   }
 
+  const readNote: NoteApi['readNote'] = (id) => request(withQuery(api.noteRead.href(), { id }))
+  const saveNote: NoteApi['saveNote'] = (input) => post(api.noteSave.href(), input)
+
   return {
     workspace: () => request<WorkspaceData>(api.workspace.href()),
     search: (q: string, signal?: AbortSignal) =>
@@ -107,10 +124,9 @@ export function createClient(transport: Transport) {
     closeVault: (path: string) => post<WorkspaceData>(api.vaultClose.href(), { path }),
     forgetVault: (path: string) => post<WorkspaceData>(api.vaultForget.href(), { path }),
 
-    readNote: (id: string) => request<NoteDocument>(withQuery(api.noteRead.href(), { id })),
+    readNote,
     createNote: (folder: string) => post<NoteDocument>(api.noteCreate.href(), { folder }),
-    saveNote: (input: { id: string; body: string; baseHash: string | null; frontmatter?: Record<string, JsonValue> }) =>
-      post<NoteDocument>(api.noteSave.href(), input),
+    saveNote,
     renameNote: (id: string, name: string) => post<NoteDocument>(api.noteRename.href(), { id, name }),
     moveNote: (id: string, folder: string) => post<NoteDocument>(api.noteMove.href(), { id, folder }),
     deleteNote: (id: string) => post<AssetsLeftBehind>(api.noteDelete.href(), { id }),
@@ -166,9 +182,6 @@ export function createClient(transport: Transport) {
       post<ReaderImportResult>(api.readerImport.href({ ticket }), { folder }),
   }
 }
-
-/** An `/api` client: the page's `client`, or one over another transport (`createClient`). */
-export type Client = ReturnType<typeof createClient>
 
 /** The page's client of the `/api` routes. */
 export const client = createClient((href, init) => fetch(href, init))
