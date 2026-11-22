@@ -241,8 +241,9 @@ not open → 409 `NO_VAULT`.
   conflict bar, autosave suspended: **Keep mine** saves on top of their hash, **Load theirs** drops the
   edits. External delete/move → "Save my copy" (writes with `baseHash: null`) or Close. While a
   conflict is unresolved the app refuses to leave the note, so neither side is lost silently.
-- Components never flush the session themselves: blur and a hidden window call `model.saveNow()`
-  (no notice), quit calls `model.saveBeforeQuit()` (its boolean decides "Quit Anyway?"), and the bar's
+- Components never flush the session themselves: blur, a hidden window and quit call `model.saveNow()`
+  (no notice; its boolean decides "Quit Anyway?"). It leaves a save that failed to the error bar's Retry,
+  the next edit or leaving the note, so the bar stays put while focus moves to Retry. The bar's
   Retry, Keep mine, Save my copy and Load theirs are model actions; a save they start that still fails
   shows an error notice. `NoteSession` takes its API client (`createClient(transport)`), so
   `tests/app/note-session.test.ts` drives it over the in-process router.

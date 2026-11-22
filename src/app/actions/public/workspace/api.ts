@@ -167,5 +167,8 @@ export function createClient(transport: Transport) {
   }
 }
 
+/** An `/api` client: the page's `client`, or one over another transport (`createClient`). */
+export type Client = ReturnType<typeof createClient>
+
 /** The page's client of the `/api` routes. */
 export const client = createClient((href, init) => fetch(href, init))

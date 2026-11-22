@@ -239,15 +239,7 @@ export function EditorPane(handle: Handle<{ model: WorkspaceModel }>) {
       return (
         <div role="alert" mix={barStyle} data-conflict="error">
           <span>Saving failed: {current.error}</span>
-          <button
-            type="button"
-            mix={[
-              button,
-              // Keeps focus in the editor: its focusout save would re-render the bar and drop this click.
-              on('mousedown', (event) => event.preventDefault()),
-              on('click', () => void model.retrySave()),
-            ]}
-          >
+          <button type="button" mix={[button, on('click', () => void model.retrySave())]}>
             Retry
           </button>
         </div>

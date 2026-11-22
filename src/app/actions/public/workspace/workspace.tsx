@@ -88,7 +88,7 @@ export const Workspace = clientEntry(
       signal.addEventListener('abort', () => source.close(), { once: true })
       installDropImport(model, signal)
 
-      window.boostFlushPendingSave = () => model.saveBeforeQuit()
+      window.boostFlushPendingSave = () => model.saveNow()
       document.addEventListener(
         'visibilitychange',
         () => {

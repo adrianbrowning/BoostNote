@@ -23,10 +23,15 @@ afterEach(async () => {
   await app.close()
 })
 
-/** A new note opened in the session, with `body` on disk. */
-async function openNote(body: string) {
+/** A new note opened in the session, with `body` (and `frontmatter`, if given) on disk. */
+async function openNote(body: string, frontmatter?: Record<string, string[]>) {
   const created = await api.createNote('')
-  const note = await api.saveNote({ id: created.id, body, baseHash: created.hash })
+  const note = await api.saveNote({
+    id: created.id,
+    body,
+    baseHash: created.hash,
+    ...(frontmatter ? { frontmatter } : {}),
+  })
   session.open(note)
   return note
 }
@@ -44,18 +49,19 @@ describe('NoteSession', () => {
     expect(await onDisk(note.id)).toBe('theirs\n')
   })
 
-  it('Save my copy writes the editor copy as a new note where the removed one was, keeping the moved disk copy', async () => {
-    const note = await openNote('start\n')
+  it('Save my copy writes the editor copy as a new note where the removed one was, keeping the moved disk copy and the frontmatter', async () => {
+    const note = await openNote('start\n', { tags: ['x'] })
     const moved = await api.renameNote(note.id, 'Elsewhere')
     session.edit('mine\n')
     expect(await session.flush()).toBe(false)
     expect(session.state).toBe('removed')
 
-    expect(await session.saveMyCopy()).toEqual({ state: 'saved', error: '' })
+    expect(await session.saveMyCopy()).toEqual({ state: 'saved' })
     expect(session.state).toBe('saved')
     expect(session.note?.id).toBe(note.id)
     expect(await onDisk(note.id)).toMatch(/\nmine\n$/)
     expect(await onDisk(moved.id)).toMatch(/\nstart\n$/)
+    expect((await api.readNote(note.id)).frontmatter.tags).toEqual(['x'])
   })
 
   it('Keep mine overwrites the disk copy that caused the conflict', async () => {
@@ -65,7 +71,7 @@ describe('NoteSession', () => {
     await session.flush()
     expect(session.state).toBe('conflict')
 
-    expect(await session.keepMine()).toEqual({ state: 'saved', error: '' })
+    expect(await session.keepMine()).toEqual({ state: 'saved' })
     expect(session.state).toBe('saved')
     expect(session.theirs).toBeNull()
     expect(await onDisk(note.id)).toMatch(/mine\n$/)
@@ -145,18 +151,30 @@ describe('NoteSession', () => {
   })
 
   it('refuses to flush while in conflict or removed, writing nothing', async () => {
+    let saves = 0
+    session = new NoteSession(
+      createClient((href, init) => {
+        if (new URL(href, 'http://app').pathname === '/api/notes/save') saves++
+        return app.fetch(href, init)
+      }),
+    )
     const note = await openNote('start\n')
     await writeFile(path.join(vault.root, note.id), 'theirs\n')
     session.edit('mine\n')
     await session.flush()
+    expect(session.state).toBe('conflict')
+    saves = 0
+
     session.edit('mine, more\n')
     expect(await session.flush()).toBe(false)
     expect(session.state).toBe('conflict')
     expect(await onDisk(note.id)).toBe('theirs\n')
+    expect(saves).toBe(0)
 
     session.externalRemoval()
     expect(await session.flush()).toBe(false)
     expect(session.state).toBe('removed')
     expect(await onDisk(note.id)).toBe('theirs\n')
+    expect(saves).toBe(0)
   })
 })

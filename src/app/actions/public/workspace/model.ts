@@ -571,14 +571,14 @@ export class WorkspaceModel extends TypedEventTarget<{
     return false
   }
 
-  /** Saves the open note's pending edits now, with no notice (editor focusout, window hidden). */
-  async saveNow(): Promise<void> {
-    await this.session.flush()
-  }
-
-  /** Quit: saves pending edits; `false` when unsaved work remains (main then asks before quitting). */
-  saveBeforeQuit(): Promise<boolean> {
-    return this.session.flush()
+  /**
+   * Saves the open note's pending edits now, with no notice (editor focusout, window hidden, quit).
+   * A save that failed is not retried here but by Retry, the next edit or leaving the note, so the error
+   * bar and its focused Retry stay put. Resolves `false` when unsaved work remains, which decides main's
+   * "Quit Anyway?" dialog.
+   */
+  saveNow(): Promise<boolean> {
+    return this.session.state === 'error' ? Promise.resolve(false) : this.session.flush()
   }
 
   /** Conflict bar "Retry" (a save that failed). */
@@ -608,9 +608,10 @@ export class WorkspaceModel extends TypedEventTarget<{
    * waiting on that save (editor focusout) may have started the next save by then.
    */
   async #resolved(save: Promise<SaveOutcome>): Promise<void> {
-    const { state, error } = await save
-    if (state !== 'error' && state !== 'conflict' && state !== 'removed') return
-    this.notify('error', `Could not save the note${state === 'error' ? `: ${error}` : ''}`)
+    const outcome = await save
+    if (outcome.state === 'error') this.notify('error', `Could not save the note: ${outcome.error}`)
+    else if (outcome.state === 'conflict' || outcome.state === 'removed')
+      this.notify('error', 'Could not save the note')
   }
 
   /** Arrow keys in the note list. */

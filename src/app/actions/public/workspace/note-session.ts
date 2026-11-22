@@ -1,21 +1,13 @@
 import { TypedEventTarget } from 'remix/component'
 
-import { ApiError } from './api.ts'
+import { ApiError, type Client } from './api.ts'
 import type { JsonValue, NoteDocument } from './types.ts'
 
 /** Quiet period after the last keystroke before the note is written. */
 export const AUTOSAVE_DELAY_MS = 500
 
 /** The API calls a session makes: the page's `client`, or one over the router in tests (`createClient`). */
-export interface NoteSessionApi {
-  readNote(id: string): Promise<NoteDocument>
-  saveNote(input: {
-    id: string
-    body: string
-    baseHash: string | null
-    frontmatter?: Record<string, JsonValue>
-  }): Promise<NoteDocument>
-}
+export type NoteSessionApi = Pick<Client, 'readNote' | 'saveNote'>
 
 /**
  * - `saved`: the editor matches the file.
@@ -33,10 +25,7 @@ export type SaveState = 'saved' | 'dirty' | 'saving' | 'error' | 'conflict' | 'r
  * How one save request ended: the note's state when that request settled (`dirty` when it worked but
  * newer edits were queued meanwhile; `saved` when nothing needed saving) and, on `error`, the message.
  */
-export interface SaveOutcome {
-  state: SaveState
-  error: string
-}
+export type SaveOutcome = { state: 'error'; error: string } | { state: Exclude<SaveState, 'error'> }
 
 /** Tells the editor to show `body`; `preserveSelection` for live reloads, a full reset when another note opens. */
 export class DocEvent extends Event {
@@ -187,9 +176,13 @@ export class NoteSession extends TypedEventTarget<{ change: Event; doc: DocEvent
     return this.#flush()
   }
 
-  /** Removed: write the editor's copy back where the note was, as a new note (otherwise the same as `retry`). */
+  /**
+   * Removed: write the editor's copy back where the note was, as a new note (otherwise the same as `retry`).
+   * The note's frontmatter goes with it (with no file there, the vault has none to keep).
+   */
   saveMyCopy(): Promise<SaveOutcome> {
     if (this.note && this.state === 'removed') {
+      this.#frontmatter ??= this.note.frontmatter
       this.note = { ...this.note, hash: '' }
       this.state = 'dirty'
     }
@@ -211,7 +204,7 @@ export class NoteSession extends TypedEventTarget<{ change: Event; doc: DocEvent
     clearTimeout(this.#timer)
     if (this.#inflight) await this.#inflight
     if (this.state === 'dirty' || this.state === 'error') return this.#save()
-    return { state: this.state, error: '' }
+    return { state: this.state }
   }
 
   #reset(note: NoteDocument | null): void {
@@ -231,7 +224,7 @@ export class NoteSession extends TypedEventTarget<{ change: Event; doc: DocEvent
 
   #save(): Promise<SaveOutcome> {
     const note = this.note
-    if (!note) return Promise.resolve({ state: 'saved', error: '' })
+    if (!note) return Promise.resolve({ state: 'saved' })
     const body = this.body
     const frontmatter = this.#frontmatter
     this.state = 'saving'
@@ -245,19 +238,19 @@ export class NoteSession extends TypedEventTarget<{ change: Event; doc: DocEvent
           baseHash: note.hash === '' ? null : note.hash,
           ...(frontmatter ? { frontmatter } : {}),
         })
-        if (this.note?.id !== note.id) return { state: 'saved', error: '' }
+        if (this.note?.id !== note.id) return { state: 'saved' }
         this.note = saved
         if (this.#frontmatter === frontmatter) this.#frontmatter = undefined
         this.state = this.body === body && this.#frontmatter === undefined ? 'saved' : 'dirty'
         if (this.state === 'dirty') this.#schedule()
         this.dispatchEvent(new SavedEvent(saved))
-        return { state: this.state, error: '' }
+        return { state: this.state }
       } catch (error) {
         const conflict = error instanceof ApiError ? error.conflict : undefined
         const outcome: SaveOutcome = conflict
-          ? { state: 'conflict', error: '' }
+          ? { state: 'conflict' }
           : error instanceof ApiError && error.status === 404
-            ? { state: 'removed', error: '' }
+            ? { state: 'removed' }
             : { state: 'error', error: error instanceof Error ? error.message : String(error) }
         if (this.note?.id !== note.id) return outcome
         if (conflict) this.theirs = conflict
