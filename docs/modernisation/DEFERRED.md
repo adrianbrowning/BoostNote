@@ -200,3 +200,131 @@ per finding: id, location, title, problem and suggested fix. Later factory runs 
 - Problem: tests/main/vault-session.test.ts:351 | `// `.mdx` and `.markdown` files are not notes and are dropped.` | The comment says what the next five lines do: they write `a.mdx` and `b.markdown`, request to open both, and expect `takeOpenRequest()` to return undefined. It tells a reader nothing the code does not already show.
 - Suggested fix: Delete the comment. The file names and the `toBeUndefined()` assertion already say that these files are dropped.
 
+
+## issue-22 (slices 01 and 02, retro)
+
+### issue-22/01: Consumer list in link-cases JSDoc has a doubled 'and'
+
+Run: issue-22
+Slice: 01 "Editor images use the shared relative-link rule"
+Review: 01-r1
+
+### [observation] comments-link-cases-consumer-list-grammar
+
+- Location: tests/shared/link-cases.ts:4
+- Title: Consumer list in link-cases JSDoc has a doubled 'and'
+- Problem: tests/shared/link-cases.ts:2-5 | "the shared resolver (...), export's `noteLinkToHtml` (...) and the vault's link rewriting (...) and the editor's image rendering (...) are all asserted against." | The list now reads 'A, B and C and D'. The content is correct, but the doubled 'and' makes the list harder to read. Rewrite it.
+- Fix: Turn the list into one series: "the shared resolver (`tests/shared/vault-ids.test.ts`), export's `noteLinkToHtml` (`tests/markdown/render.test.ts`), the vault's link rewriting (`tests/vault/link-updates.test.ts`) and the editor's image rendering (`tests/editor/inline.test.ts`) are all asserted against."
+- Fix prompt: In tests/shared/link-cases.ts, edit the top JSDoc so the consumers form one comma-separated list. Replace ' and the vault's link rewriting (`tests/vault/link-updates.test.ts`) and the editor's image' with ', the vault's link rewriting (`tests/vault/link-updates.test.ts`) and the editor's image'. Leave the rest of the comment unchanged.
+
+### issue-22/01: Image src resolution ternary is duplicated in blocks.ts and inline.ts
+
+Run: issue-22
+Slice: 01 "Editor images use the shared relative-link rule"
+Review: 01-r3
+
+### [observation] react-ts-image-src-resolution-duplicated
+
+- Location: src/editor/render/inline.ts:71
+- Title: Image src resolution ternary is duplicated in blocks.ts and inline.ts
+- Problem: The rule 'resolve when isRelativeLink, else keep as written' is written out twice: `isRelativeLink(src) ? resolveAssetUrl(src) : src` here and `isRelativeLink(image.url) ? host.resolveAssetUrl(image.url) : image.url` in src/editor/live-preview/blocks.ts:67. blocks.ts already imports linkDestination from this module, so the two editor image paths share the unwrap step but not the resolve step. The ticket's goal is that both editor image paths follow one rule. With two copies, one can change without the other.
+- Fix: Export one helper from src/editor/render/inline.ts, for example `imageSrc(rawDestination, resolveAssetUrl)`, that unwraps with linkDestination and then applies the isRelativeLink choice. Use it in renderInlineMarkdown's Image case and in buildPreviewWidgets' Image case.
+- Fix prompt: In src/editor/render/inline.ts add an exported function imageSrc(raw: string, resolveAssetUrl: (relPath: string) => string): string that returns `const dest = linkDestination(raw); return isRelativeLink(dest) ? resolveAssetUrl(dest) : dest`. Use it in the Image case of renderInlineMarkdown. In src/editor/live-preview/blocks.ts, replace the inline ternary at the Image case (`isRelativeLink(image.url) ? host.resolveAssetUrl(image.url) : image.url`) with the helper, and drop the isRelativeLink import from blocks.ts if nothing else uses it. parseImage may keep the raw or unwrapped URL, as long as the destination is unwrapped exactly once. Run tests/editor/inline.test.ts and tests/editor/live-preview.test.ts.
+
+### issue-22/01: Angle-bracket unwrap gets a helper in the table renderer while three other copies remain
+
+Run: issue-22
+Slice: 01 "Editor images use the shared relative-link rule"
+Review: 01-r3
+
+### [observation] thermo-link-destination-owned-by-table-renderer
+
+- Location: src/editor/live-preview/blocks.ts:8
+- Title: Angle-bracket unwrap gets a helper in the table renderer while three other copies remain
+- Problem: src/editor/live-preview/blocks.ts:8 | The diff adds linkDestination as a named helper for the CommonMark `<...>` destination rule, but puts it in the table-cell renderer (render/inline.ts), so live preview now depends on the renderer for a syntax rule. The same unwrap already exists, written differently, in src/editor/links.ts:14 and src/editor/live-preview/markers.ts:91 (`.replace(/^<(.*)>$/, '$1')`) and by hand in src/vault/links.ts:91-92. A new single source of truth was added next to the old copies instead of replacing them: there are now four copies in two forms, with no clear owner.
+- Fix: Make linkDestination the one `<...>` unwrap rule, in a module that owns destination rules (for example src/shared/vault-ids.ts beside isRelativeLink/linkPath), and replace the other copies with it.
+- Fix prompt: Move linkDestination out of src/editor/render/inline.ts into a module that owns link-destination rules, such as src/shared/vault-ids.ts (browser-safe, already holds isRelativeLink and linkPath). Import it in src/editor/render/inline.ts and src/editor/live-preview/blocks.ts. Replace the `.replace(/^<(.*)>$/, '$1')` copies in src/editor/links.ts linkAt and src/editor/live-preview/markers.ts (Link case) with it. In src/vault/links.ts rewriteRelativeLinks, use it for `destination` while keeping the local `bracketed` flag for re-encoding. Keep the existing tests passing.
+
+### issue-22/02: [high] tests/editor/inline.test.ts:51: AC3 row `![a]( "t")` → src '' is not met; tests assert the opposite
+
+Run: issue-22
+Slice: 02 "Editor link and image destinations agree across table cells and live preview"
+Review: 02-r4
+
+### [high] scope-titled-empty-image-destination-not-empty-src
+
+- Location: tests/editor/inline.test.ts:51
+- Title: AC3 row `![a]( "t")` → src '' is not met; tests assert the opposite
+- Problem: Acceptance criterion 3 says literally: "`![a]( "t")` renders as an image with src ''." There are no commits since 02-r3 (fix diff: none), so the code is unchanged. src/editor/render/inline.ts (Image case) and src/editor/live-preview/blocks.ts parseImage still use the lezer URL node ` "t"` as the destination. tests/editor/inline.test.ts:51-60 and tests/editor/live-preview.test.ts:170-185 assert src 'asset:"t"' and a resolveAssetUrl call with '"t"'. Only decisions 5 and 6 withdraw this row. Both carry the [AUTONOMOUS] marker, so they were recorded by a headless run without the user. Under the review rules they cannot waive or drop the gap, even though decision 6's text claims user confirmation.
+- Fix: Either have the user record a real (non-autonomous) decision that withdraws the row, or edit the ticket's criterion 3 wording. Otherwise make `![a]( "t")` render with src '' in both editor paths.
+- Fix prompt: Acceptance criterion 3 of slice 02 requires `![a]( "t")` to render as an image with src ''. The code and the tests in tests/editor/inline.test.ts and tests/editor/live-preview.test.ts take the CommonMark destination '"t"' instead. Decisions 5 and 6, which withdraw the row, are marked [AUTONOMOUS] and cannot waive it. Do one of two things. Get the user to confirm the withdrawal through the factory's decision flow, so the decision is recorded without the AUTONOMOUS marker, or change the criterion's wording in the ticket. Otherwise change renderInlineMarkdown's Image case and blocks.ts parseImage so that a URL that is only a quoted title gives src ''. Update both tests to match.
+
+### issue-22/02: Image destination extraction is still written out in both image paths
+
+Run: issue-22
+Slice: 02 "Editor link and image destinations agree across table cells and live preview"
+Review: 02-r1
+
+### [observation] thermo-image-destination-extraction-written-twice
+
+- Location: src/editor/live-preview/blocks.ts:142
+- Title: Image destination extraction is still written out in both image paths
+- Problem: src/editor/live-preview/blocks.ts:141-144 and src/editor/render/inline.ts:72-77 | Both image paths now repeat the same steps: `node.getChild('URL')`, then `!url && !isInlineImage(node, slicer)` → not an image, then `url ? linkDestination(slice(url)) : ''`, each with its own copy of the comment. isInlineImage takes a slicer callback only so that both callers can wrap it the same way. The slice made inline.ts the single owner of 'what an image's destination is', but the decision is split into two helpers that every caller has to compose in the same order. A third image path, or a change such as treating `![a]( )` differently, has to be made twice. In parseImage the old `marks.length < 2` guard is now dead too: a URL child or a `(` mark means there are at least three LinkMarks.
+- Fix: Replace isInlineImage with one helper that returns the destination, for example `imageDestination(node, slice): string | undefined`. It returns undefined for reference and shortcut images, '' for `![a]()`, and the unwrapped destination otherwise. Both callers then do `const src = imageDestination(...); if (src === undefined) return <text>`. Drop the dead `marks.length < 2` guard in parseImage.
+- Fix prompt: In src/editor/render/inline.ts, replace isInlineImage with `export function imageDestination(node: SyntaxNode, slice: (from: number, to: number) => string): string | undefined`. It returns undefined when the node has no URL child and no third LinkMark (reference `![a][ref]` or shortcut `![a]`), '' when there is a `(` mark but no URL (`![a]()`), and linkDestination(slice(url.from, url.to)) otherwise. Use it in renderInlineMarkdown's Image case and in parseImage in src/editor/live-preview/blocks.ts so neither caller looks up the URL child or calls linkDestination itself. Remove parseImage's now-dead `if (marks.length < 2) return undefined`. Existing tests in tests/editor/inline.test.ts and tests/editor/live-preview.test.ts cover the behavior.
+
+### issue-22/02: isInlineImage takes a text-slice callback for a check the tree already answers
+
+Run: issue-22
+Slice: 02 "Editor link and image destinations agree across table cells and live preview"
+Review: 02-r1
+
+### [observation] thermo-is-inline-image-slice-callback-unneeded
+
+- Location: src/editor/render/inline.ts:23
+- Title: isInlineImage takes a text-slice callback for a check the tree already answers
+- Problem: src/editor/render/inline.ts:23-26 | isInlineImage needs a `slice` callback only to compare the third LinkMark's text with '('. In @lezer/markdown only the inline `(...)` form emits a third LinkMark: reference and collapsed forms emit a LinkLabel node instead. So `getChildren('LinkMark').length > 2` gives the same answer from the node alone. The callback makes both callers write an adapter lambda (`(from, to) => state.sliceDoc(from, to)` and `(from, to) => text.slice(from, to)`) for a comparison that can never fail.
+- Fix: Make it a pure node predicate, `node.getChildren('LinkMark').length > 2`, and drop the slice parameter and the two adapter lambdas. Or fold it into the single destination helper from the related finding.
+- Fix prompt: In src/editor/render/inline.ts, change isInlineImage to `(node: SyntaxNode): boolean => node.getChildren('LinkMark').length > 2`, with a JSDoc saying that only the inline `(...)` form has a third LinkMark (reference images carry a LinkLabel). Remove the slice argument at both call sites: renderInlineMarkdown's Image case and parseImage in src/editor/live-preview/blocks.ts. If you take the imageDestination refactor instead, apply the same simplification inside it.
+
+### issue-22/02: Third copy of the recording editorHost setup in live-preview tests
+
+Run: issue-22
+Slice: 02 "Editor link and image destinations agree across table cells and live preview"
+Review: 02-r1
+
+### [observation] thermo-recording-host-setup-copied-again
+
+- Location: tests/editor/live-preview.test.ts:153
+- Title: Third copy of the recording editorHost setup in live-preview tests
+- Problem: tests/editor/live-preview.test.ts:153-161 | The new test builds the same recording host, with resolveAssetUrl pushing into `resolved` and returning `asset:${relPath}`, plus the saveAsset and onOpenLink stubs, as the table test at lines 113-121. A third near-copy sits at 131-135. The setup is longer than the behavior it checks, and each new image test copies it again.
+- Fix: Extract a small `recordingHost(prefix = 'asset:')` test builder that returns `{ host, resolved }` and use it in the three image tests.
+- Fix prompt: In tests/editor/live-preview.test.ts, add a helper near the top: `function recordingHost(prefix = 'asset:') { const resolved: string[] = []; const host = editorHost.of({ resolveAssetUrl: (p) => { resolved.push(p); return prefix + p }, saveAsset: async () => '', onOpenLink: () => {} }); return { host, resolved } }`. Use it in 'unwraps <...> image destinations in table cells…', 'renders images through resolveAssetUrl with alt text and size' (prefix 'boost://app/vault-asset/') and 'renders an empty image destination as an empty src…'. Do not change any assertion.
+
+### issue-22/retro: User-confirmed decision in a resumed headless run is still marked AUTONOMOUS
+
+Run: issue-22
+Retro finding (factory, information-access, high)
+
+In run issue-22, the user confirmed decision 5 in chat after `/factory resume`. factory_decide still recorded the confirmation (decision 6) with the [AUTONOMOUS] marker, because the run mode stays headless. The validator then kept scope-titled-empty-image-destination-not-empty-src in reviews 02-r2, 02-r3 and 02-r4, two fix rounds made no commits, and the slice ended as 'accepted unresolved', although the user had waived the row. Fix: after a resume of a paused headless run, factory_decide should record decisions that the user confirms without the AUTONOMOUS marker (or offer a confirm dialog), or the run should switch to interactive when the user resumes it.
+
+### issue-22/retro: Check acceptance examples against the real parser before planning
+
+Run: issue-22
+Retro finding (factory, coding-standards, medium)
+
+The orchestrator wrote the slice 02 acceptance row `![a]( "t")` → src '' from a reviewer's fix prompt without checking the syntax. Under CommonMark, ` "t"` is the destination. The implementer proved this with lezer and markdown-it, but only after it built the slice. The row cost 1 pause, 3 fix rounds and 4 reviews. Fix: in the planning and follow-up steps, tell the orchestrator to check every input/output example in an acceptance criterion against the parser or the function it names (one throwaway eval) before factory_plan or factory_follow_up.
+
+### issue-22/retro: Find and fix the flaky vitest test in pnpm run test
+
+Run: issue-22
+Retro finding (repo, automated-checks, medium)
+
+`pnpm run test` failed one time and passed on the rerun in slice 02 of this run (46s, exit 1), and also in slice 05 of issue-22-md-case. factory_checks marks the run flaky but does not name the test in a way that persists. Fix: find the flaky vitest file (run `pnpm run test --repeat` or `vitest --sequence.shuffle` a few times) and fix or quarantine it, so that the checks become deterministic.
+
+### issue-22/retro: One owner for the `<...>` link-destination rule
+
+Run: issue-22
+Retro finding (repo, coding-standards, low)
+
+The CommonMark `<...>` destination unwrap is written four times: src/editor/render/inline.ts linkDestination, src/editor/links.ts:14, src/editor/live-preview/markers.ts:91 and src/vault/links.ts:92. The reviewers had to find this by hand (01-r3, deferred). Fix: move linkDestination into src/shared/vault-ids.ts beside linkPath and isRelativeLink, use it in all four places, and add one line to CODING_STANDARDS.md: link-destination and link-path rules live in src/shared/vault-ids.ts only.
