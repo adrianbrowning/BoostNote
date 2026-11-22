@@ -1,6 +1,6 @@
 import { readFile, writeFile } from 'node:fs/promises'
 import * as path from 'node:path'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createClient } from '../../src/app/actions/public/workspace/api.ts'
 import { NoteSession } from '../../src/app/actions/public/workspace/note-session.ts'
 import type { Vault } from '../../src/vault/index.ts'
@@ -51,7 +51,7 @@ describe('NoteSession', () => {
     expect(await session.flush()).toBe(false)
     expect(session.state).toBe('removed')
 
-    expect(await session.saveMyCopy()).toBe(true)
+    expect(await session.saveMyCopy()).toEqual({ state: 'saved', error: '' })
     expect(session.state).toBe('saved')
     expect(session.note?.id).toBe(note.id)
     expect(await onDisk(note.id)).toMatch(/\nmine\n$/)
@@ -65,7 +65,7 @@ describe('NoteSession', () => {
     await session.flush()
     expect(session.state).toBe('conflict')
 
-    expect(await session.keepMine()).toBe(true)
+    expect(await session.keepMine()).toEqual({ state: 'saved', error: '' })
     expect(session.state).toBe('saved')
     expect(session.theirs).toBeNull()
     expect(await onDisk(note.id)).toMatch(/mine\n$/)
@@ -104,6 +104,43 @@ describe('NoteSession', () => {
     failing = false
     expect(await session.flush()).toBe(true)
     expect(session.state).toBe('saved')
+    expect(await onDisk(note.id)).toMatch(/\nmine\n$/)
+  })
+
+  it('Retry reports how its own save ended, even when a flush waiting on it has started the next save', async () => {
+    // Note saves wait here until the test settles them, in request order.
+    const held: Array<(fail: boolean) => void> = []
+    let hold = false
+    /** Settles the `count`th held save (failing it with "offline" when `fail`), once it has been sent. */
+    const settle = async (count: number, fail: boolean) => {
+      await vi.waitFor(() => expect(held).toHaveLength(count))
+      held[count - 1]?.(fail)
+    }
+    session = new NoteSession(
+      createClient((href, init) => {
+        if (!hold || new URL(href, 'http://app').pathname !== '/api/notes/save') return app.fetch(href, init)
+        const { promise, resolve, reject } = Promise.withResolvers<Response>()
+        held.push((fail) => (fail ? reject(new Error('offline')) : resolve(app.fetch(href, init))))
+        return promise
+      }),
+    )
+    const note = await openNote('start\n')
+    hold = true
+    session.edit('mine\n')
+    const autosave = session.flush()
+    await settle(1, true)
+    expect(await autosave).toBe(false)
+    expect(session.state).toBe('error')
+
+    const retry = session.retry()
+    // The editor's focusout save, waiting on the same request.
+    const focusout = session.flush()
+    await settle(2, true)
+    expect(await retry).toEqual({ state: 'error', error: 'offline' })
+    expect(session.state).toBe('saving')
+
+    await settle(3, false)
+    expect(await focusout).toBe(true)
     expect(await onDisk(note.id)).toMatch(/\nmine\n$/)
   })
 

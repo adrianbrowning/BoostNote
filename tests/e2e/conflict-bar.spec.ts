@@ -11,8 +11,8 @@ const bar = (page: Page) => page.locator('[data-conflict]')
 
 declare global {
   interface Window {
-    /** This spec's page-side fetch wrapper: every note save fails while `fail` is set, after `delayMs`. */
-    failingSaves?: { fail: boolean; delayMs: number }
+    /** This spec's page-side fetch wrapper: note saves answer `status` while `fail` is set, after `delayMs`. */
+    failingSaves?: { fail: boolean; delayMs: number; status: number }
     /** Texts of every notice shown since a test started recording them. */
     noticesSeen?: string[]
   }
@@ -24,14 +24,14 @@ async function openWithFailableSaves(page: Page): Promise<(fail: boolean) => Pro
   await expect(editor(page)).toContainText('Start.')
   await page.evaluate(() => {
     const original = window.fetch
-    const state = { fail: false, delayMs: 0 }
+    const state = { fail: false, delayMs: 0, status: 500 }
     window.failingSaves = state
     window.fetch = async (input, init) => {
       const { pathname } = new URL(String(input), location.href)
       if (pathname === '/api/notes/save') {
         if (state.delayMs) await new Promise((resolve) => setTimeout(resolve, state.delayMs))
         if (state.fail) {
-          return new Response(JSON.stringify({ error: 'IO', message: 'Disk full' }), { status: 500 })
+          return new Response(JSON.stringify({ error: 'IO', message: 'Disk full' }), { status: state.status })
         }
       }
       return original(input, init)
@@ -149,6 +149,22 @@ test('Keep mine overwrites the version that changed on disk', async ({ app }) =>
   await expect.poll(onDisk(vault, 'a.md'), { timeout: 10_000 }).toMatch(/Start\.\n\nMine\.$/)
   expect(await onDisk(vault, 'a.md')()).not.toContain('Theirs.')
   await expect(bar(page)).toHaveCount(0)
+})
+
+test('Keep mine that finds the note gone shows a notice and the removed bar', async ({ app }) => {
+  const { page, vault } = app
+  const failSaves = await openWithFailableSaves(page)
+  await typeUnsaved(page, failSaves)
+  await writeFile(path.join(vault, 'a.md'), '# A\n\nTheirs.\n')
+  await expect(page.locator('[data-conflict="changed"]')).toBeVisible({ timeout: 15_000 })
+
+  // The note is deleted on disk just as Keep mine saves it: the save answers 404.
+  await page.evaluate(() => {
+    if (window.failingSaves) window.failingSaves.status = 404
+  })
+  await bar(page).getByRole('button', { name: 'Keep mine' }).click()
+  await expect(page.locator('[data-notice][data-kind="error"]')).toContainText('Could not save the note')
+  await expect(page.locator('[data-conflict="removed"]')).toBeVisible()
 })
 
 test('while in conflict, switching to another note is refused and the edits stay', async ({ app }) => {

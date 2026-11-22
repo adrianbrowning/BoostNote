@@ -3,7 +3,7 @@ import { TypedEventTarget } from 'remix/component'
 import { lastSegment, noteStem, parentOf, toMeta } from '../../../../shared/vault-ids.ts'
 import { ApiError, client, setPageVault } from './api.ts'
 import type { DropTicket } from './drop-import.ts'
-import { NoteSession } from './note-session.ts'
+import { NoteSession, type SaveOutcome } from './note-session.ts'
 import { folderChain } from './paths.ts'
 import { linkMovesAfterRelocate, linksUpdatedNotice, linkUpdateFailedNotice } from './relocate.ts'
 import { type ReaderTab, type Tab, Tabs } from './tabs.ts'
@@ -583,7 +583,7 @@ export class WorkspaceModel extends TypedEventTarget<{
 
   /** Conflict bar "Retry" (a save that failed). */
   retrySave(): Promise<void> {
-    return this.#resolved(this.session.flush())
+    return this.#resolved(this.session.retry())
   }
 
   /** Conflict bar "Keep mine": the editor's version overwrites the one changed on disk. */
@@ -604,13 +604,13 @@ export class WorkspaceModel extends TypedEventTarget<{
   /**
    * A conflict-bar save that failed shows an error notice; the bar shows the new state. A save that worked
    * while newer edits arrived leaves the note dirty, with those edits already queued for autosave: no notice.
+   * The notice follows how the button's own save ended, not the session state after it: another flush
+   * waiting on that save (editor focusout) may have started the next save by then.
    */
-  async #resolved(save: Promise<boolean>): Promise<void> {
-    await save
-    const { state } = this.session
+  async #resolved(save: Promise<SaveOutcome>): Promise<void> {
+    const { state, error } = await save
     if (state !== 'error' && state !== 'conflict' && state !== 'removed') return
-    const reason = state === 'error' ? `: ${this.session.error}` : ''
-    this.notify('error', `Could not save the note${reason}`)
+    this.notify('error', `Could not save the note${state === 'error' ? `: ${error}` : ''}`)
   }
 
   /** Arrow keys in the note list. */
