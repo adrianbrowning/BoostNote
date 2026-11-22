@@ -5,7 +5,7 @@ import type { SyntaxNode } from '@lezer/common'
 
 import { isRelativeLink } from '../../shared/vault-ids.ts'
 import { editorHost, editorTheme } from '../config.ts'
-import { linkDestination, renderInlineMarkdown } from '../render/inline.ts'
+import { isInlineImage, linkDestination, renderInlineMarkdown } from '../render/inline.ts'
 import { editorFocused, selectionTouches } from './selection.ts'
 import {
   CheckboxWidget,
@@ -138,8 +138,10 @@ interface ParsedImage {
 function parseImage(state: EditorState, node: SyntaxNode): ParsedImage | undefined {
   const url = node.getChild('URL')
   const marks = node.getChildren('LinkMark')
-  if (!url || marks.length < 2) return undefined
-  const rawUrl = linkDestination(state.sliceDoc(url.from, url.to))
+  // `![a]()` is an image with an empty src; `![a][ref]` and `![a]` have no `(` mark and stay as text.
+  if (!url && !isInlineImage(node, (from, to) => state.sliceDoc(from, to))) return undefined
+  if (marks.length < 2) return undefined
+  const rawUrl = url ? linkDestination(state.sliceDoc(url.from, url.to)) : ''
   const altText = state.sliceDoc(marks[0]?.to, marks[1]?.from)
   const size = /\|(\d+)(?:x(\d+))?\s*$/.exec(altText)
   if (!size) return { url: rawUrl, alt: altText }

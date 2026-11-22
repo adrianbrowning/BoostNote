@@ -47,4 +47,21 @@ describe('renderInlineMarkdown images', () => {
     expect(resolved).toEqual(relative ? [src] : [])
     expect(html).toBe(`<img src="${escapeAttr(relative ? `asset:${src}` : src)}" alt="a">`)
   })
+
+  it('takes the CommonMark destination "t" for ![a]( "t") through the shared rule', () => {
+    // CommonMark: with no destination before it, ` "t"` is the destination, not a title.
+    const resolved: string[] = []
+    const html = renderInlineMarkdown('![a]( "t")', (p) => {
+      resolved.push(p)
+      return `asset:${p}`
+    })
+    expect(resolved).toEqual(['"t"'])
+    expect(html).toBe('<img src="asset:&quot;t&quot;" alt="a">')
+  })
+})
+
+describe('renderInlineMarkdown links', () => {
+  it('unwraps the angle-bracket link destination', () => {
+    expect(renderInlineMarkdown('[a](<my note.md>)', (p) => p)).toBe('<a href="my note.md">a</a>')
+  })
 })

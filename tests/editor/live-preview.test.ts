@@ -142,6 +142,46 @@ describe('preview widgets', () => {
     // Not relative under the shared isRelativeLink rule, so used as written.
     const [anchor] = widgets('![x](#top)\n‸', host)
     expect(anchor?.widget).toEqual(new ImageWidget('#top', 'x', undefined, undefined))
+    const [bracketed] = widgets('![a](<my note.assets/1.png>)\n‸', host)
+    expect(bracketed?.widget).toEqual(
+      new ImageWidget('boost://app/vault-asset/my note.assets/1.png', 'a', undefined, undefined),
+    )
+    const [bracketedRemote] = widgets('![a](<https://x/a.png>)\n‸', host)
+    expect(bracketedRemote?.widget).toEqual(new ImageWidget('https://x/a.png', 'a', undefined, undefined))
+  })
+
+  it('renders an empty image destination as an empty src and keeps reference images as text', () => {
+    const resolved: string[] = []
+    const host = editorHost.of({
+      resolveAssetUrl: (relPath) => {
+        resolved.push(relPath)
+        return `asset:${relPath}`
+      },
+      saveAsset: async () => '',
+      onOpenLink: () => {},
+    })
+    const [empty] = widgets('![a]()\n‸', host)
+    expect(empty?.widget).toEqual(new ImageWidget('', 'a', undefined, undefined))
+    expect(widgets('![a][ref]\n\n[ref]: x.png\n‸', host)).toEqual([])
+    expect(widgets('![a]\n‸', host)).toEqual([])
+    expect(resolved).toEqual([])
+  })
+
+  it('renders ![a]( "t") with the CommonMark destination "t", the same src as table cells', () => {
+    const resolved: string[] = []
+    const host = editorHost.of({
+      resolveAssetUrl: (relPath) => {
+        resolved.push(relPath)
+        return `asset:${relPath}`
+      },
+      saveAsset: async () => '',
+      onOpenLink: () => {},
+    })
+    // CommonMark: with no destination before it, ` "t"` is the destination, not a title,
+    // so this path gives the same src as renderInlineMarkdown.
+    const [titled] = widgets('![a]( "t")\n‸', host)
+    expect(titled?.widget).toEqual(new ImageWidget('asset:"t"', 'a', undefined, undefined))
+    expect(resolved).toEqual(['"t"'])
   })
 
   it('renders task markers as checkboxes unless the cursor touches the marker', () => {

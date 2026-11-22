@@ -19,6 +19,12 @@ export function linkDestination(raw: string): string {
   return raw.startsWith('<') && raw.endsWith('>') ? raw.slice(1, -1) : raw
 }
 
+/** Whether an image node uses the inline `(...)` form: its third LinkMark is the opening `(`. */
+export function isInlineImage(node: SyntaxNode, slice: (from: number, to: number) => string): boolean {
+  const open = node.getChildren('LinkMark')[2]
+  return open !== undefined && slice(open.from, open.to) === '('
+}
+
 const WRAPPERS: Record<string, string> = { Emphasis: 'em', StrongEmphasis: 'strong', Strikethrough: 'del' }
 const MARKS: Record<string, true> = { EmphasisMark: true, StrikethroughMark: true, CodeMark: true, MathMark: true }
 
@@ -35,6 +41,7 @@ export function renderInlineMarkdown(text: string, resolveAssetUrl: (relPath: st
     let html = ''
     let pos = from
     for (let child = node.firstChild; child; child = child.nextSibling) {
+      if (child.from >= to) break
       if (child.from < pos) continue
       html += escapeHtml(text.slice(pos, child.from)) + renderNode(child)
       pos = child.to
@@ -58,14 +65,15 @@ export function renderInlineMarkdown(text: string, resolveAssetUrl: (relPath: st
         const label = linkLabel(node)
         const inner = label ? renderChildren(node, label.from, label.to) : ''
         if (!url) return inner
-        return `<a href="${escapeHtml(text.slice(url.from, url.to))}">${inner}</a>`
+        return `<a href="${escapeHtml(linkDestination(text.slice(url.from, url.to)))}">${inner}</a>`
       }
       case 'Image': {
         const url = node.getChild('URL')
         const label = linkLabel(node)
-        const source = text.slice(node.from, node.to)
-        // No URL: `![a]()` is an inline image with an empty src; `![a][ref]` / `![a]` stay as text.
-        if (!url && !source.endsWith(')')) return escapeHtml(source)
+        // No URL: `![a]()` is an inline image with an empty src; `![a][ref]` / `![a]` (no `(` mark) stay as text.
+        if (!url && !isInlineImage(node, (from, to) => text.slice(from, to))) {
+          return escapeHtml(text.slice(node.from, node.to))
+        }
         const src = url ? linkDestination(text.slice(url.from, url.to)) : ''
         const alt = label ? text.slice(label.from, label.to) : ''
         return `<img src="${escapeHtml(isRelativeLink(src) ? resolveAssetUrl(src) : src)}" alt="${escapeHtml(alt)}">`
