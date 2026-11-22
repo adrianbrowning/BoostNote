@@ -108,6 +108,26 @@ describe('preview widgets', () => {
     expect(widgets('| a | b |\n| - | - |\n| 1 | ‸2 |')).toEqual([])
   })
 
+  it('unwraps <...> image destinations in table cells before the relative-link check', () => {
+    const resolved: string[] = []
+    const host = editorHost.of({
+      resolveAssetUrl: (relPath) => {
+        resolved.push(relPath)
+        return `asset:${relPath}`
+      },
+      saveAsset: async () => '',
+      onOpenLink: () => {},
+    })
+    const [table] = widgets(
+      '| a | b |\n| - | - |\n| ![a](<https://x/a.png>) | ![a](<my note.assets/1.png>) |\n\n‸',
+      host,
+    )
+    const html = table?.widget instanceof TableWidget ? table.widget.html : ''
+    expect(html).toContain('<td><img src="https://x/a.png" alt="a"></td>')
+    expect(html).toContain('<td><img src="asset:my note.assets/1.png" alt="a"></td>')
+    expect(resolved).toEqual(['my note.assets/1.png'])
+  })
+
   it('renders images through resolveAssetUrl with alt text and size', () => {
     const host = editorHost.of({
       resolveAssetUrl: (relPath) => `boost://app/vault-asset/${relPath}`,
@@ -119,6 +139,9 @@ describe('preview widgets', () => {
     const [remote] = widgets('![logo](https://example.com/logo.svg)\n‸', host)
     expect(remote?.widget).toEqual(new ImageWidget('https://example.com/logo.svg', 'logo', undefined, undefined))
     expect(widgets('![logo](https://example.com/l‸ogo.svg)')).toEqual([])
+    // Not relative under the shared isRelativeLink rule, so used as written.
+    const [anchor] = widgets('![x](#top)\n‸', host)
+    expect(anchor?.widget).toEqual(new ImageWidget('#top', 'x', undefined, undefined))
   })
 
   it('renders task markers as checkboxes unless the cursor touches the marker', () => {
@@ -185,6 +208,34 @@ describe('unfocused editor', () => {
       expect(view.contentDOM.textContent).toBe('# Title **bold**')
       view.dispatch({ effects: setEditorFocused.of(false) })
       expect(view.contentDOM.textContent).toBe('Title bold')
+    } finally {
+      view.destroy()
+      parent.remove()
+    }
+  })
+
+  it('renders a mounted view’s image src through resolveAssetUrl only for relative links', () => {
+    const parent = document.createElement('div')
+    document.body.append(parent)
+    const view = new EditorView({
+      parent,
+      state: EditorState.create({
+        doc: '![cat](./note.assets/cat.png)\n\n![top](#top)\n\ntext',
+        extensions: [
+          markdownSupport(),
+          editorFocusTracking,
+          previewWidgets,
+          editorHost.of({
+            resolveAssetUrl: (relPath) => `boost://app/vault-asset/${relPath}`,
+            saveAsset: async () => '',
+            onOpenLink: () => {},
+          }),
+        ],
+      }),
+    })
+    try {
+      const srcs = [...view.dom.querySelectorAll('img.cm-lp-image')].map((img) => img.getAttribute('src'))
+      expect(srcs).toEqual(['boost://app/vault-asset/./note.assets/cat.png', '#top'])
     } finally {
       view.destroy()
       parent.remove()

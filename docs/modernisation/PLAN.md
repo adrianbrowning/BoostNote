@@ -796,7 +796,7 @@ styles and CSP, the asset server, controlled inputs, testing) are in
   its `toMeta` projection live there too: the vault index, the `/api` note lists and the client's
   `NoteSummary` (an alias of `NoteMeta`) all use them.
 - **Relative links, one rule** (`isRelativeLink`, used by link rewriting on rename/move/restore, `assetPath`,
-  reader assets, export and editor link following): the path without the raw `?query`/`#fragment` is
+  reader assets, export, editor link following and editor images): the path without the raw `?query`/`#fragment` is
   decoded first, then must be non-empty, contain no NUL and not start with a scheme, `/` (absolute, `//`
   protocol-relative) or `\`, so `%2Fetc%2Fx.md` is absolute too. Only a raw `#anchor`/`?query` is
   non-relative; a decoded leading `#` or `?` (`%23ideas.md`) is part of the file name. Link rewriting

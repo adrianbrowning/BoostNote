@@ -3,8 +3,9 @@ import { type EditorState, type Range, StateField } from '@codemirror/state'
 import { Decoration, type DecorationSet, EditorView, type WidgetType } from '@codemirror/view'
 import type { SyntaxNode } from '@lezer/common'
 
-import { editorHost, editorTheme, isExternalUrl } from '../config.ts'
-import { renderInlineMarkdown } from '../render/inline.ts'
+import { isRelativeLink } from '../../shared/vault-ids.ts'
+import { editorHost, editorTheme } from '../config.ts'
+import { linkDestination, renderInlineMarkdown } from '../render/inline.ts'
 import { editorFocused, selectionTouches } from './selection.ts'
 import {
   CheckboxWidget,
@@ -63,7 +64,7 @@ export function buildPreviewWidgets(state: EditorState): DecorationSet {
           if (selectionTouches(state, node.from, node.to)) return false
           const image = parseImage(state, node)
           if (!image) return false
-          const src = isExternalUrl(image.url) ? image.url : host.resolveAssetUrl(image.url)
+          const src = isRelativeLink(image.url) ? host.resolveAssetUrl(image.url) : image.url
           decorations.push(
             Decoration.replace({ widget: new ImageWidget(src, image.alt, image.width, image.height) }).range(
               node.from,
@@ -138,8 +139,7 @@ function parseImage(state: EditorState, node: SyntaxNode): ParsedImage | undefin
   const url = node.getChild('URL')
   const marks = node.getChildren('LinkMark')
   if (!url || marks.length < 2) return undefined
-  let rawUrl = state.sliceDoc(url.from, url.to)
-  if (rawUrl.startsWith('<') && rawUrl.endsWith('>')) rawUrl = rawUrl.slice(1, -1)
+  const rawUrl = linkDestination(state.sliceDoc(url.from, url.to))
   const altText = state.sliceDoc(marks[0]?.to, marks[1]?.from)
   const size = /\|(\d+)(?:x(\d+))?\s*$/.exec(altText)
   if (!size) return { url: rawUrl, alt: altText }
