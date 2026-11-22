@@ -95,7 +95,8 @@ export function EditorPane(handle: Handle<{ model: WorkspaceModel }>) {
     parent.addEventListener(
       'focusout',
       (event) => {
-        if (!(event.relatedTarget instanceof Node && parent.contains(event.relatedTarget))) void session().flush()
+        if (!(event.relatedTarget instanceof Node && parent.contains(event.relatedTarget)))
+          void handle.props.model.saveNow()
       },
       { signal },
     )
@@ -206,15 +207,16 @@ export function EditorPane(handle: Handle<{ model: WorkspaceModel }>) {
   }
 
   const conflictBar = () => {
+    const { model } = handle.props
     const current = session()
     if (current.state === 'conflict') {
       return (
         <div role="alert" mix={barStyle} data-conflict="changed">
           <span>This note changed on disk while you were editing it.</span>
-          <button type="button" mix={[button, primaryButton, on('click', () => void current.keepMine())]}>
+          <button type="button" mix={[button, primaryButton, on('click', () => void model.keepMine())]}>
             Keep mine
           </button>
-          <button type="button" mix={[button, on('click', () => current.loadTheirs())]}>
+          <button type="button" mix={[button, on('click', () => model.loadTheirs())]}>
             Load theirs
           </button>
         </div>
@@ -224,13 +226,10 @@ export function EditorPane(handle: Handle<{ model: WorkspaceModel }>) {
       return (
         <div role="alert" mix={barStyle} data-conflict="removed">
           <span>This note was moved or deleted outside Boostnote.</span>
-          <button type="button" mix={[button, primaryButton, on('click', () => void current.keepMine())]}>
+          <button type="button" mix={[button, primaryButton, on('click', () => void model.saveMyCopy())]}>
             Save my copy
           </button>
-          <button
-            type="button"
-            mix={[button, on('click', () => void handle.props.model.closeTab(undefined, { discard: true }))]}
-          >
+          <button type="button" mix={[button, on('click', () => void model.closeTab(undefined, { discard: true }))]}>
             Close
           </button>
         </div>
@@ -240,7 +239,7 @@ export function EditorPane(handle: Handle<{ model: WorkspaceModel }>) {
       return (
         <div role="alert" mix={barStyle} data-conflict="error">
           <span>Saving failed: {current.error}</span>
-          <button type="button" mix={[button, on('click', () => void current.flush())]}>
+          <button type="button" mix={[button, on('click', () => void model.retrySave())]}>
             Retry
           </button>
         </div>

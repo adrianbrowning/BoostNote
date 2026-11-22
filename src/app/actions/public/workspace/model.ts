@@ -149,7 +149,7 @@ export class WorkspaceModel extends TypedEventTarget<{
   preferencesOpen = false
   notice: Notice | null = null
   connection: Connection = 'connecting'
-  readonly session = new NoteSession()
+  readonly session = new NoteSession(client)
   tabs = new Tabs()
   /** The file of the reader tab with `ticket` as last read (`null` unless a reader tab is active). */
   reader: { ticket: string; document: ReaderDocument } | null = null
@@ -569,6 +569,43 @@ export class WorkspaceModel extends TypedEventTarget<{
     if (await this.session.flush()) return true
     this.notify('error', 'This note has unsaved changes that could not be saved. Resolve them first.')
     return false
+  }
+
+  /** Saves the open note's pending edits now, with no notice (editor focusout, window hidden). */
+  async saveNow(): Promise<void> {
+    await this.session.flush()
+  }
+
+  /** Quit: saves pending edits; `false` when unsaved work remains (main then asks before quitting). */
+  saveBeforeQuit(): Promise<boolean> {
+    return this.session.flush()
+  }
+
+  /** Conflict bar "Retry" (a save that failed). */
+  retrySave(): Promise<void> {
+    return this.#resolved(this.session.flush())
+  }
+
+  /** Conflict bar "Keep mine": the editor's version overwrites the one changed on disk. */
+  keepMine(): Promise<void> {
+    return this.#resolved(this.session.keepMine())
+  }
+
+  /** Removed bar "Save my copy": the editor's version is written back where the note was. */
+  saveMyCopy(): Promise<void> {
+    return this.#resolved(this.session.saveMyCopy())
+  }
+
+  /** Conflict bar "Load theirs": the editor's edits are dropped for the version on disk. */
+  loadTheirs(): void {
+    this.session.loadTheirs()
+  }
+
+  /** A conflict-bar save that did not leave the note saved shows an error notice; the bar shows the new state. */
+  async #resolved(save: Promise<boolean>): Promise<void> {
+    if (await save) return
+    const reason = this.session.state === 'error' ? `: ${this.session.error}` : ''
+    this.notify('error', `Could not save the note${reason}`)
   }
 
   /** Arrow keys in the note list. */

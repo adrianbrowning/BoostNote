@@ -123,6 +123,10 @@ export class TestApp {
     )
   }
 
+  /** A `fetch` for the page's API client (`createClient`): relative hrefs, the active vault added like `get`/`post`. */
+  readonly fetch = (href: string, init?: RequestInit): Promise<Response> =>
+    this.router.fetch(new Request(this.#url(href, undefined), init))
+
   #url(href: string, vault: string | null | undefined): URL {
     const url = new URL(href, origin)
     const root = vault === undefined ? this.vaults.current?.root : vault

@@ -1,6 +1,6 @@
 import { TypedEventTarget } from 'remix/component'
 
-import { ApiError, client } from './api.ts'
+import { type ApiClient, ApiError } from './api.ts'
 import type { JsonValue, NoteDocument } from './types.ts'
 
 /** Quiet period after the last keystroke before the note is written. */
@@ -60,10 +60,12 @@ export class NoteSession extends TypedEventTarget<{ change: Event; doc: DocEvent
   #timer: ReturnType<typeof setTimeout> | undefined
   #inflight: Promise<void> | undefined
   #frontmatter: Record<string, JsonValue> | undefined
+  readonly #api: Pick<ApiClient, 'readNote' | 'saveNote'>
 
-  /** Unsaved work that would be lost by leaving the note now (after `flush`). */
-  get blocked(): boolean {
-    return this.state === 'conflict' || this.state === 'removed' || this.state === 'error'
+  /** `api` reads and saves the note: the page's `client`, or one over the router in tests. */
+  constructor(api: Pick<ApiClient, 'readNote' | 'saveNote'>) {
+    super()
+    this.#api = api
   }
 
   open(note: NoteDocument): void {
@@ -119,7 +121,7 @@ export class NoteSession extends TypedEventTarget<{ change: Event; doc: DocEvent
     if (this.#inflight) await this.#inflight
     let theirs: NoteDocument
     try {
-      theirs = await client.readNote(note.id)
+      theirs = await this.#api.readNote(note.id)
     } catch (error) {
       if (error instanceof ApiError && error.status === 404) this.externalRemoval()
       return
@@ -153,18 +155,22 @@ export class NoteSession extends TypedEventTarget<{ change: Event; doc: DocEvent
     this.#changed()
   }
 
-  /** Conflict: overwrite the disk version with the editor's. Removed: write the editor's copy back. */
+  /** Conflict: overwrite the disk version with the editor's (otherwise the same as `flush`). */
   keepMine(): Promise<boolean> {
-    if (!this.note) return Promise.resolve(true)
-    if (this.state === 'conflict' && this.theirs) {
+    if (this.note && this.state === 'conflict' && this.theirs) {
       this.note = { ...this.note, hash: this.theirs.hash, frontmatter: this.theirs.frontmatter }
-    } else if (this.state === 'removed') {
-      this.note = { ...this.note, hash: '' }
-    } else {
-      return this.flush()
+      this.theirs = null
+      this.state = 'dirty'
     }
-    this.theirs = null
-    this.state = 'dirty'
+    return this.flush()
+  }
+
+  /** Removed: write the editor's copy back where the note was, as a new note (otherwise the same as `flush`). */
+  saveMyCopy(): Promise<boolean> {
+    if (this.note && this.state === 'removed') {
+      this.note = { ...this.note, hash: '' }
+      this.state = 'dirty'
+    }
     return this.flush()
   }
 
@@ -202,7 +208,7 @@ export class NoteSession extends TypedEventTarget<{ change: Event; doc: DocEvent
     this.#changed()
     const run = (async () => {
       try {
-        const saved = await client.saveNote({
+        const saved = await this.#api.saveNote({
           id: note.id,
           body,
           // `''` marks a note removed on disk: it must not exist when we write our copy back.
