@@ -167,8 +167,5 @@ export function createClient(transport: Transport) {
   }
 }
 
-/** The API client `createClient` builds. */
-export type ApiClient = ReturnType<typeof createClient>
-
 /** The page's client of the `/api` routes. */
-export const client: ApiClient = createClient((href, init) => fetch(href, init))
+export const client = createClient((href, init) => fetch(href, init))

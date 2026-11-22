@@ -1,7 +1,7 @@
 import { readFile, writeFile } from 'node:fs/promises'
 import * as path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { type ApiClient, createClient } from '../../src/app/actions/public/workspace/api.ts'
+import { createClient } from '../../src/app/actions/public/workspace/api.ts'
 import { NoteSession } from '../../src/app/actions/public/workspace/note-session.ts'
 import type { Vault } from '../../src/vault/index.ts'
 import { TestApp } from './helpers.ts'
@@ -9,12 +9,12 @@ import { TestApp } from './helpers.ts'
 let app: TestApp
 let vault: Vault
 let session: NoteSession
-let api: ApiClient
+/** The page's API client over the current test's router. */
+const api = createClient((href, init) => app.fetch(href, init))
 
 beforeEach(async () => {
   app = await TestApp.create()
   vault = await app.openVault()
-  api = createClient(app.fetch)
   session = new NoteSession(api)
 })
 

@@ -63,11 +63,14 @@ test('Retry shows a notice while the save still fails, and saves once it works',
   await bar(page).getByRole('button', { name: 'Retry' }).click()
   await expect(page.locator('[data-notice][data-kind="error"]')).toContainText('Could not save the note: Disk full')
   expect(await onDisk(vault, 'a.md')()).toBe('# A\n\nStart.\n')
+  // Quit asks main's "Quit Anyway?" when this is false.
+  expect(await page.evaluate(() => window.boostFlushPendingSave?.())).toBe(false)
 
   await failSaves(false)
   await bar(page).getByRole('button', { name: 'Retry' }).click()
   await expect.poll(onDisk(vault, 'a.md'), { timeout: 10_000 }).toMatch(/Start\.\n\nMine\.$/)
   await expect(bar(page)).toHaveCount(0)
+  expect(await page.evaluate(() => window.boostFlushPendingSave?.())).toBe(true)
 })
 
 test('Keep mine overwrites the version that changed on disk', async ({ app }) => {
