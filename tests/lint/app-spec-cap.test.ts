@@ -26,7 +26,8 @@ const checkGrown = async (grow: (source: string) => string) => {
   }
 }
 
-describe('app.spec.ts test cap', () => {
+// Each case spawns the check script; under a loaded parallel suite that can exceed vitest's 5s default.
+describe('app.spec.ts test cap', { timeout: 30_000 }, () => {
   it('passes on the committed app.spec.ts', () => {
     expect(check()).toMatchObject({ status: 0 })
   })
