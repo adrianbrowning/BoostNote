@@ -39,16 +39,19 @@ async function openWithFailableSaves(page: Page): Promise<(fail: boolean) => Pro
 }
 
 /**
- * Types "Mine." at the end of the open note while saves fail, then leaves the editor (which saves at
- * once) until the error bar shows. Leaving first matters: a click on a bar button from inside the
- * editor would save on focusout, and the re-render while saving removes the button under the click.
+ * Types "Mine." at the end of the open note while saves fail, then waits for the error bar. By default it
+ * leaves the editor (which saves at once); `stayInEditor` keeps the cursor there and waits for autosave.
  */
-async function typeUnsaved(page: Page, failSaves: (fail: boolean) => Promise<void>): Promise<void> {
+async function typeUnsaved(
+  page: Page,
+  failSaves: (fail: boolean) => Promise<void>,
+  { stayInEditor = false } = {},
+): Promise<void> {
   await failSaves(true)
   await editor(page).click()
   await page.keyboard.press('ControlOrMeta+End')
   await page.keyboard.type('\nMine.', { delay: 20 })
-  await editor(page).blur()
+  if (!stayInEditor) await editor(page).blur()
   await expect(page.locator('[data-conflict="error"]')).toBeVisible({ timeout: 20_000 })
 }
 
@@ -57,7 +60,8 @@ const onDisk = (vault: string, id: string) => () => readFile(path.join(vault, id
 test('Retry shows a notice while the save still fails, and saves once it works', async ({ app }) => {
   const { page, vault } = app
   const failSaves = await openWithFailableSaves(page)
-  await typeUnsaved(page, failSaves)
+  await typeUnsaved(page, failSaves, { stayInEditor: true })
+  await expect(editor(page)).toBeFocused()
   await expect(page.locator('[data-conflict="error"]')).toContainText('Saving failed: Disk full')
 
   await bar(page).getByRole('button', { name: 'Retry' }).click()
