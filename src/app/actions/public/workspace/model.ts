@@ -572,13 +572,12 @@ export class WorkspaceModel extends TypedEventTarget<{
   }
 
   /**
-   * Saves the open note's pending edits now, with no notice (editor focusout, window hidden, quit).
-   * A save that failed is not retried here but by Retry, the next edit or leaving the note, so the error
-   * bar and its focused Retry stay put. Resolves `false` when unsaved work remains, which decides main's
+   * Saves the open note's pending edits now, with no notice (editor focusout, window hidden, quit); a save
+   * that failed is tried again. Resolves `false` when unsaved work remains, which decides main's
    * "Quit Anyway?" dialog.
    */
   saveNow(): Promise<boolean> {
-    return this.session.state === 'error' ? Promise.resolve(false) : this.session.flush()
+    return this.session.flush()
   }
 
   /** Conflict bar "Retry" (a save that failed). */

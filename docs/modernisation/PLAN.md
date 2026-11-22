@@ -242,10 +242,10 @@ not open → 409 `NO_VAULT`.
   edits. External delete/move → "Save my copy" (writes with `baseHash: null`) or Close. While a
   conflict is unresolved the app refuses to leave the note, so neither side is lost silently.
 - Components never flush the session themselves: blur, a hidden window and quit call `model.saveNow()`
-  (no notice; its boolean decides "Quit Anyway?"). It leaves a save that failed to the error bar's Retry,
-  the next edit or leaving the note, so the bar stays put while focus moves to Retry. The bar's
-  Retry, Keep mine, Save my copy and Load theirs are model actions; a save they start that still fails
-  shows an error notice. `NoteSession` takes its API client (`createClient(transport)`), so
+  (no notice; its boolean decides "Quit Anyway?"), which also tries a failed save again. The error bar
+  stays up while a save started from the error state is in flight, so a focused Retry keeps focus. The
+  bar's Retry, Keep mine, Save my copy and Load theirs are model actions; a save they start that still
+  fails shows an error notice. `NoteSession` takes its API client (`createClient(transport)`), so
   `tests/app/note-session.test.ts` drives it over the in-process router.
 - The note's name above the editor is its file name (or frontmatter `title`) and is renamed in place
   (see Note names (phase 7)). Relative `.md` links open inside the app, http(s) links open in the

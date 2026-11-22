@@ -235,7 +235,8 @@ export function EditorPane(handle: Handle<{ model: WorkspaceModel }>) {
         </div>
       )
     }
-    if (current.state === 'error') {
+    // A save started from the error state keeps the bar (and its focused Retry) until it settles.
+    if (current.state === 'error' || (current.state === 'saving' && current.error !== '')) {
       return (
         <div role="alert" mix={barStyle} data-conflict="error">
           <span>Saving failed: {current.error}</span>

@@ -101,7 +101,7 @@ test('Retry shows a notice while the save still fails, and saves once it works',
   expect(await page.evaluate(() => window.boostFlushPendingSave?.())).toBe(true)
 })
 
-test('Retry from the keyboard shows the notice while the save still fails', async ({ app }) => {
+test('Retry from the keyboard shows the notice while the save still fails, and keeps focus', async ({ app }) => {
   const { page } = app
   const failSaves = await openWithFailableSaves(page)
   await typeUnsaved(page, failSaves, { stayInEditor: true })
@@ -113,6 +113,19 @@ test('Retry from the keyboard shows the notice while the save still fails', asyn
   await expect(retry).toBeFocused()
   await page.keyboard.press('Enter')
   await expect(page.locator('[data-notice][data-kind="error"]')).toContainText('Could not save the note: Disk full')
+  await expect(retry).toBeFocused()
+})
+
+test('quitting after a failed save tries the save again', async ({ app }) => {
+  const { page, vault } = app
+  const failSaves = await openWithFailableSaves(page)
+  await typeUnsaved(page, failSaves)
+  expect(await page.evaluate(() => window.boostFlushPendingSave?.())).toBe(false)
+
+  await failSaves(false)
+  expect(await page.evaluate(() => window.boostFlushPendingSave?.())).toBe(true)
+  expect(await onDisk(vault, 'a.md')()).toMatch(/Start\.\n\nMine\.$/)
+  await expect(bar(page)).toHaveCount(0)
 })
 
 test('typing while Retry’s save is in flight shows no notice once the save works', async ({ app }) => {

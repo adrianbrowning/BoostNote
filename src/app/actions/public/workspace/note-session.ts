@@ -60,7 +60,10 @@ export class NoteSession extends TypedEventTarget<{ change: Event; doc: DocEvent
   state: SaveState = 'saved'
   /** The disk version while `state` is `conflict`. */
   theirs: NoteDocument | null = null
-  /** Message of the last failed save. */
+  /**
+   * Message of the last failed save. It stays while a save started in the `error` state is in flight
+   * (the error bar and its Retry stay up), and is cleared when a save works or a save of new edits starts.
+   */
   error = ''
 
   #timer: ReturnType<typeof setTimeout> | undefined
@@ -225,6 +228,7 @@ export class NoteSession extends TypedEventTarget<{ change: Event; doc: DocEvent
     if (!note) return Promise.resolve({ state: 'saved' })
     const body = this.body
     const frontmatter = this.#frontmatter
+    if (this.state !== 'error') this.error = ''
     this.state = 'saving'
     this.#changed()
     const run = (async (): Promise<SaveOutcome> => {
@@ -238,6 +242,7 @@ export class NoteSession extends TypedEventTarget<{ change: Event; doc: DocEvent
         })
         if (this.note?.id !== note.id) return { state: 'saved' }
         this.note = saved
+        this.error = ''
         if (this.#frontmatter === frontmatter) this.#frontmatter = undefined
         this.state = this.body === body && this.#frontmatter === undefined ? 'saved' : 'dirty'
         if (this.state === 'dirty') this.#schedule()

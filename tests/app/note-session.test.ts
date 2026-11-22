@@ -94,7 +94,7 @@ describe('NoteSession', () => {
     expect(await onDisk(note.id)).toBe('theirs\n')
   })
 
-  it('Retry (a flush in the error state) saves once the failure is gone', async () => {
+  it('Retry saves once the failure is gone, keeping the error message until a save works', async () => {
     let failing = false
     session = new NoteSession(
       createClient((href, init) => (failing ? Promise.reject(new Error('offline')) : app.fetch(href, init))),
@@ -105,12 +105,36 @@ describe('NoteSession', () => {
     expect(await session.flush()).toBe(false)
     expect(session.state).toBe('error')
     expect(session.error).toBe('offline')
-    expect(await session.flush()).toBe(false)
+    expect(await session.retry()).toEqual({ state: 'error', error: 'offline' })
 
     failing = false
-    expect(await session.flush()).toBe(true)
+    const retry = session.retry()
+    // The error bar stays up while Retry's own save is in flight.
+    expect(session.state).toBe('saving')
+    expect(session.error).toBe('offline')
+    expect(await retry).toEqual({ state: 'saved' })
     expect(session.state).toBe('saved')
+    expect(session.error).toBe('')
     expect(await onDisk(note.id)).toMatch(/\nmine\n$/)
+  })
+
+  it('a save of new edits after a failure clears the error message', async () => {
+    let failing = false
+    session = new NoteSession(
+      createClient((href, init) => (failing ? Promise.reject(new Error('offline')) : app.fetch(href, init))),
+    )
+    await openNote('start\n')
+    failing = true
+    session.edit('mine\n')
+    expect(await session.flush()).toBe(false)
+    expect(session.error).toBe('offline')
+
+    session.edit('mine again\n')
+    const save = session.flush()
+    expect(session.state).toBe('saving')
+    expect(session.error).toBe('')
+    expect(await save).toBe(false)
+    expect(session.error).toBe('offline')
   })
 
   it('Retry reports how its own save ended, even when a flush waiting on it has started the next save', async () => {
