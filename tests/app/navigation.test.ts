@@ -224,7 +224,7 @@ describe('Navigation', () => {
     expect(session.note?.id).toBe('a.md')
   })
 
-  it('rejects a vault switch whose tab restore fails, so the caller’s error handling sees it', async () => {
+  it('switchVault rejects when saving the restored tabs throws (WorkspaceModel’s tests cover the callers)', async () => {
     const other = await folderWith('other', { 'x.md': '# X\n' })
     // Like `localStorage.setItem` over its quota: saving the restored tabs after `change` throws.
     navigation = createNavigation({
@@ -256,6 +256,38 @@ describe('Navigation', () => {
     expect(session.note?.id).toBe('b.md')
     expect(navigation.tabs.active).toMatchObject({ kind: 'note', path: 'b.md' })
     expect(notices).toEqual([])
+  })
+
+  it('saves edits made to the open note while the next note’s read is out, then opens that note', async () => {
+    await navigation.open('a.md')
+    const reads: { id: string; release: () => void }[] = []
+    heldReads = reads
+    const toB = navigation.open('b.md', { newTab: true })
+    await expect.poll(() => reads.length).toBe(1)
+    // The gate saved A; the editor still shows A while B is read.
+    session.edit('# A\n\nTyped while B loads.\n')
+    reads[0]?.release()
+    await toB
+    expect(await onDisk('a.md')).toMatch(/\n# A\n\nTyped while B loads\.\n$/)
+    expect(session.note?.id).toBe('b.md')
+    expect(notices).toEqual([])
+  })
+
+  it('keeps the open note, back in its tab, when edits made while the next note’s read is out do not save', async () => {
+    await navigation.open('a.md')
+    const reads: { id: string; release: () => void }[] = []
+    heldReads = reads
+    const toB = navigation.open('b.md', { newTab: true })
+    await expect.poll(() => reads.length).toBe(1)
+    failSaves = true
+    session.edit('# A\n\nTyped while B loads.\n')
+    reads[0]?.release()
+    await toB
+    expect(notices).toEqual([UNSAVED])
+    expect(session.note?.id).toBe('a.md')
+    expect(session.body).toBe('# A\n\nTyped while B loads.\n')
+    expect(navigation.tabs.active).toMatchObject({ kind: 'note', path: 'a.md' })
+    expect(saved()).toEqual({ tabs: ['a.md', 'b.md'], active: 0, closed: [] })
   })
 
   it('drops a reader read that fails after a later transition: no notice, the reader tab stays', async () => {

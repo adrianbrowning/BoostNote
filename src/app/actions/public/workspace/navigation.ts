@@ -310,9 +310,9 @@ export class Navigation {
       const active = this.tabs.active
       return active?.key === tab?.key && active?.kind === 'note' && active.path === id
     }
+    let note: NoteDocument
     try {
-      const note = await this.#api.readNote(id)
-      if (current()) this.#session.open(note)
+      note = await this.#api.readNote(id)
     } catch (error) {
       if (!current()) return
       if (!(error instanceof ApiError && error.status === 404)) {
@@ -322,7 +322,27 @@ export class Navigation {
       this.#host.notify('error', `Note not found: ${id}`)
       this.#edit((tabs) => tabs.forget((path) => path === id))
       await this.#loadActive()
+      return
     }
+    if (!current()) return
+    // The editor kept the open note while the read was out: what was typed meanwhile is saved before it is
+    // replaced. When that save fails, the open note stays and the tabs go back to it.
+    const left = this.#session.note
+    if (left && !(await this.leave())) {
+      if (current()) this.#keep(left.id)
+      return
+    }
+    if (current()) this.#session.open(note)
+  }
+
+  /** The open note `id` stays after all: its tab (or, when no tab shows it any more, a new one) becomes active. */
+  #keep(id: string): void {
+    this.#edit((tabs) => {
+      const tab = tabs.tabs.find((item) => item.kind === 'note' && item.path === id)
+      if (tab) tabs.activate(tab.key)
+      else tabs.openNew(id)
+    })
+    this.#host.changed()
   }
 
   /**

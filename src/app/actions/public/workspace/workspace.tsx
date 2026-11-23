@@ -2,12 +2,14 @@ import type { Handle } from 'remix/component'
 import { clientEntry, css, on, ref } from 'remix/component'
 
 import { routes } from '../../../routes.ts'
+import { client } from './api.ts'
 import { installDropImport } from './drop-import.ts'
 import { EditorPane } from './editor-pane.tsx'
 import { ImportDialog } from './import-dialog.tsx'
 import { PANE_LIMITS } from './layout.ts'
 import { runMenuCommand } from './menu-commands.ts'
 import { type Connection, WorkspaceModel } from './model.ts'
+import { localTabStore } from './navigation.ts'
 import { NoteList } from './note-list.tsx'
 import type { SaveState } from './note-session.ts'
 import { ContextMenuView, DialogView, NoticeView } from './overlays.tsx'
@@ -55,7 +57,10 @@ const MOUSE_FORWARD = 4
 export const Workspace = clientEntry(
   import.meta.url,
   function Workspace(handle: Handle<{ initial: WorkspaceData; preferences: PreferencesState }>) {
-    const model = new WorkspaceModel(handle.props.initial, handle.props.preferences)
+    const model = new WorkspaceModel(handle.props.initial, handle.props.preferences, {
+      api: client,
+      store: localTabStore,
+    })
     let layout: HTMLElement | undefined
 
     model.addEventListener('change', () => void handle.update(), { signal: handle.signal })

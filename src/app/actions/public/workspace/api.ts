@@ -90,7 +90,56 @@ export interface NavigationApi extends NoteApi {
   deleteNote: (id: string) => Promise<AssetsLeftBehind>
   deleteFolder: (id: string) => Promise<unknown>
   readReader: (ticket: string) => Promise<ReaderDocument>
+  /** Revokes a reader tab's ticket (the tab closed). */
   closeReader: (ticket: string) => Promise<unknown>
+}
+
+/** The typed client of every `/api` route (`createClient`): the page's `client`, or one over the router in tests. */
+export interface Client extends NavigationApi {
+  workspace: () => Promise<WorkspaceData>
+  search: (q: string, signal?: AbortSignal) => Promise<{ ids: string[] }>
+
+  pickVault: () => Promise<VaultOpenResult>
+  openVault: (path: string) => Promise<VaultOpenResult>
+  closeVault: (path: string) => Promise<WorkspaceData>
+  forgetVault: (path: string) => Promise<WorkspaceData>
+
+  renameNote: (id: string, name: string) => Promise<NoteDocument>
+  moveNote: (id: string, folder: string) => Promise<NoteDocument>
+  revealNote: (id: string) => Promise<unknown>
+  planTitleRenames: () => Promise<TitleRenamePlan>
+  applyTitleRenames: (renames: TitleRename[]) => Promise<TitleRenameReport>
+  /** Links in other notes to the old place of renamed/moved notes or folders (dry run / rewrite). */
+  planLinkUpdates: (moves: LinkMove[]) => Promise<LinkUpdateReport>
+  applyLinkUpdates: (moves: LinkMove[]) => Promise<LinkUpdateReport>
+
+  createFolder: (parent: string, name: string) => Promise<{ id: string }>
+  renameFolder: (id: string, name: string) => Promise<{ id: string }>
+  moveFolder: (id: string, parent: string) => Promise<{ id: string }>
+  setFolderColor: (id: string, color: string | null) => Promise<unknown>
+
+  restore: (id: string) => Promise<{ id: string } & AssetsLeftBehind>
+  emptyTrash: () => Promise<unknown>
+
+  uploadAsset: (noteId: string, file: File) => Promise<{ href: string }>
+
+  importCandidates: () => Promise<ImportCandidate[]>
+  pickImportFolder: (purpose: 'source' | 'target') => Promise<{ path: string | null }>
+  runImport: (input: { source: string; target: string; dryRun: boolean; force: boolean }) => Promise<ImportSummary>
+  /** Copies the dropped `.md` files/folders behind a preload drop ticket into `folder`. */
+  importFiles: (ticket: string, folder: string) => Promise<ImportFilesReport>
+
+  openExternal: (url: string) => Promise<unknown>
+
+  savePreferences: (patch: UiPatch) => Promise<PreferencesState>
+
+  exportNote: (id: string, format: 'html' | 'pdf' | 'markdown' | 'print') => Promise<ExportResult>
+  exportFolder: (folder: string) => Promise<ExportResult>
+  takeOpenRequest: () => Promise<OpenRequest | null>
+  /** Main opens the folder of the reader tab's file as the vault and revokes the ticket. */
+  openReaderFolder: (ticket: string) => Promise<ReaderFolderResult>
+  /** Main imports the reader tab's file into `folder` of the open vault and revokes the ticket once a note came in. */
+  importReader: (ticket: string, folder: string) => Promise<ReaderImportResult>
 }
 
 function withQuery(href: string, params: Record<string, string>): string {
@@ -105,7 +154,7 @@ export function vaultAssetUrl(noteId: string, src: string): string {
 const api = routes.api
 
 /** Typed client of the `/api` routes over `transport`; failures throw `ApiError`. */
-export function createClient(transport: Transport) {
+export function createClient(transport: Transport): Client {
   /** Fetches a route of this app's own (in-process, typed) router; non-2xx responses throw `ApiError`. */
   async function request<T>(href: string, init?: RequestInit): Promise<T> {
     const response = await transport(href, init)
@@ -145,7 +194,6 @@ export function createClient(transport: Transport) {
     revealNote: (id: string) => post<unknown>(api.noteReveal.href(), { id }),
     planTitleRenames: () => request<TitleRenamePlan>(api.titleRenamesPlan.href()),
     applyTitleRenames: (renames: TitleRename[]) => post<TitleRenameReport>(api.titleRenamesApply.href(), { renames }),
-    /** Links in other notes to the old place of renamed/moved notes or folders (dry run / rewrite). */
     planLinkUpdates: (moves: LinkMove[]) => post<LinkUpdateReport>(api.linksPlan.href(), { moves }),
     applyLinkUpdates: (moves: LinkMove[]) => post<LinkUpdateReport>(api.linksApply.href(), { moves }),
 
@@ -172,7 +220,6 @@ export function createClient(transport: Transport) {
       post<{ path: string | null }>(api.importPick.href(), { purpose }),
     runImport: (input: { source: string; target: string; dryRun: boolean; force: boolean }) =>
       post<ImportSummary>(api.importRun.href(), input),
-    /** Copies the dropped `.md` files/folders behind a preload drop ticket into `folder`. */
     importFiles: (ticket: string, folder: string) =>
       post<ImportFilesReport>(api.importFiles.href(), { ticket, folder }),
 
@@ -185,11 +232,8 @@ export function createClient(transport: Transport) {
     exportFolder: (folder: string) => post<ExportResult>(api.exportFolder.href(), { folder }),
     takeOpenRequest: () => post<OpenRequest | null>(api.openRequest.href()),
     readReader: (ticket: string) => request<ReaderDocument>(api.readerRead.href({ ticket })),
-    /** Revokes a reader tab's ticket (the tab closed). */
     closeReader: (ticket: string) => post<unknown>(api.readerClose.href({ ticket })),
-    /** Main opens the folder of the reader tab's file as the vault and revokes the ticket. */
     openReaderFolder: (ticket: string) => post<ReaderFolderResult>(api.readerOpenFolder.href({ ticket })),
-    /** Main imports the reader tab's file into `folder` of the open vault and revokes the ticket once a note came in. */
     importReader: (ticket: string, folder: string) =>
       post<ReaderImportResult>(api.readerImport.href({ ticket }), { folder }),
   }

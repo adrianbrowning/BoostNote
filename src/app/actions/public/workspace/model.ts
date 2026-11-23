@@ -1,9 +1,9 @@
 import { TypedEventTarget } from 'remix/component'
 
 import { lastSegment, noteStem, parentOf, toMeta } from '../../../../shared/vault-ids.ts'
-import { ApiError, client, setPageVault } from './api.ts'
+import { ApiError, type Client, setPageVault } from './api.ts'
 import type { DropTicket } from './drop-import.ts'
-import { localTabStore, Navigation } from './navigation.ts'
+import { Navigation, type TabStore } from './navigation.ts'
 import { NoteSaving } from './note-saving.ts'
 import { NoteSession } from './note-session.ts'
 import { folderChain } from './paths.ts'
@@ -122,6 +122,15 @@ export class FocusEditorEvent extends Event {
 }
 
 /**
+ * What the workspace talks to: the `/api` client and where each vault's tabs are kept. The page passes its
+ * `client` and `localTabStore`; tests pass `createClient` over the router and a memory `TabStore`.
+ */
+export interface WorkspaceOptions {
+  api: Client
+  store: TabStore
+}
+
+/**
  * State and operations of the workspace: the vault's lists (from `GET /api/workspace`), the sidebar
  * selection, sorting and search, menus and dialogs, the tabs and the open note (`session`, always
  * the active tab's note; every note transition goes through `navigation`), and the preferences.
@@ -147,22 +156,11 @@ export class WorkspaceModel extends TypedEventTarget<{
   preferencesOpen = false
   notice: Notice | null = null
   connection: Connection = 'connecting'
-  readonly session = new NoteSession(client)
+  readonly session: NoteSession
   /** Every note transition (tabs, new and deleted notes, vault switches), each through the one leave-note gate. */
-  readonly navigation = new Navigation({
-    session: this.session,
-    api: client,
-    store: localTabStore,
-    host: {
-      root: () => this.data.vault?.root,
-      hasNote: (id) => this.hasNote(id),
-      showVault: (data) => this.#showVault(data),
-      notify: (kind, text) => this.notify(kind, text),
-      fail: (error) => this.fail(error),
-      changed: () => this.changed(),
-    },
-  })
-  readonly #saving = new NoteSaving(this.session, (text) => this.notify('error', text))
+  readonly navigation: Navigation
+  readonly #saving: NoteSaving
+  readonly #api: Client
   preferences: UiPreferences
   hotkeyRegistered: boolean
   /** Newer release shown in the status bar. */
@@ -179,9 +177,25 @@ export class WorkspaceModel extends TypedEventTarget<{
    */
   #openRequests: Promise<void> = Promise.resolve()
 
-  constructor(initial: WorkspaceData, preferences: PreferencesState) {
+  constructor(initial: WorkspaceData, preferences: PreferencesState, { api, store }: WorkspaceOptions) {
     super()
+    this.#api = api
     this.data = initial
+    this.session = new NoteSession(api)
+    this.navigation = new Navigation({
+      session: this.session,
+      api,
+      store,
+      host: {
+        root: () => this.data.vault?.root,
+        hasNote: (id) => this.hasNote(id),
+        showVault: (data) => this.#showVault(data),
+        notify: (kind, text) => this.notify(kind, text),
+        fail: (error) => this.fail(error),
+        changed: () => this.changed(),
+      },
+    })
+    this.#saving = new NoteSaving(this.session, (text) => this.notify('error', text))
     setPageVault(initial.vault?.root ?? null)
     this.preferences = preferences.ui
     this.hotkeyRegistered = preferences.hotkeyRegistered
@@ -302,7 +316,7 @@ export class WorkspaceModel extends TypedEventTarget<{
     const abort = new AbortController()
     this.#searchAbort = abort
     try {
-      const { ids } = await client.search(this.query, abort.signal)
+      const { ids } = await this.#api.search(this.query, abort.signal)
       if (abort.signal.aborted) return
       this.hits = ids
       this.changed()
@@ -354,7 +368,7 @@ export class WorkspaceModel extends TypedEventTarget<{
           let id = ''
           await this.navigation.switchVault(
             async () => {
-              const opened = await client.openReaderFolder(tab.ticket)
+              const opened = await this.#api.openReaderFolder(tab.ticket)
               id = opened.id
               return opened.workspace
             },
@@ -401,7 +415,7 @@ export class WorkspaceModel extends TypedEventTarget<{
         })
         if (folder === null || !(await this.navigation.leave())) return
         await this.attempt(async () => {
-          const { report, workspace } = await client.importReader(tab.ticket, folder)
+          const { report, workspace } = await this.#api.importReader(tab.ticket, folder)
           this.#showData(workspace)
           await this.#reportImport(report, folder, (id) => this.navigation.readerImported(key, id))
         })
@@ -526,7 +540,7 @@ export class WorkspaceModel extends TypedEventTarget<{
 
   async #renameFile(id: string, name: string): Promise<void> {
     if (this.openId === id && !(await this.navigation.leave())) return
-    const renamed = await client.renameNote(id, name)
+    const renamed = await this.#api.renameNote(id, name)
     this.navigation.rebase((path) => (path === id ? renamed.id : path))
     if (this.openId === id) this.session.relocated(renamed)
     await this.refresh()
@@ -548,11 +562,11 @@ export class WorkspaceModel extends TypedEventTarget<{
    */
   async applyTitleRenames(renames: TitleRename[]): Promise<TitleRenameReport | null> {
     if (!(await this.navigation.leave())) return null
-    const report = await client.applyTitleRenames(renames)
+    const report = await this.#api.applyTitleRenames(renames)
     const moved = new Map(report.renamed.map((rename) => [rename.from, rename.to]))
     const openId = this.openId
     this.navigation.rebase((path) => moved.get(path) ?? path)
-    if (openId !== null) this.session.open(await client.readNote(moved.get(openId) ?? openId))
+    if (openId !== null) this.session.open(await this.#api.readNote(moved.get(openId) ?? openId))
     await this.refresh()
     return report
   }
@@ -561,7 +575,7 @@ export class WorkspaceModel extends TypedEventTarget<{
     if (parentOf(id) === folder) return
     if (this.openId === id && !(await this.navigation.leave())) return
     await this.attempt(async () => {
-      const moved = await client.moveNote(id, folder)
+      const moved = await this.#api.moveNote(id, folder)
       this.navigation.rebase((path) => (path === id ? moved.id : path))
       if (this.openId === id) this.session.relocated(moved)
       await this.refresh()
@@ -578,7 +592,7 @@ export class WorkspaceModel extends TypedEventTarget<{
    */
   async #offerLinkUpdates(move: LinkMove, warning?: string): Promise<void> {
     try {
-      const plan = await client.planLinkUpdates([move])
+      const plan = await this.#api.planLinkUpdates([move])
       if (plan.total === 0) return
       const name = noteStem(move.from)
       const links = plan.total === 1 ? '1 link' : `${plan.total} links`
@@ -595,7 +609,7 @@ export class WorkspaceModel extends TypedEventTarget<{
       })
       if (!(await promise)) return
       await this.session.flush()
-      const report = await client.applyLinkUpdates([move])
+      const report = await this.#api.applyLinkUpdates([move])
       const openId = this.openId
       if (openId !== null && report.notes.some((note) => note.id === openId)) await this.session.externalChange()
       await this.refresh()
@@ -657,7 +671,7 @@ export class WorkspaceModel extends TypedEventTarget<{
   }
 
   async revealNote(id = this.openId): Promise<void> {
-    if (id) await this.attempt(() => client.revealNote(id))
+    if (id) await this.attempt(() => this.#api.revealNote(id))
   }
 
   /** File > Export / Print for the open note; its latest edits are saved first. */
@@ -669,7 +683,7 @@ export class WorkspaceModel extends TypedEventTarget<{
     }
     if (!(await this.navigation.leave())) return
     await this.attempt(async () => {
-      const { path } = await client.exportNote(id, format)
+      const { path } = await this.#api.exportNote(id, format)
       if (path) this.notify('info', `Exported to ${path}`)
     })
   }
@@ -678,7 +692,7 @@ export class WorkspaceModel extends TypedEventTarget<{
   async exportFolder(folder: string): Promise<void> {
     if (!(await this.navigation.leave())) return
     await this.attempt(async () => {
-      const { path } = await client.exportFolder(folder)
+      const { path } = await this.#api.exportFolder(folder)
       if (path) this.notify('info', `Exported to ${path}`)
     })
   }
@@ -708,14 +722,14 @@ export class WorkspaceModel extends TypedEventTarget<{
 
   async #drainOpenRequests(): Promise<void> {
     await this.attempt(async () => {
-      for (let request = await client.takeOpenRequest(); request; request = await client.takeOpenRequest()) {
+      for (let request = await this.#api.takeOpenRequest(); request; request = await this.#api.takeOpenRequest()) {
         if (request.kind === 'external') {
           const { ticket, name } = request
           await this.navigation.openReader(ticket, name)
           continue
         }
         if (this.data.vault?.root !== request.vault) {
-          const open = async () => (await client.openVault(request.vault)).workspace
+          const open = async () => (await this.#api.openVault(request.vault)).workspace
           if (!(await this.navigation.switchVault(open))) return
         }
         const id = request.id
@@ -745,7 +759,7 @@ export class WorkspaceModel extends TypedEventTarget<{
       return
     }
     await this.attempt(async () => {
-      const report = await client.importFiles(drop.ticket, folder)
+      const report = await this.#api.importFiles(drop.ticket, folder)
       await this.refresh()
       await this.#reportImport(
         report,
@@ -802,8 +816,8 @@ export class WorkspaceModel extends TypedEventTarget<{
     }
     if (!id) return
     await this.attempt(async () => {
-      const note = await client.readNote(id)
-      this.#putSummary(await client.saveNote({ id, body: note.body, baseHash: note.hash, frontmatter: flip(note) }))
+      const note = await this.#api.readNote(id)
+      this.#putSummary(await this.#api.saveNote({ id, body: note.body, baseHash: note.hash, frontmatter: flip(note) }))
     })
   }
 
@@ -818,7 +832,7 @@ export class WorkspaceModel extends TypedEventTarget<{
   /** Stores and applies preferences; the error message when they were refused (a taken hotkey), else `null`. */
   async savePreferences(patch: UiPatch): Promise<string | null> {
     try {
-      const state = await client.savePreferences(patch)
+      const state = await this.#api.savePreferences(patch)
       this.preferences = state.ui
       this.hotkeyRegistered = state.hotkeyRegistered
       this.update = state.update
@@ -860,7 +874,7 @@ export class WorkspaceModel extends TypedEventTarget<{
     const name = await this.prompt({ title: 'New folder', label: 'Folder name', value: '', confirm: 'Create' })
     if (name === null || name.trim() === '') return
     await this.attempt(async () => {
-      const { id } = await client.createFolder(parent, name.trim())
+      const { id } = await this.#api.createFolder(parent, name.trim())
       await this.refresh()
       this.select({ kind: 'folder', id })
     })
@@ -870,12 +884,12 @@ export class WorkspaceModel extends TypedEventTarget<{
     const current = this.folderName(id)
     const name = await this.prompt({ title: 'Rename folder', label: 'Folder name', value: current, confirm: 'Rename' })
     if (name === null || name.trim() === '' || name.trim() === current) return
-    await this.#relocateFolder(id, () => client.renameFolder(id, name.trim()))
+    await this.#relocateFolder(id, () => this.#api.renameFolder(id, name.trim()))
   }
 
   async moveFolder(id: string, parent: string): Promise<void> {
     if (parentOf(id) === parent || id === parent || parent.startsWith(`${id}/`)) return
-    await this.#relocateFolder(id, () => client.moveFolder(id, parent))
+    await this.#relocateFolder(id, () => this.#api.moveFolder(id, parent))
   }
 
   async #relocateFolder(id: string, relocate: () => Promise<{ id: string }>): Promise<void> {
@@ -892,7 +906,7 @@ export class WorkspaceModel extends TypedEventTarget<{
       }
       this.navigation.rebase(rebase)
       const openId = this.openId
-      if (affectsOpen && openId) this.session.relocated(await client.readNote(rebase(openId)))
+      if (affectsOpen && openId) this.session.relocated(await this.#api.readNote(rebase(openId)))
       await this.refresh()
       void this.#offerLinkUpdates({ from: id, to: next, kind: 'folder' })
     })
@@ -919,7 +933,7 @@ export class WorkspaceModel extends TypedEventTarget<{
 
   async setFolderColor(id: string, color: string | null): Promise<void> {
     await this.attempt(async () => {
-      await client.setFolderColor(id, color)
+      await this.#api.setFolderColor(id, color)
       await this.refresh()
     })
   }
@@ -928,7 +942,7 @@ export class WorkspaceModel extends TypedEventTarget<{
 
   async restore(trashId: string): Promise<void> {
     await this.attempt(async () => {
-      const restored = await client.restore(trashId)
+      const restored = await this.#api.restore(trashId)
       this.selectedTrashId = null
       await this.refresh()
       const { notice, sticky } = linkMovesAfterRelocate({ result: restored, done: `Restored ${restored.id}` })
@@ -945,7 +959,7 @@ export class WorkspaceModel extends TypedEventTarget<{
     })
     if (ok) {
       await this.attempt(async () => {
-        await client.emptyTrash()
+        await this.#api.emptyTrash()
         await this.refresh()
       })
     }
@@ -954,11 +968,11 @@ export class WorkspaceModel extends TypedEventTarget<{
   // ── Vaults ─────────────────────────────────────────────────────────────────────────────
 
   async pickVault(): Promise<void> {
-    await this.attempt(() => this.navigation.switchVault(async () => (await client.pickVault()).workspace))
+    await this.attempt(() => this.navigation.switchVault(async () => (await this.#api.pickVault()).workspace))
   }
 
   async openVault(path: string): Promise<void> {
-    await this.attempt(() => this.navigation.switchVault(async () => (await client.openVault(path)).workspace))
+    await this.attempt(() => this.navigation.switchVault(async () => (await this.#api.openVault(path)).workspace))
   }
 
   /**
@@ -969,12 +983,12 @@ export class WorkspaceModel extends TypedEventTarget<{
     if (!root) return
     if (root !== this.data.vault?.root) {
       await this.attempt(async () => {
-        this.data = await client.closeVault(root)
+        this.data = await this.#api.closeVault(root)
         this.changed()
       })
       return
     }
-    await this.attempt(() => this.navigation.switchVault(() => client.closeVault(root)))
+    await this.attempt(() => this.navigation.switchVault(() => this.#api.closeVault(root)))
   }
 
   /** How many tabs an open vault keeps (its saved tabs; the vault on screen: its live tabs). */
@@ -984,7 +998,7 @@ export class WorkspaceModel extends TypedEventTarget<{
 
   async forgetVault(path: string): Promise<void> {
     await this.attempt(async () => {
-      this.data = await client.forgetVault(path)
+      this.data = await this.#api.forgetVault(path)
       this.changed()
     })
   }
@@ -1004,7 +1018,7 @@ export class WorkspaceModel extends TypedEventTarget<{
   /** Re-reads the lists (after a mutation, or when the vault changed on disk). */
   async refresh(): Promise<void> {
     clearTimeout(this.#refreshTimer)
-    this.#showData(await client.workspace())
+    this.#showData(await this.#api.workspace())
   }
 
   /** Shows the open vault's lists as `data` has them (same vault): selection and tabs follow. */
@@ -1052,7 +1066,7 @@ export class WorkspaceModel extends TypedEventTarget<{
   /** Opens the release page in the browser. */
   downloadUpdate(): void {
     const url = this.update?.url
-    if (url) void this.attempt(() => client.openExternal(url))
+    if (url) void this.attempt(() => this.#api.openExternal(url))
   }
 
   setConnection(connection: Connection): void {
