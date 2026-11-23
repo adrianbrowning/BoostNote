@@ -217,15 +217,18 @@ describe('Navigation', () => {
 
   it('rejects a vault switch whose tab restore fails, so the caller’s error handling sees it', async () => {
     const other = await folderWith('other', { 'x.md': '# X\n' })
+    // Like `localStorage.setItem` over its quota: saving the restored tabs after `change` throws.
     navigation = createNavigation({
-      load: () => {
-        throw new Error('storage unavailable')
+      load: () => null,
+      save: () => {
+        throw new Error('QuotaExceededError')
       },
-      save: () => {},
     })
-    await expect(navigation.switchVault(async () => (await api.openVault(other)).workspace)).rejects.toThrow(
-      'storage unavailable',
+    const switched = navigation.switchVault(
+      async () => (await api.openVault(other)).workspace,
+      (tabs) => tabs.openNew('x.md'),
     )
+    await expect(switched).rejects.toThrow('QuotaExceededError')
   })
 
   it('the router-backed client names the test app’s vault, whatever vault the page shows', async () => {

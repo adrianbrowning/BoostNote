@@ -5,8 +5,12 @@ import type { AssetsLeftBehind, NoteDocument, ReaderDocument, WorkspaceData } fr
 
 /** Where each vault's tabs are kept between runs, by vault root: `localStorage` in the app, a map in tests. */
 export interface TabStore {
-  /** The vault's saved snapshot (`TabsSnapshot` as written; `null` when there is none). */
+  /**
+   * The vault's saved snapshot (`TabsSnapshot` as written; `null` when there is none, or it cannot be read:
+   * the vault then restores no tabs). Never throws: the sidebar reads other vaults' tab counts while it renders.
+   */
   load(root: string): unknown
+  /** Throws when the snapshot cannot be written (`localStorage` over its quota); the transition then rejects. */
   save(root: string, snapshot: TabsSnapshot): void
 }
 
