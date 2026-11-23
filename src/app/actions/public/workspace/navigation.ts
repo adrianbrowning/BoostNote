@@ -341,6 +341,8 @@ export class Navigation {
       this.reader = { ticket: tab.ticket, document }
       this.#host.changed()
     } catch (error) {
+      // A later transition left this tab: its failure is dropped too (the tab reads again when it is active).
+      if (this.tabs.active !== tab) return
       if (!(error instanceof ApiError && error.status === 404)) {
         this.#host.fail(error)
         return

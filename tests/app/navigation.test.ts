@@ -26,15 +26,16 @@ const UNSAVED = 'This note has unsaved changes that could not be saved. Resolve 
 let app: TestApp
 /** While set, note saves fail as if the disk were full. */
 let failSaves = false
-/** While set, note reads wait here until the test releases them (`release()` lets the fetch go on). */
+/** While set, note and reader reads wait here until the test releases them (`release()` lets the fetch go on). */
 let heldReads: { id: string; release: () => void }[] | null = null
 /** The page's API client over the current test's router. */
 const api = createClient(async (href, init) => {
   const url = new URL(href, origin)
   if (failSaves && url.pathname === '/api/notes/save') throw new Error('Disk full')
-  if (heldReads && url.pathname === '/api/notes/read') {
+  const reader = /^\/api\/reader\/([^/]+)$/.exec(url.pathname)?.[1]
+  if (heldReads && (url.pathname === '/api/notes/read' || reader !== undefined)) {
     const { promise, resolve } = Promise.withResolvers<void>()
-    heldReads.push({ id: url.searchParams.get('id') ?? '', release: resolve })
+    heldReads.push({ id: reader ?? url.searchParams.get('id') ?? '', release: resolve })
     await promise
   }
   return app.fetch(href, init)
@@ -254,6 +255,25 @@ describe('Navigation', () => {
     await toA
     expect(session.note?.id).toBe('b.md')
     expect(navigation.tabs.active).toMatchObject({ kind: 'note', path: 'b.md' })
+    expect(notices).toEqual([])
+  })
+
+  it('drops a reader read that fails after a later transition: no notice, the reader tab stays', async () => {
+    const reads: { id: string; release: () => void }[] = []
+    heldReads = reads
+    // A ticket main never granted: its read answers 404, which closes the tab while it is active.
+    const toReader = navigation.openReader('made-up', 'gone.md')
+    await expect.poll(() => reads.length).toBe(1)
+    const toA = navigation.open('a.md', { newTab: true })
+    await expect.poll(() => reads.map((read) => read.id)).toEqual(['made-up', 'a.md'])
+
+    reads[1]?.release()
+    await toA
+    reads[0]?.release()
+    await toReader
+    expect(session.note?.id).toBe('a.md')
+    expect(navigation.reader).toBeNull()
+    expect(navigation.tabs.tabs.map((tab) => tab.kind)).toEqual(['reader', 'note'])
     expect(notices).toEqual([])
   })
 
