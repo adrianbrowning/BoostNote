@@ -265,6 +265,38 @@ describe('Navigation', () => {
     await expect(access(path.join(folder, 'b.md'))).rejects.toThrow()
   })
 
+  it('saves a background tab closed while a held delete is out, even when that delete fails', async () => {
+    await navigation.open('a.md')
+    await navigation.open('b.md', { newTab: true })
+    await navigation.open('c.md', { newTab: true })
+    net.hold((url) => (url.pathname === '/api/notes/delete' ? 'delete' : undefined))
+    const deleted = navigation.deleteNote('f/n.md')
+    await expect.poll(() => net.held.length).toBe(1)
+    await navigation.close(navigation.tabs.tabs[0]?.key)
+    net.held[0]?.release('Disk full')
+    await expect(deleted).rejects.toThrow('Disk full')
+    expect(saved()).toEqual({ tabs: ['b.md', 'c.md'], active: 1, closed: [{ path: 'a.md', index: 0 }] })
+  })
+
+  it('saves a background tab closed while a vault switch loads under the vault it was closed in', async () => {
+    const other = await folderWith(app, 'other', { 'x.md': '# X\n' })
+    await navigation.open('a.md')
+    await navigation.open('b.md', { newTab: true })
+    const first = data.vault?.root ?? ''
+    const { promise: held, resolve: release } = Promise.withResolvers<void>()
+    let loading = false
+    const switched = navigation.switchVault(async () => {
+      loading = true
+      await held
+      return (await api.openVault(other)).workspace
+    })
+    await expect.poll(() => loading).toBe(true)
+    await navigation.close(navigation.tabs.tabs[0]?.key)
+    release()
+    expect(await switched).toBe(true)
+    expect(store.saved.get(first)).toEqual({ tabs: ['b.md'], active: 0, closed: [{ path: 'a.md', index: 0 }] })
+  })
+
   it('finishes a switch or delete before saving its tabs: a store that throws leaves the new note open, unlocked', async () => {
     let full = false
     navigation = createNavigation({

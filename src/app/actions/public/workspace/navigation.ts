@@ -105,16 +105,27 @@ export class Navigation {
    * another note), then `run`, the open note locked (`NoteSession.locked`: it takes no edits and the editor
    * is read-only) until `run` and every other hold running alongside it have settled. Nothing typed while
    * its requests are out can then be dropped by the note being replaced or closed, or be saved to a place
-   * the vault just moved. Tab changes made by `run` are saved to the tab store once it is done, so a store
-   * that throws rejects the hold with the tabs, the session and the lock agreeing. `null`, and `run` does
-   * not run, when the gate refused.
+   * the vault just moved. Tab changes made while it runs are saved to the tab store once it is done, so a
+   * store that throws rejects the hold with the tabs, the session and the lock agreeing. When `run` rejects
+   * they are saved too and its error rethrown (a store error is then dropped: the tabs stay unsaved, so the
+   * next save retries them). `null`, and `run` does not run, when the gate refused.
    */
   async hold<T>(run: () => Promise<T>, { gate = true }: { gate?: boolean } = {}): Promise<T | null> {
     if (gate && !(await this.leave())) return null
     this.#holds++
     this.#session.lock(true)
     try {
-      const result = await run()
+      let result: T
+      try {
+        result = await run()
+      } catch (error) {
+        try {
+          this.#persist()
+        } catch {
+          // `run`'s error is the one to report; the tabs stay unsaved, so the next save retries them.
+        }
+        throw error
+      }
       this.#persist()
       return result
     } finally {
@@ -326,6 +337,14 @@ export class Navigation {
       if (!data) return true
       this.#vaults++
       this.#session.close()
+      // Tab changes made in this vault while `load` ran (a background tab closed or dragged) are saved
+      // under its root before the other vault's tabs replace them.
+      try {
+        this.#persist()
+      } catch {
+        // The switch goes on (main is on the other vault already); saving the restored tabs below
+        // rejects it when the store still throws.
+      }
       this.#host.showVault(data)
       await this.restore(change)
       return true

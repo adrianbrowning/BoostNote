@@ -262,7 +262,7 @@ describe('NoteSession', () => {
     session.edit('mine\n')
     expect(await session.flush()).toBe(false)
     expect(session.state).toBe('error')
-    // Before the fix this second flush spun forever on a save that had already settled.
+    // A save that threw before it was sent leaves no save in flight: this flush settles instead of waiting forever.
     expect(await session.flush()).toBe(false)
   })
 })

@@ -142,7 +142,13 @@ describe('createLivePreviewEditor', () => {
     expect(editor.view.state.doc.toString()).toBe('see you')
     editor.setReadOnly(false)
     editor.view.dispatch({ changes: { from: 7, insert: '!' } })
-    expect(onChange).toHaveBeenCalledWith('see you!')
+    // Editable again, the waiting insert wakes in a later microtask. It must insert nothing, so there is no
+    // signal to await: one zero-delay macrotask lets it run before the document is checked.
+    const { promise, resolve } = Promise.withResolvers<void>()
+    setTimeout(resolve, 0)
+    await promise
+    expect(editor.view.state.doc.toString()).toBe('see you!')
+    expect(onChange).toHaveBeenLastCalledWith('see you!')
   })
 
   it('inserts an image whose save finished while the editor was read-only once it is editable again', async () => {
