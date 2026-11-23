@@ -139,13 +139,14 @@ function pickImage(): Promise<File | undefined> {
 
 async function runImageCommand(view: EditorView, from: number, to: number): Promise<void> {
   // Remove the `/query` first; the picker is asynchronous and the user may keep typing meanwhile, or switch notes.
+  // While the editor is read-only (a transition holds the note) the save and insert wait for it to be editable.
   view.dispatch({ changes: { from, to }, userEvent: 'input.slash' })
   const target = trackInsertion(view, from)
   try {
     const file = await pickImage()
-    if (!file || target.at() === undefined) return
+    if (!file || (await target.whenEditable()) === undefined) return
     const path = await view.state.facet(editorHost).saveAsset(file)
-    const at = target.at()
+    const at = await target.whenEditable()
     if (at === undefined) return
     view.dispatch(slashCommandTransaction(view.state, at, at, template(imageMarkdown(file.name, path))))
   } finally {
