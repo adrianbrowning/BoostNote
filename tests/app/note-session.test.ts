@@ -249,4 +249,20 @@ describe('NoteSession', () => {
     expect(await onDisk(note.id)).toBe('theirs\n')
     expect(saves).toBe(0)
   })
+
+  it('a save that throws before it is sent fails like any other, and later flushes still settle', async () => {
+    const throwing: NoteApi = {
+      readNote: api.readNote,
+      saveNote: () => {
+        throw new Error('Not JSON')
+      },
+    }
+    session = new NoteSession(throwing)
+    session.open(await api.createNote(''))
+    session.edit('mine\n')
+    expect(await session.flush()).toBe(false)
+    expect(session.state).toBe('error')
+    // Before the fix this second flush spun forever on a save that had already settled.
+    expect(await session.flush()).toBe(false)
+  })
 })

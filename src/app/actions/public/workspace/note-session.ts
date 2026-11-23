@@ -25,7 +25,7 @@ export type SaveState = 'saved' | 'dirty' | 'saving' | 'retrying' | 'error' | 'c
  * `error`, the message. When no save was needed, the state as it was once no save was in flight (`saved`,
  * `conflict` or `removed`).
  */
-export type SaveOutcome = { state: 'error'; error: string } | { state: Exclude<SaveState, 'error'> }
+export type SaveOutcome = { state: 'error'; error: string } | { state: 'saved' | 'dirty' | 'conflict' | 'removed' }
 
 /** Tells the editor to show `body`; `preserveSelection` for live reloads, a full reset when another note opens. */
 export class DocEvent extends Event {
@@ -220,8 +220,11 @@ export class NoteSession extends TypedEventTarget<{ change: Event; doc: DocEvent
   async #flush(): Promise<SaveOutcome> {
     clearTimeout(this.#timer)
     while (this.#inflight) await this.#inflight
-    if (this.state === 'dirty' || this.state === 'error') return this.#save()
-    return { state: this.state }
+    const state = this.state
+    if (state === 'dirty' || state === 'error') return this.#save()
+    // `#inflight` is set with 'saving' and 'retrying' and cleared when they end.
+    if (state === 'saving' || state === 'retrying') throw new Error(`No save in flight while ${state}`)
+    return { state }
   }
 
   #reset(note: NoteDocument | null): void {
@@ -247,6 +250,8 @@ export class NoteSession extends TypedEventTarget<{ change: Event; doc: DocEvent
     this.state = this.state === 'error' ? 'retrying' : 'saving'
     this.#changed()
     const run = (async (): Promise<SaveOutcome> => {
+      // `#inflight` is set before the request starts, even when `saveNote` throws before it sends anything.
+      await undefined
       try {
         const saved = await this.#api.saveNote({
           id: note.id,
