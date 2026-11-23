@@ -290,6 +290,39 @@ describe('Navigation', () => {
     expect(saved()).toEqual({ tabs: ['a.md', 'b.md'], active: 0, closed: [] })
   })
 
+  it('saves edits made while the read of a note that turns out gone is out, before its only tab closes', async () => {
+    await navigation.open('a.md')
+    const reads: { id: string; release: () => void }[] = []
+    heldReads = reads
+    // In place: A's tab now shows a note that is not on disk, so the read answers 404 and that tab closes.
+    const toGone = navigation.open('gone.md')
+    await expect.poll(() => reads.length).toBe(1)
+    session.edit('# A\n\nTyped while gone.md loads.\n')
+    reads[0]?.release()
+    await toGone
+    expect(await onDisk('a.md')).toMatch(/\n# A\n\nTyped while gone\.md loads\.\n$/)
+    expect(notices).toEqual(['Note not found: gone.md'])
+    expect(session.note).toBeNull()
+    expect(navigation.tabs.tabs).toEqual([])
+  })
+
+  it('keeps the open note in a tab when edits made while a gone note’s read is out do not save', async () => {
+    await navigation.open('a.md')
+    const reads: { id: string; release: () => void }[] = []
+    heldReads = reads
+    const toGone = navigation.open('gone.md')
+    await expect.poll(() => reads.length).toBe(1)
+    failSaves = true
+    session.edit('# A\n\nTyped while gone.md loads.\n')
+    reads[0]?.release()
+    await toGone
+    expect(notices).toEqual(['Note not found: gone.md', UNSAVED])
+    expect(session.note?.id).toBe('a.md')
+    expect(session.body).toBe('# A\n\nTyped while gone.md loads.\n')
+    expect(navigation.tabs.active).toMatchObject({ kind: 'note', path: 'a.md' })
+    expect(saved()).toEqual({ tabs: ['a.md'], active: 0, closed: [] })
+  })
+
   it('drops a reader read that fails after a later transition: no notice, the reader tab stays', async () => {
     const reads: { id: string; release: () => void }[] = []
     heldReads = reads

@@ -285,10 +285,14 @@ export class Navigation {
     if (root) this.#store.save(root, this.tabs.toJSON())
   }
 
-  /** Makes the session show the active tab's note, or reads the active reader tab's file (nothing without tabs). */
+  /**
+   * Makes the session show the active tab's note, or reads the active reader tab's file (nothing without tabs).
+   * The open note is released (`#release`) before it is replaced or closed.
+   */
   async #loadActive(): Promise<void> {
     const tab = this.tabs.active
     if (tab?.kind === 'reader') {
+      if (!(await this.#release(() => this.tabs.active === tab))) return
       if (this.#session.note) this.#session.close()
       await this.#loadReader(tab)
       return
@@ -296,6 +300,7 @@ export class Navigation {
     this.reader = null
     const id = tab?.path
     if (id === undefined) {
+      if (!(await this.#release(() => this.tabs.active === undefined))) return
       if (this.#session.note) this.#session.close()
       this.#host.changed()
       return
@@ -324,25 +329,30 @@ export class Navigation {
       await this.#loadActive()
       return
     }
-    if (!current()) return
-    // The editor kept the open note while the read was out: what was typed meanwhile is saved before it is
-    // replaced. When that save fails, the open note stays and the tabs go back to it.
-    const left = this.#session.note
-    if (left && !(await this.leave())) {
-      if (current()) this.#keep(left.id)
-      return
-    }
-    if (current()) this.#session.open(note)
+    if (!current() || !(await this.#release(current))) return
+    this.#session.open(note)
   }
 
-  /** The open note `id` stays after all: its tab (or, when no tab shows it any more, a new one) becomes active. */
-  #keep(id: string): void {
-    this.#edit((tabs) => {
-      const tab = tabs.tabs.find((item) => item.kind === 'note' && item.path === id)
-      if (tab) tabs.activate(tab.key)
-      else tabs.openNew(id)
-    })
-    this.#host.changed()
+  /**
+   * Before the open note is replaced or closed: the editor kept it while a read was out, and what was typed
+   * meanwhile is saved now. When that save fails the open note stays, its tab (or, when no tab shows it any
+   * more, a new one) becomes active again, and the gate's notice shows. `true` when the load goes on: the
+   * note is released and `current()` (the load is still the latest transition's) holds.
+   */
+  async #release(current: () => boolean): Promise<boolean> {
+    const left = this.#session.note
+    if (left && !(await this.leave())) {
+      if (current()) {
+        this.#edit((tabs) => {
+          const kept = tabs.tabs.find((item) => item.kind === 'note' && item.path === left.id)
+          if (kept) tabs.activate(kept.key)
+          else tabs.openNew(left.id)
+        })
+        this.#host.changed()
+      }
+      return false
+    }
+    return current()
   }
 
   /**
