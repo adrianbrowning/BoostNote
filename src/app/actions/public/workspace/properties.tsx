@@ -97,10 +97,9 @@ export function PropertiesPanel(handle: Handle<{ model: WorkspaceModel }>) {
   const addTag = async (text: string) => {
     const tag = text.trim().replace(/^#/, '')
     tagDraft = ''
-    if (tag === '' || tags().includes(tag)) {
-      void handle.update()
-      return
-    }
+    // The input empties now, so a blur while the save is out cannot add the same tag again.
+    void handle.update()
+    if (tag === '' || tags().includes(tag)) return
     // A refused tag goes back into the input (unless something else was typed there meanwhile).
     if (!(await setValue('tags', [...tags(), tag])) && tagDraft === '') {
       tagDraft = text

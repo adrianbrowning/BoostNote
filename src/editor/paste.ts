@@ -135,7 +135,9 @@ async function insertImages(view: EditorView, files: readonly File[], pos: numbe
       if ((view.state.readOnly ? await target.whenEditable() : target.at()) === undefined) return
       links.push(imageMarkdown(file.name, await view.state.facet(editorHost).saveAsset(file)))
     }
-    const at = await target.whenEditable()
+    // Wait out read-only periods, then read the position right before the insert (nothing ran in between).
+    while (view.state.readOnly && (await target.whenEditable()) !== undefined) {}
+    const at = target.at()
     if (at === undefined) return
     const insert = links.join('\n')
     view.dispatch({

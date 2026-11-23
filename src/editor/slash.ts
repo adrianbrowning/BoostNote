@@ -146,7 +146,9 @@ async function runImageCommand(view: EditorView, from: number, to: number): Prom
     const file = await pickImage()
     if (!file || (await target.whenEditable()) === undefined) return
     const path = await view.state.facet(editorHost).saveAsset(file)
-    const at = await target.whenEditable()
+    // Wait out read-only periods, then read the position right before the insert (nothing ran in between).
+    while (view.state.readOnly && (await target.whenEditable()) !== undefined) {}
+    const at = target.at()
     if (at === undefined) return
     view.dispatch(slashCommandTransaction(view.state, at, at, template(imageMarkdown(file.name, path))))
   } finally {
