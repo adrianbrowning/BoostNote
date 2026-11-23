@@ -297,6 +297,43 @@ describe('Navigation', () => {
     expect(store.saved.get(first)).toEqual({ tabs: ['b.md'], active: 0, closed: [{ path: 'a.md', index: 0 }] })
   })
 
+  it('finishes a vault switch, then rejects, when the tabs changed in the vault left cannot be saved', async () => {
+    const other = await folderWith(app, 'other', { 'x.md': '# X\n' })
+    await navigation.open('a.md')
+    await navigation.open('b.md', { newTab: true })
+    const first = data.vault?.root ?? ''
+    // Only the vault left is over its quota: the other vault's tabs save.
+    let full = false
+    navigation = createNavigation({
+      load: (root) => store.load(root),
+      save: (root, snapshot) => {
+        if (full && root === first) throw new Error('QuotaExceededError')
+        store.save(root, snapshot)
+      },
+    })
+    await navigation.restore()
+    const { promise: held, resolve: release } = Promise.withResolvers<void>()
+    let loading = false
+    const switched = navigation.switchVault(
+      async () => {
+        loading = true
+        await held
+        return (await api.openVault(other)).workspace
+      },
+      (tabs) => tabs.openNew('x.md'),
+    )
+    await expect.poll(() => loading).toBe(true)
+    full = true
+    await navigation.close(navigation.tabs.tabs[0]?.key)
+    release()
+    await expect(switched).rejects.toThrow('QuotaExceededError')
+    // Main is on the other vault: so is the page, unlocked.
+    expect(data.vault?.root).not.toBe(first)
+    expect(session.note?.id).toBe('x.md')
+    expect(session.locked).toBe(false)
+    expect(saved()).toEqual({ tabs: ['x.md'], active: 0, closed: [] })
+  })
+
   it('finishes a switch or delete before saving its tabs: a store that throws leaves the new note open, unlocked', async () => {
     let full = false
     navigation = createNavigation({

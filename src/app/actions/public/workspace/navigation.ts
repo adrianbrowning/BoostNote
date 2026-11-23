@@ -324,9 +324,10 @@ export class Navigation {
   /**
    * Shows another vault (or none) after the gate. `load` asks main for it (`undefined`: no switch, such as a
    * cancelled folder picker); the host shows its lists, then its tabs are restored from the tab store,
-   * `change` edits them (and they are saved) and the active one loads. `false` when the gate refused; a
-   * failing restore rejects, so the caller's error handling sees it. Main may already be on the other vault
-   * while `load` runs, so edits made then could not be saved: the switch holds the open note (`hold`).
+   * `change` edits them (and they are saved) and the active one loads. `false` when the gate refused. A failing
+   * restore rejects, so the caller's error handling sees it; so does a failing save of the tabs changed in the
+   * vault left while `load` ran, once the other vault shows. Main may already be on the other vault while
+   * `load` runs, so edits made then could not be saved: the switch holds the open note (`hold`).
    */
   async switchVault(
     load: () => Promise<WorkspaceData | undefined>,
@@ -339,14 +340,16 @@ export class Navigation {
       this.#session.close()
       // Tab changes made in this vault while `load` ran (a background tab closed or dragged) are saved
       // under its root before the other vault's tabs replace them.
+      let unsaved: { error: unknown } | undefined
       try {
         this.#persist()
-      } catch {
-        // The switch goes on (main is on the other vault already); saving the restored tabs below
-        // rejects it when the store still throws.
+      } catch (error) {
+        // Main is on the other vault already: it shows first, then the switch rejects with this error.
+        unsaved = { error }
       }
       this.#host.showVault(data)
       await this.restore(change)
+      if (unsaved) throw unsaved.error
       return true
     })
     return switched ?? false
