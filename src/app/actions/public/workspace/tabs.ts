@@ -3,9 +3,9 @@
  * back/forward trail. A reader tab shows an outside `.md` read-only through a `ReaderGrants` ticket:
  * it has no trail, is never persisted, and is left alone by rebase/forget and by restoring another
  * vault's tabs, so it stays open across vault switches. There is one editor; activating a tab loads
- * its note, so background tabs hold no unsaved text. Pure state, no I/O: `WorkspaceModel`
- * saves/loads notes around these transitions and persists `toJSON()` per vault. Note paths are vault
- * note ids (`work/todo.md`).
+ * its note, so background tabs hold no unsaved text. Pure state, no I/O: `Navigation` saves/loads
+ * notes around these transitions and persists `toJSON()` per vault. Note paths are vault note ids
+ * (`work/todo.md`).
  */
 
 export interface NoteTab {
@@ -206,9 +206,14 @@ export class Tabs {
     return tab
   }
 
+  /** The tab at position `index` of the strip; `-1` the last one. */
+  at(index: number): Tab | undefined {
+    return this.tabs[index === -1 ? this.tabs.length - 1 : index]
+  }
+
   /** Cmd+1…8 select a tab by position; `-1` (Cmd+9) the last one. */
   select(index: number): Tab | undefined {
-    const tab = this.tabs[index === -1 ? this.tabs.length - 1 : index]
+    const tab = this.at(index)
     if (tab) this.activeKey = tab.key
     return tab
   }

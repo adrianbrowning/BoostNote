@@ -35,6 +35,7 @@ const SAVE_LABEL: Record<SaveState, string> = {
   saved: 'Saved',
   dirty: 'Unsaved changes',
   saving: 'Saving…',
+  retrying: 'Saving…',
   error: 'Save failed',
   conflict: 'Conflict',
   removed: 'Removed on disk',

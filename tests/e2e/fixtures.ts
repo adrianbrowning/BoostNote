@@ -173,6 +173,75 @@ export async function cspViolations(page: Page): Promise<string[]> {
   })
 }
 
+declare global {
+  interface Window {
+    /**
+     * `failableSaves`' page-side state: while `hold` is set, note saves wait for it (`held` counts them since
+     * `hold` was set); then, while `fail` is set, they answer `status` with a "Disk full" error body.
+     */
+    failingSaves?: { fail: boolean; status: number; hold: Promise<void> | null; held: number; release(): void }
+  }
+}
+
+/** Controls of the page's note saves, from `failableSaves`. */
+export interface FailableSaves {
+  /** Note saves answer `status` (default 500, "Disk full") while `on`. */
+  fail(on: boolean, status?: number): Promise<void>
+  /** Note saves from now on wait until `release`, so a test decides when the server sees them. */
+  hold(): Promise<void>
+  /** How many note saves have waited since `hold`. */
+  held(): Promise<number>
+  /** Lets the held saves (and later ones) through. */
+  release(): Promise<void>
+}
+
+/** Wraps the page's `fetch` so note saves can be failed or held (`page.route` misses `boost://`). */
+export async function failableSaves(page: Page): Promise<FailableSaves> {
+  await page.evaluate(() => {
+    const original = window.fetch
+    const state: NonNullable<Window['failingSaves']> = { fail: false, status: 500, hold: null, held: 0, release() {} }
+    window.failingSaves = state
+    window.fetch = async (input, init) => {
+      const { pathname } = new URL(String(input), location.href)
+      if (pathname === '/api/notes/save') {
+        if (state.hold) {
+          state.held += 1
+          await state.hold
+        }
+        if (state.fail) {
+          return new Response(JSON.stringify({ error: 'IO', message: 'Disk full' }), { status: state.status })
+        }
+      }
+      return original(input, init)
+    }
+  })
+  return {
+    fail: (on, status = 500) =>
+      page.evaluate(
+        (value) => {
+          if (window.failingSaves) Object.assign(window.failingSaves, value)
+        },
+        { fail: on, status },
+      ),
+    hold: () =>
+      page.evaluate(() => {
+        const state = window.failingSaves
+        if (!state) return
+        const { promise, resolve } = Promise.withResolvers<void>()
+        Object.assign(state, {
+          hold: promise,
+          held: 0,
+          release: () => {
+            state.hold = null
+            resolve()
+          },
+        })
+      }),
+    held: () => page.evaluate(() => window.failingSaves?.held ?? 0),
+    release: () => page.evaluate(() => window.failingSaves?.release()),
+  }
+}
+
 /** `app`: a launched app per test, closed and its temp folder removed afterwards. */
 export const test = base.extend<{ files: VaultFiles; ui: UiPatch; app: AppHandle }>({
   files: [{}, { option: true }],

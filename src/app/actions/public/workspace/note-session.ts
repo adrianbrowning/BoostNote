@@ -10,17 +10,20 @@ export const AUTOSAVE_DELAY_MS = 500
  * - `saved`: the editor matches the file.
  * - `dirty`: unsaved edits; an autosave is scheduled.
  * - `saving`: a save request is in flight.
+ * - `retrying`: a save started from the `error` state is in flight; the error bar (and its Retry) stays up.
  * - `error`: the last save failed (retried on the next edit or flush).
  * - `conflict`: the file changed on disk while there were unsaved edits (`theirs` holds the disk
  *   version); autosave is suspended until the user picks a side.
  * - `removed`: the file was deleted or moved outside the app; nothing is written until the user
  *   saves their copy again or closes the note.
  */
-export type SaveState = 'saved' | 'dirty' | 'saving' | 'error' | 'conflict' | 'removed'
+export type SaveState = 'saved' | 'dirty' | 'saving' | 'retrying' | 'error' | 'conflict' | 'removed'
 
 /**
- * How one save request ended: the note's state when that request settled (`dirty` when it worked but
- * newer edits were queued meanwhile; `saved` when nothing needed saving) and, on `error`, the message.
+ * How a flush ended: after a save request, the note's state when it settled (`dirty` when it worked but newer
+ * edits were queued meanwhile; `saved` also when it worked after the session moved to another note) and, on
+ * `error`, the message. When no save was needed, the state as it was once no save was in flight (`saved`,
+ * `conflict` or `removed`).
  */
 export type SaveOutcome = { state: 'error'; error: string } | { state: Exclude<SaveState, 'error'> }
 
@@ -62,8 +65,6 @@ export class NoteSession extends TypedEventTarget<{ change: Event; doc: DocEvent
   theirs: NoteDocument | null = null
   /** Message of the last failed save; cleared when a save works. */
   error = ''
-  /** A save started in the `error` state is in flight: the error bar and its Retry stay up meanwhile. */
-  retrying = false
 
   #timer: ReturnType<typeof setTimeout> | undefined
   #inflight: Promise<SaveOutcome> | undefined
@@ -199,10 +200,13 @@ export class NoteSession extends TypedEventTarget<{ change: Event; doc: DocEvent
     this.#changed()
   }
 
-  /** Saves pending edits after any save in flight; resolves to how that save ended, or the state as is. */
+  /**
+   * Saves pending edits once no save is in flight (another waiter may start the next save first; that one is
+   * waited for too); resolves to how this flush's own save ended, or the state as is.
+   */
   async #flush(): Promise<SaveOutcome> {
     clearTimeout(this.#timer)
-    if (this.#inflight) await this.#inflight
+    while (this.#inflight) await this.#inflight
     if (this.state === 'dirty' || this.state === 'error') return this.#save()
     return { state: this.state }
   }
@@ -227,8 +231,7 @@ export class NoteSession extends TypedEventTarget<{ change: Event; doc: DocEvent
     if (!note) return Promise.resolve({ state: 'saved' })
     const body = this.body
     const frontmatter = this.#frontmatter
-    this.retrying = this.state === 'error'
-    this.state = 'saving'
+    this.state = this.state === 'error' ? 'retrying' : 'saving'
     this.#changed()
     const run = (async (): Promise<SaveOutcome> => {
       try {
@@ -261,7 +264,6 @@ export class NoteSession extends TypedEventTarget<{ change: Event; doc: DocEvent
         return outcome
       } finally {
         this.#inflight = undefined
-        this.retrying = false
         this.#changed()
       }
     })()
