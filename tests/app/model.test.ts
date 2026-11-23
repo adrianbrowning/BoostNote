@@ -184,4 +184,17 @@ describe('WorkspaceModel operations that change the open note after a request', 
     expect(workspace.tabs.active).toMatchObject({ kind: 'note', path: 'in first.md' })
     expect(workspace.session.locked).toBe(false)
   })
+
+  it('lists a new note that was created but not shown because another note was opened meanwhile', async () => {
+    await workspace.openNote('meeting.md')
+    net.hold(onPath('/api/notes/create'))
+    const created = workspace.newNote('')
+    await expect.poll(() => net.held.length).toBe(1)
+    await workspace.openNote('in first.md')
+    const before = workspace.data.notes.length
+    net.held[0]?.release()
+    await created
+    expect(workspace.session.note?.id).toBe('in first.md')
+    expect(workspace.data.notes).toHaveLength(before + 1)
+  })
 })

@@ -490,14 +490,17 @@ export class WorkspaceModel extends TypedEventTarget<{
   async newNote(folder = this.selection.kind === 'folder' ? this.selection.id : ''): Promise<void> {
     if (!this.data.vault) return
     await this.attempt(async () => {
-      const note = await this.navigation.newNote(folder)
-      if (!note) return
-      if (this.selection.kind !== 'folder' || this.selection.id !== folder) {
-        this.selection = folder === '' ? { kind: 'all' } : { kind: 'folder', id: folder }
+      const created = await this.navigation.newNote(folder)
+      if (!created) return
+      // A note created but not shown (the active tab moved meanwhile) is still listed.
+      if (created.shown) {
+        if (this.selection.kind !== 'folder' || this.selection.id !== folder) {
+          this.selection = folder === '' ? { kind: 'all' } : { kind: 'folder', id: folder }
+        }
+        this.setQuery('')
       }
-      this.setQuery('')
-      this.#putSummary(note)
-      this.dispatchEvent(new FocusEditorEvent(true))
+      this.#putSummary(created.note)
+      if (created.shown) this.dispatchEvent(new FocusEditorEvent(true))
       await this.refresh()
     })
   }
@@ -541,7 +544,9 @@ export class WorkspaceModel extends TypedEventTarget<{
   async #renameFile(id: string, name: string): Promise<void> {
     const renamed = await this.navigation.hold(
       async () => {
+        const sameVault = this.navigation.vaultToken()
         const renamed = await this.#api.renameNote(id, name)
+        if (!sameVault()) return renamed
         this.navigation.rebase((path) => (path === id ? renamed.id : path))
         if (this.openId === id) this.session.relocated(renamed)
         return renamed
@@ -569,14 +574,17 @@ export class WorkspaceModel extends TypedEventTarget<{
    */
   async applyTitleRenames(renames: TitleRename[]): Promise<TitleRenameReport | null> {
     const report = await this.navigation.hold(async () => {
+      const sameVault = this.navigation.vaultToken()
       const report = await this.#api.applyTitleRenames(renames)
+      if (!sameVault()) return report
       const moved = new Map(report.renamed.map((rename) => [rename.from, rename.to]))
       const openId = this.openId
       this.navigation.rebase((path) => moved.get(path) ?? path)
       if (openId !== null) {
+        // Another note opened while this is read (the hold locks edits, not navigation) keeps its own document.
+        const current = this.navigation.token()
         const note = await this.#api.readNote(moved.get(openId) ?? openId)
-        // Another note was opened while this was read: the hold locks edits, not navigation, so that one stays.
-        if (this.openId === openId) this.session.open(note)
+        if (current()) this.session.open(note)
       }
       return report
     })
@@ -589,7 +597,9 @@ export class WorkspaceModel extends TypedEventTarget<{
     await this.attempt(async () => {
       const moved = await this.navigation.hold(
         async () => {
+          const sameVault = this.navigation.vaultToken()
           const moved = await this.#api.moveNote(id, folder)
+          if (!sameVault()) return moved
           this.navigation.rebase((path) => (path === id ? moved.id : path))
           if (this.openId === id) this.session.relocated(moved)
           return moved
@@ -916,7 +926,9 @@ export class WorkspaceModel extends TypedEventTarget<{
     await this.attempt(async () => {
       const next = await this.navigation.hold(
         async () => {
+          const sameVault = this.navigation.vaultToken()
           const { id: next } = await relocate()
+          if (!sameVault()) return next
           const rebase = (value: string) =>
             value === id || value.startsWith(`${id}/`) ? next + value.slice(id.length) : value
           if (this.selection.kind === 'folder') this.selection = { kind: 'folder', id: rebase(this.selection.id) }
@@ -927,9 +939,10 @@ export class WorkspaceModel extends TypedEventTarget<{
           this.navigation.rebase(rebase)
           const openId = this.openId
           if (affectsOpen && openId) {
+            // Another note opened while this is read keeps its own document.
+            const current = this.navigation.token()
             const note = await this.#api.readNote(rebase(openId))
-            // Another note was opened while this was read: it keeps its own document.
-            if (this.openId === openId) this.session.relocated(note)
+            if (current()) this.session.relocated(note)
           }
           return next
         },

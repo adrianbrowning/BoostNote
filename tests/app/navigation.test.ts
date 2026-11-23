@@ -1,4 +1,4 @@
-import { access, readFile, realpath, writeFile } from 'node:fs/promises'
+import { access, readdir, readFile, realpath, writeFile } from 'node:fs/promises'
 import * as path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { type Client, setPageVault } from '../../src/app/actions/public/workspace/api.ts'
@@ -118,8 +118,10 @@ describe('Navigation', () => {
     await navigation.open('c.md', { newTab: true })
     await navigation.select(0)
     expect(session.note?.id).toBe('a.md')
+    expect(saved()).toEqual({ tabs: ['a.md', 'b.md', 'c.md'], active: 0, closed: [] })
     await navigation.select(-1)
     expect(session.note?.id).toBe('c.md')
+    expect(saved()).toEqual({ tabs: ['a.md', 'b.md', 'c.md'], active: 2, closed: [] })
 
     // The active tab hands over to its left neighbour (no right one).
     await navigation.close()
@@ -145,6 +147,35 @@ describe('Navigation', () => {
     expect(session.note?.id).toBe('a.md')
     expect(await onDisk('b.md')).toMatch(/\n# B\n\nMine\.\n$/)
     expect(saved()).toEqual({ tabs: ['a.md', 'b.md'], active: 0, closed: [{ path: 'c.md', index: 2 }] })
+  })
+
+  it('refuses to select another tab while the open note cannot be saved', async () => {
+    await navigation.open('a.md')
+    await navigation.open('b.md', { newTab: true })
+    session.edit('# B\n\nMine.\n')
+    net.fail = saves
+    await navigation.select(0)
+    expect(session.note?.id).toBe('b.md')
+    expect(session.body).toBe('# B\n\nMine.\n')
+    expect(notices).toEqual([UNSAVED])
+    expect(saved()).toEqual({ tabs: ['a.md', 'b.md'], active: 1, closed: [] })
+  })
+
+  it('selects the tab it was asked for even when the strip changes while the gate saves', async () => {
+    await navigation.open('a.md')
+    for (const id of ['b.md', 'c.md', 'f/n.md']) await navigation.open(id, { newTab: true })
+    await navigation.select(1)
+    session.edit('# B\n\nMine.\n')
+    net.hold((url) => (url.pathname === '/api/notes/save' ? 'save' : undefined))
+    // Cmd+3: c.md. While B saves, a list refresh drops the tab of a.md, deleted outside the app.
+    const selected = navigation.select(2)
+    await expect.poll(() => net.held.length).toBe(1)
+    data = { ...data, notes: data.notes.filter((note) => note.id !== 'a.md') }
+    navigation.dropMissing()
+    net.held[0]?.release()
+    await selected
+    expect(session.note?.id).toBe('c.md')
+    expect(saved()).toMatchObject({ tabs: ['b.md', 'c.md', 'f/n.md'], active: 1 })
   })
 
   it('refuses to delete the open note while its save fails: the note stays on disk, open, with its edits', async () => {
@@ -173,13 +204,127 @@ describe('Navigation', () => {
     expect(session.state).toBe('conflict')
   })
 
-  it('deletes the open note after saving it: its tab closes and the next tab’s note opens', async () => {
+  it('deletes the open note after saving its edits: its tab closes, the next tab’s note opens, the trash keeps the edits', async () => {
     await navigation.open('a.md')
     await navigation.open('b.md', { newTab: true })
+    session.edit('# B\n\nMine.\n')
     expect(await navigation.deleteNote('b.md')).not.toBeNull()
     await expect(access(path.join(folder, 'b.md'))).rejects.toThrow()
     expect(session.note?.id).toBe('a.md')
     expect(saved()).toEqual({ tabs: ['a.md'], active: 0, closed: [] })
+    const [trashed] = (await api.workspace()).trash
+    await api.restore(trashed?.id ?? '')
+    expect(await onDisk('b.md')).toMatch(/\n# B\n\nMine\.\n$/)
+  })
+
+  it('deletes a folder holding the open note after saving its edits: its tabs close', async () => {
+    await navigation.open('a.md')
+    await navigation.open('f/n.md', { newTab: true })
+    session.edit('# N\n\nMine.\n')
+    expect(await navigation.deleteFolder('f')).toBe(true)
+    await expect(access(path.join(folder, 'f/n.md'))).rejects.toThrow()
+    expect(session.note?.id).toBe('a.md')
+    expect(saved()).toEqual({ tabs: ['a.md'], active: 0, closed: [] })
+    const [trashed] = (await api.workspace()).trash
+    await api.restore(trashed?.id ?? '')
+    expect(await onDisk('f/n.md')).toMatch(/\n# N\n\nMine\.\n$/)
+  })
+
+  it('deletes another note or folder while the open note cannot be saved, leaving that note as it is', async () => {
+    await navigation.open('a.md')
+    session.edit('# A\n\nMine.\n')
+    net.fail = saves
+    expect(await session.flush()).toBe(false)
+    expect(session.state).toBe('error')
+    expect(await navigation.deleteNote('b.md')).not.toBeNull()
+    expect(await navigation.deleteFolder('f')).toBe(true)
+    await expect(access(path.join(folder, 'b.md'))).rejects.toThrow()
+    await expect(access(path.join(folder, 'f/n.md'))).rejects.toThrow()
+    expect(notices).not.toContain(UNSAVED)
+    expect(session.note?.id).toBe('a.md')
+    expect(session.body).toBe('# A\n\nMine.\n')
+  })
+
+  it('leaves the tabs and open note of the vault switched to while a delete was out', async () => {
+    const other = await folderWith(app, 'other', { 'b.md': '# Other B\n' })
+    await navigation.open('a.md')
+    net.hold((url) => (url.pathname === '/api/notes/delete' ? 'delete' : undefined))
+    const deleted = navigation.deleteNote('b.md')
+    await expect.poll(() => net.held.length).toBe(1)
+    const switched = navigation.switchVault(
+      async () => (await api.openVault(other)).workspace,
+      (tabs) => tabs.openNew('b.md'),
+    )
+    expect(await switched).toBe(true)
+    expect(session.note?.id).toBe('b.md')
+    net.held[0]?.release()
+    expect(await deleted).not.toBeNull()
+    expect(session.note).toMatchObject({ id: 'b.md', body: '# Other B\n' })
+    expect(navigation.tabs.tabs).toMatchObject([{ kind: 'note', path: 'b.md' }])
+    expect(saved()).toEqual({ tabs: ['b.md'], active: 0, closed: [] })
+    await expect(access(path.join(folder, 'b.md'))).rejects.toThrow()
+  })
+
+  it('finishes a switch or delete before saving its tabs: a store that throws leaves the new note open, unlocked', async () => {
+    let full = false
+    navigation = createNavigation({
+      load: (root) => store.load(root),
+      save: (root, snapshot) => {
+        if (full) throw new Error('QuotaExceededError')
+        store.save(root, snapshot)
+      },
+    })
+    await navigation.open('a.md')
+    full = true
+    await expect(navigation.open('b.md', { newTab: true })).rejects.toThrow('QuotaExceededError')
+    expect(session.note?.id).toBe('b.md')
+    expect(navigation.tabs.active).toMatchObject({ kind: 'note', path: 'b.md' })
+    expect(session.locked).toBe(false)
+
+    await expect(navigation.deleteNote('b.md')).rejects.toThrow('QuotaExceededError')
+    expect(session.note?.id).toBe('a.md')
+    expect(navigation.tabs.tabs).toMatchObject([{ kind: 'note', path: 'a.md' }])
+    expect(session.locked).toBe(false)
+  })
+
+  it('creates nothing when the gate refuses a new note', async () => {
+    await navigation.open('a.md')
+    session.edit('# A\n\nMine.\n')
+    net.fail = saves
+    expect(await navigation.newNote('')).toBeNull()
+    expect(notices).toEqual([UNSAVED])
+    expect((await readdir(folder)).filter((name) => name.endsWith('.md')).sort()).toEqual(['a.md', 'b.md', 'c.md'])
+    expect(session.note?.id).toBe('a.md')
+    expect(saved()).toEqual({ tabs: ['a.md'], active: 0, closed: [] })
+  })
+
+  it('shows a new note in the active tab and saves the tabs', async () => {
+    await navigation.open('a.md')
+    const created = await navigation.newNote('')
+    expect(created?.shown).toBe(true)
+    expect(session.note?.id).toBe(created?.note.id)
+    expect(saved()).toEqual({ tabs: [created?.note.id], active: 0, closed: [] })
+  })
+
+  it('drops a note read that fails after a later transition: no notice, its tab stays', async () => {
+    net.hold(heldIds)
+    const reads = net.held
+    const toA = navigation.open('a.md')
+    await expect.poll(() => reads.length).toBe(1)
+    // a.md is deleted outside the app while its read is out: the read answers 404.
+    net.gone.add('a.md')
+    const toB = navigation.open('b.md', { newTab: true })
+    await expect.poll(() => reads.map((read) => read.id)).toEqual(['a.md', 'b.md'])
+    reads[1]?.release()
+    await toB
+    reads[0]?.release()
+    await toA
+    expect(notices).toEqual([])
+    expect(session.note?.id).toBe('b.md')
+    expect(navigation.tabs.tabs).toMatchObject([
+      { kind: 'note', path: 'a.md' },
+      { kind: 'note', path: 'b.md' },
+    ])
   })
 
   it.each([
@@ -414,8 +559,9 @@ describe('Navigation', () => {
     session.edit('# A\n\nTyped while the note is created.\n')
     expect(session.body).toBe('# A\n')
     requests[0]?.release()
-    const note = await created
-    expect(session.note?.id).toBe(note?.id)
+    const result = await created
+    expect(result?.shown).toBe(true)
+    expect(session.note?.id).toBe(result?.note.id)
     expect(session.locked).toBe(false)
     expect(await onDisk('a.md')).toBe('# A\n')
     expect(notices).toEqual([])
@@ -447,7 +593,7 @@ describe('Navigation', () => {
     const toB = navigation.open('b.md')
     await expect.poll(() => requests.map((request) => request.id)).toEqual(['create', 'b.md'])
     requests[0]?.release()
-    expect(await created).toBeNull()
+    expect(await created).toMatchObject({ shown: false })
     requests[1]?.release()
     await toB
     expect(session.note?.id).toBe('b.md')

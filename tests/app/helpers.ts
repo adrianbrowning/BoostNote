@@ -167,7 +167,10 @@ export interface HeldRequest {
   release(failure?: string): void
 }
 
-/** An API client over `app`'s router whose requests the test can hold, fail or answer as gone. */
+/**
+ * An API client over `app`'s router whose requests the test can hold, fail or answer as gone. Like the page's
+ * client, a request names the vault active when it is sent, even when it is held past a vault switch.
+ */
 export interface HeldClient {
   client: Client
   /**
@@ -190,6 +193,8 @@ export function heldClient(app: TestApp): HeldClient {
   const controls: HeldClient = {
     client: createClient(async (href, init) => {
       const url = new URL(href, origin)
+      const root = app.vaults.current?.root
+      if (root && !url.searchParams.has('vault')) url.searchParams.set('vault', root)
       if (controls.fail?.(url)) throw new Error('Disk full')
       const id = match?.(url)
       if (id !== undefined) {
@@ -200,7 +205,7 @@ export function heldClient(app: TestApp): HeldClient {
       if (url.pathname === '/api/notes/read' && gone.has(url.searchParams.get('id') ?? '')) {
         return Response.json({ error: 'NOT_FOUND', message: 'Note not found' }, { status: 404 })
       }
-      return app.fetch(href, init)
+      return app.fetch(`${url.pathname}${url.search}`, init)
     }),
     hold(next) {
       match = next

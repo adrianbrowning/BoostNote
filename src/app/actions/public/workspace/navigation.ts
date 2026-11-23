@@ -55,9 +55,11 @@ export interface NavigationOptions {
 
 /**
  * Every note transition of the workspace: opening notes, selecting, closing and reopening tabs, the
- * back/forward trail, new and deleted notes, and vault switches. Each one runs the leave-note gate
- * (`leave`) once and holds the open note (`hold`) until it is done: it changes the tabs, saves them to the
- * tab store and loads the active tab's note into the session (or its reader file). Background tabs
+ * back/forward trail, new and deleted notes, and vault switches. Each one that leaves the open note
+ * (switching or closing the active tab, a new note, deleting the open note or a folder holding it, a vault
+ * switch) runs the leave-note gate (`leave`) once; closing a background tab and deleting a note that is not
+ * open skip it. Each holds the open note (`hold`) until it is done: it changes the tabs, loads the active
+ * tab's note into the session (or its reader file), then saves the tabs to the tab store. Background tabs
  * therefore never hold unsaved text, and nothing typed during a transition is dropped by it.
  */
 export class Navigation {
@@ -73,6 +75,12 @@ export class Navigation {
   readonly #host: NavigationHost
   /** How many `hold`s are running; the session is locked while any is. */
   #holds = 0
+  /** Counts changes of the active tab (or its note): `token` compares against it. */
+  #transitions = 0
+  /** Counts vault switches: `vaultToken` compares against it. */
+  #vaults = 0
+  /** The tabs changed since they were last saved to the tab store. */
+  #unsaved = false
 
   constructor({ session, api, store, host }: NavigationOptions) {
     this.#session = session
@@ -97,18 +105,40 @@ export class Navigation {
    * another note), then `run`, the open note locked (`NoteSession.locked`: it takes no edits and the editor
    * is read-only) until `run` and every other hold running alongside it have settled. Nothing typed while
    * its requests are out can then be dropped by the note being replaced or closed, or be saved to a place
-   * the vault just moved. `null`, and `run` does not run, when the gate refused.
+   * the vault just moved. Tab changes made by `run` are saved to the tab store once it is done, so a store
+   * that throws rejects the hold with the tabs, the session and the lock agreeing. `null`, and `run` does
+   * not run, when the gate refused.
    */
   async hold<T>(run: () => Promise<T>, { gate = true }: { gate?: boolean } = {}): Promise<T | null> {
     if (gate && !(await this.leave())) return null
     this.#holds++
     this.#session.lock(true)
     try {
-      return await run()
+      const result = await run()
+      this.#persist()
+      return result
     } finally {
       this.#holds--
       this.#session.lock(this.#holds > 0)
     }
+  }
+
+  /**
+   * A handle on the transition running now: it answers `true` while no later transition has changed the
+   * active tab or its note. A request's late result is dropped once it answers `false`.
+   */
+  token(): () => boolean {
+    const at = this.#transitions
+    return () => this.#transitions === at
+  }
+
+  /**
+   * A handle on the vault on screen: it answers `true` while no vault switch has run since. The tab and session
+   * follow-up of a request that returns after a switch is skipped: the tabs belong to another vault.
+   */
+  vaultToken(): () => boolean {
+    const at = this.#vaults
+    return () => this.#vaults === at
   }
 
   /**
@@ -119,6 +149,7 @@ export class Navigation {
     await this.hold(
       async () => {
         const root = this.#host.root()
+        this.#transitions++
         this.tabs.restore(root ? this.#store.load(root) : null, (id) => this.#host.hasNote(id))
         if (change) this.#edit(change)
         await this.#loadActive()
@@ -137,10 +168,15 @@ export class Navigation {
     if (key !== this.tabs.activeKey) await this.#switch((tabs) => tabs.activate(key))
   }
 
-  /** Cmd+1…8 select a tab by position, `-1` (Cmd+9) the last one (`Tabs.select`); the active tab stays as it is. */
+  /** Cmd+1…8 select a tab by position, `-1` (Cmd+9) the last one (`Tabs.select`); selecting the tab that is already active does nothing (no gate). */
   async select(index: number): Promise<void> {
     const tab = this.tabs.at(index)
-    if (tab && tab.key !== this.tabs.activeKey) await this.#switch((tabs) => tabs.select(index))
+    if (!tab || tab.key === this.tabs.activeKey) return
+    // The strip can change while the gate saves: the tab asked for is selected where it is then (gone: none).
+    await this.#switch((tabs) => {
+      const at = tabs.tabs.indexOf(tab)
+      if (at !== -1) tabs.select(at)
+    })
   }
 
   /**
@@ -223,18 +259,17 @@ export class Navigation {
 
   /**
    * "New note": after the gate, creates a note in `folder` and shows it in the active tab. `null` when the
-   * gate refused (nothing is created), or when the note was created but is not shown: a later transition
-   * changed the active tab meanwhile.
+   * gate refused (nothing is created); `shown: false` when the note was created but is not shown: a later
+   * transition changed the active tab meanwhile.
    */
-  async newNote(folder: string): Promise<NoteDocument | null> {
+  async newNote(folder: string): Promise<{ note: NoteDocument; shown: boolean } | null> {
     return this.hold(async () => {
-      const tab = this.tabs.active
-      const path = tab?.kind === 'note' ? tab.path : undefined
+      const current = this.token()
       const note = await this.#api.createNote(folder)
-      if (this.tabs.active !== tab || (tab?.kind === 'note' && tab.path !== path)) return null
+      if (!current()) return { note, shown: false }
       this.#edit((tabs) => tabs.navigate(note.id))
       this.#session.open(note)
-      return note
+      return { note, shown: true }
     })
   }
 
@@ -247,8 +282,9 @@ export class Navigation {
     const gone = (path: string) => path === id
     return this.hold(
       async () => {
+        const sameVault = this.vaultToken()
         const trashed = await this.#api.deleteNote(id)
-        await this.#forget(gone)
+        if (sameVault()) await this.#forget(gone)
         return trashed
       },
       { gate: this.#replaces(gone) },
@@ -264,8 +300,9 @@ export class Navigation {
     const inside = (path: string) => path.startsWith(`${id}/`)
     const deleted = await this.hold(
       async () => {
+        const sameVault = this.vaultToken()
         await this.#api.deleteFolder(id)
-        await this.#forget(inside)
+        if (sameVault()) await this.#forget(inside)
         return true
       },
       { gate: this.#replaces(inside) },
@@ -287,6 +324,7 @@ export class Navigation {
     const switched = await this.hold(async () => {
       const data = await load()
       if (!data) return true
+      this.#vaults++
       this.#session.close()
       this.#host.showVault(data)
       await this.restore(change)
@@ -325,11 +363,32 @@ export class Navigation {
     })
   }
 
-  /** Applies `change` to the tabs and saves them for the vault on screen: the one way the tabs change. */
+  /**
+   * Applies `change` to the tabs; a change of the active tab (or its note) is a transition (`token`). Every tab
+   * change goes through here except `restore`, which loads the tabs from the store. Inside a `hold` the tabs
+   * are saved once it is done; otherwise right away.
+   */
   #edit(change: (tabs: Tabs) => unknown): void {
+    const before = this.#activeShows()
     change(this.tabs)
+    if (this.#activeShows() !== before) this.#transitions++
+    this.#unsaved = true
+    if (this.#holds === 0) this.#persist()
+  }
+
+  /** What the active tab shows: its key with its note's path or its reader ticket (`''`: no tab). */
+  #activeShows(): string {
+    const tab = this.tabs.active
+    if (!tab) return ''
+    return `${tab.key}:${tab.kind === 'note' ? `note:${tab.path}` : `reader:${tab.ticket}`}`
+  }
+
+  /** Saves the tabs for the vault on screen when they changed since the last save (it throws when the store does). */
+  #persist(): void {
     const root = this.#host.root()
-    if (root) this.#store.save(root, this.tabs.toJSON())
+    if (!this.#unsaved || !root) return
+    this.#store.save(root, this.tabs.toJSON())
+    this.#unsaved = false
   }
 
   /**
@@ -356,10 +415,7 @@ export class Navigation {
     }
     // A later transition can change the active tab (or its note) while the read is out: its late result
     // (or error) is dropped.
-    const current = () => {
-      const active = this.tabs.active
-      return active?.key === tab?.key && active?.kind === 'note' && active.path === id
-    }
+    const current = this.token()
     let note: NoteDocument
     try {
       note = await this.#api.readNote(id)
@@ -398,14 +454,15 @@ export class Navigation {
       this.reader = null
       this.#host.changed()
     }
+    const current = this.token()
     try {
       const document = await this.#api.readReader(tab.ticket)
-      if (this.tabs.active !== tab) return
+      if (!current()) return
       this.reader = { ticket: tab.ticket, document }
       this.#host.changed()
     } catch (error) {
       // A later transition left this tab: its failure is dropped too (the tab reads again when it is active).
-      if (this.tabs.active !== tab) return
+      if (!current()) return
       if (!(error instanceof ApiError && error.status === 404)) {
         this.#host.fail(error)
         return
