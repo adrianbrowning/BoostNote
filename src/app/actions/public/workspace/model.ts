@@ -539,10 +539,16 @@ export class WorkspaceModel extends TypedEventTarget<{
   }
 
   async #renameFile(id: string, name: string): Promise<void> {
-    if (this.openId === id && !(await this.navigation.leave())) return
-    const renamed = await this.#api.renameNote(id, name)
-    this.navigation.rebase((path) => (path === id ? renamed.id : path))
-    if (this.openId === id) this.session.relocated(renamed)
+    const renamed = await this.navigation.hold(
+      async () => {
+        const renamed = await this.#api.renameNote(id, name)
+        this.navigation.rebase((path) => (path === id ? renamed.id : path))
+        if (this.openId === id) this.session.relocated(renamed)
+        return renamed
+      },
+      { gate: this.openId === id },
+    )
+    if (!renamed) return
     await this.refresh()
     const outcome = linkMovesAfterRelocate({ from: id, result: renamed })
     if (outcome.notice) this.notify('info', outcome.notice, [], outcome.sticky)
@@ -558,26 +564,35 @@ export class WorkspaceModel extends TypedEventTarget<{
   /**
    * File › Rename Files From Titles…, after the user confirmed the plan: saves the open note, runs
    * the renames, then tabs follow their notes and the open note is reloaded (its links may have
-   * been rewritten). `null` when the open note could not be saved first.
+   * been rewritten); it takes no edits until then (`Navigation.hold`). `null` when the open note
+   * could not be saved first.
    */
   async applyTitleRenames(renames: TitleRename[]): Promise<TitleRenameReport | null> {
-    if (!(await this.navigation.leave())) return null
-    const report = await this.#api.applyTitleRenames(renames)
-    const moved = new Map(report.renamed.map((rename) => [rename.from, rename.to]))
-    const openId = this.openId
-    this.navigation.rebase((path) => moved.get(path) ?? path)
-    if (openId !== null) this.session.open(await this.#api.readNote(moved.get(openId) ?? openId))
-    await this.refresh()
+    const report = await this.navigation.hold(async () => {
+      const report = await this.#api.applyTitleRenames(renames)
+      const moved = new Map(report.renamed.map((rename) => [rename.from, rename.to]))
+      const openId = this.openId
+      this.navigation.rebase((path) => moved.get(path) ?? path)
+      if (openId !== null) this.session.open(await this.#api.readNote(moved.get(openId) ?? openId))
+      return report
+    })
+    if (report) await this.refresh()
     return report
   }
 
   async moveNote(id: string, folder: string): Promise<void> {
     if (parentOf(id) === folder) return
-    if (this.openId === id && !(await this.navigation.leave())) return
     await this.attempt(async () => {
-      const moved = await this.#api.moveNote(id, folder)
-      this.navigation.rebase((path) => (path === id ? moved.id : path))
-      if (this.openId === id) this.session.relocated(moved)
+      const moved = await this.navigation.hold(
+        async () => {
+          const moved = await this.#api.moveNote(id, folder)
+          this.navigation.rebase((path) => (path === id ? moved.id : path))
+          if (this.openId === id) this.session.relocated(moved)
+          return moved
+        },
+        { gate: this.openId === id },
+      )
+      if (!moved) return
       await this.refresh()
       const outcome = linkMovesAfterRelocate({ from: id, result: moved, done: `Moved to ${this.folderName(folder)}` })
       if (outcome.notice) this.notify('info', outcome.notice, [], outcome.sticky)
@@ -894,19 +909,25 @@ export class WorkspaceModel extends TypedEventTarget<{
 
   async #relocateFolder(id: string, relocate: () => Promise<{ id: string }>): Promise<void> {
     const affectsOpen = this.openId?.startsWith(`${id}/`) ?? false
-    if (affectsOpen && !(await this.navigation.leave())) return
     await this.attempt(async () => {
-      const { id: next } = await relocate()
-      const rebase = (value: string) =>
-        value === id || value.startsWith(`${id}/`) ? next + value.slice(id.length) : value
-      if (this.selection.kind === 'folder') this.selection = { kind: 'folder', id: rebase(this.selection.id) }
-      for (const folder of [...this.expanded]) {
-        this.expanded.delete(folder)
-        this.expanded.add(rebase(folder))
-      }
-      this.navigation.rebase(rebase)
-      const openId = this.openId
-      if (affectsOpen && openId) this.session.relocated(await this.#api.readNote(rebase(openId)))
+      const next = await this.navigation.hold(
+        async () => {
+          const { id: next } = await relocate()
+          const rebase = (value: string) =>
+            value === id || value.startsWith(`${id}/`) ? next + value.slice(id.length) : value
+          if (this.selection.kind === 'folder') this.selection = { kind: 'folder', id: rebase(this.selection.id) }
+          for (const folder of [...this.expanded]) {
+            this.expanded.delete(folder)
+            this.expanded.add(rebase(folder))
+          }
+          this.navigation.rebase(rebase)
+          const openId = this.openId
+          if (affectsOpen && openId) this.session.relocated(await this.#api.readNote(rebase(openId)))
+          return next
+        },
+        { gate: affectsOpen },
+      )
+      if (next === null) return
       await this.refresh()
       void this.#offerLinkUpdates({ from: id, to: next, kind: 'folder' })
     })

@@ -56,8 +56,9 @@ export interface NavigationOptions {
 /**
  * Every note transition of the workspace: opening notes, selecting, closing and reopening tabs, the
  * back/forward trail, new and deleted notes, and vault switches. Each one runs the leave-note gate
- * (`leave`) once, changes the tabs, saves them to the tab store and loads the active tab's note into
- * the session (or its reader file). Background tabs therefore never hold unsaved text.
+ * (`leave`) once and holds the open note (`hold`) until it is done: it changes the tabs, saves them to the
+ * tab store and loads the active tab's note into the session (or its reader file). Background tabs
+ * therefore never hold unsaved text, and nothing typed during a transition is dropped by it.
  */
 export class Navigation {
   readonly tabs = new Tabs()
@@ -70,8 +71,8 @@ export class Navigation {
   readonly #api: NavigationApi
   readonly #store: TabStore
   readonly #host: NavigationHost
-  /** How many vault switches are loading (`switchVault`); the session is locked while any is. */
-  #loadingVaults = 0
+  /** How many `hold`s are running; the session is locked while any is. */
+  #holds = 0
 
   constructor({ session, api, store, host }: NavigationOptions) {
     this.#session = session
@@ -91,14 +92,39 @@ export class Navigation {
   }
 
   /**
+   * The one way to run work that awaits and then replaces, closes or relocates the open note: the gate first
+   * (skipped with `gate: false`, when the work leaves the open note as it is at the start, such as deleting
+   * another note), then `run`, the open note locked (`NoteSession.locked`: it takes no edits and the editor
+   * is read-only) until `run` and every other hold running alongside it have settled. Nothing typed while
+   * its requests are out can then be dropped by the note being replaced or closed, or be saved to a place
+   * the vault just moved. `null`, and `run` does not run, when the gate refused.
+   */
+  async hold<T>(run: () => Promise<T>, { gate = true }: { gate?: boolean } = {}): Promise<T | null> {
+    if (gate && !(await this.leave())) return null
+    this.#holds++
+    this.#session.lock(true)
+    try {
+      return await run()
+    } finally {
+      this.#holds--
+      this.#session.lock(this.#holds > 0)
+    }
+  }
+
+  /**
    * Restores the vault's tabs from the tab store (after hydration, after a vault switch). `change` then
    * edits the restored tabs before the active one loads (and they are saved).
    */
   async restore(change?: (tabs: Tabs) => unknown): Promise<void> {
-    const root = this.#host.root()
-    this.tabs.restore(root ? this.#store.load(root) : null, (id) => this.#host.hasNote(id))
-    if (change) this.#edit(change)
-    await this.#loadActive()
+    await this.hold(
+      async () => {
+        const root = this.#host.root()
+        this.tabs.restore(root ? this.#store.load(root) : null, (id) => this.#host.hasNote(id))
+        if (change) this.#edit(change)
+        await this.#loadActive()
+      },
+      { gate: false },
+    )
   }
 
   /** Opens a note after the gate: in the active tab, pushing onto its back trail, or with `newTab` in a new tab after it. */
@@ -197,71 +223,76 @@ export class Navigation {
 
   /**
    * "New note": after the gate, creates a note in `folder` and shows it in the active tab. `null` when the
-   * gate refused (nothing is created), or when the note was created but is not shown: what was typed into
-   * the open note during the request did not save (`#release`), or a later transition changed the active tab.
+   * gate refused (nothing is created), or when the note was created but is not shown: a later transition
+   * changed the active tab meanwhile.
    */
   async newNote(folder: string): Promise<NoteDocument | null> {
-    if (!(await this.leave())) return null
-    const tab = this.tabs.active
-    const path = tab?.kind === 'note' ? tab.path : undefined
-    const note = await this.#api.createNote(folder)
-    const current = () => this.tabs.active === tab && (tab?.kind !== 'note' || tab.path === path)
-    if (!(await this.#release(current))) return null
-    this.#edit((tabs) => tabs.navigate(note.id))
-    this.#session.open(note)
-    return note
+    return this.hold(async () => {
+      const tab = this.tabs.active
+      const path = tab?.kind === 'note' ? tab.path : undefined
+      const note = await this.#api.createNote(folder)
+      if (this.tabs.active !== tab || (tab?.kind === 'note' && tab.path !== path)) return null
+      this.#edit((tabs) => tabs.navigate(note.id))
+      this.#session.open(note)
+      return note
+    })
   }
 
   /**
    * Moves note `id` to the trash, its latest edits included; its tabs close and the session follows the
-   * active tab. With `id` open the gate runs first: `null`, and nothing is trashed, when it refused.
+   * active tab. When that can replace the open note (`#replaces`) the gate runs first: `null`, and nothing
+   * is trashed, when it refused.
    */
   async deleteNote(id: string): Promise<AssetsLeftBehind | null> {
-    if (this.#session.note?.id === id && !(await this.leave())) return null
-    const trashed = await this.#api.deleteNote(id)
-    await this.#forget((path) => path === id)
-    return trashed
+    const gone = (path: string) => path === id
+    return this.hold(
+      async () => {
+        const trashed = await this.#api.deleteNote(id)
+        await this.#forget(gone)
+        return trashed
+      },
+      { gate: this.#replaces(gone) },
+    )
   }
 
   /**
-   * Moves folder `id` and everything in it to the trash; the tabs of its notes close. With a note inside
-   * it open the gate runs first: `false`, and nothing is trashed, when it refused.
+   * Moves folder `id` and everything in it to the trash; the tabs of its notes close. When that can replace
+   * the open note (`#replaces`: a note inside it is open) the gate runs first: `false`, and nothing is
+   * trashed, when it refused.
    */
   async deleteFolder(id: string): Promise<boolean> {
     const inside = (path: string) => path.startsWith(`${id}/`)
-    const open = this.#session.note?.id
-    if (open !== undefined && inside(open) && !(await this.leave())) return false
-    await this.#api.deleteFolder(id)
-    await this.#forget(inside)
-    return true
+    const deleted = await this.hold(
+      async () => {
+        await this.#api.deleteFolder(id)
+        await this.#forget(inside)
+        return true
+      },
+      { gate: this.#replaces(inside) },
+    )
+    return deleted ?? false
   }
 
   /**
    * Shows another vault (or none) after the gate. `load` asks main for it (`undefined`: no switch, such as a
    * cancelled folder picker); the host shows its lists, then its tabs are restored from the tab store,
    * `change` edits them (and they are saved) and the active one loads. `false` when the gate refused; a
-   * failing restore rejects, so the caller's error handling sees it. While `load` runs the open note takes
-   * no edits (`NoteSession.locked`): main may already be on the other vault, so they could not be saved.
+   * failing restore rejects, so the caller's error handling sees it. Main may already be on the other vault
+   * while `load` runs, so edits made then could not be saved: the switch holds the open note (`hold`).
    */
   async switchVault(
     load: () => Promise<WorkspaceData | undefined>,
     change?: (tabs: Tabs) => unknown,
   ): Promise<boolean> {
-    if (!(await this.leave())) return false
-    let data: WorkspaceData | undefined
-    this.#loadingVaults++
-    this.#session.lock(true)
-    try {
-      data = await load()
-    } finally {
-      this.#loadingVaults--
-      this.#session.lock(this.#loadingVaults > 0)
-    }
-    if (!data) return true
-    this.#session.close()
-    this.#host.showVault(data)
-    await this.restore(change)
-    return true
+    const switched = await this.hold(async () => {
+      const data = await load()
+      if (!data) return true
+      this.#session.close()
+      this.#host.showVault(data)
+      await this.restore(change)
+      return true
+    })
+    return switched ?? false
   }
 
   /** App renames/moves of notes or folders (`map` gives each path's new path): tabs, trails and closed tabs follow. */
@@ -286,12 +317,12 @@ export class Navigation {
     return Array.isArray(tabs) ? tabs.length : 0
   }
 
-  /** Runs the gate, applies `change` to the tabs and loads the (new) active tab; `false` when the gate refused. */
-  async #switch(change: (tabs: Tabs) => unknown): Promise<boolean> {
-    if (!(await this.leave())) return false
-    this.#edit(change)
-    await this.#loadActive()
-    return true
+  /** Runs the gate, applies `change` to the tabs and loads the (new) active tab, holding the open note (`hold`). */
+  async #switch(change: (tabs: Tabs) => unknown): Promise<void> {
+    await this.hold(async () => {
+      this.#edit(change)
+      await this.#loadActive()
+    })
   }
 
   /** Applies `change` to the tabs and saves them for the vault on screen: the one way the tabs change. */
@@ -303,12 +334,11 @@ export class Navigation {
 
   /**
    * Makes the session show the active tab's note, or reads the active reader tab's file (nothing without tabs).
-   * The open note is released (`#release`) before it is replaced or closed.
+   * Runs inside a `hold`: the open note it replaces or closes takes no edits meanwhile.
    */
   async #loadActive(): Promise<void> {
     const tab = this.tabs.active
     if (tab?.kind === 'reader') {
-      if (!(await this.#release(() => this.tabs.active === tab))) return
       if (this.#session.note) this.#session.close()
       await this.#loadReader(tab)
       return
@@ -316,7 +346,6 @@ export class Navigation {
     this.reader = null
     const id = tab?.path
     if (id === undefined) {
-      if (!(await this.#release(() => this.tabs.active === undefined))) return
       if (this.#session.note) this.#session.close()
       this.#host.changed()
       return
@@ -345,30 +374,18 @@ export class Navigation {
       await this.#loadActive()
       return
     }
-    if (!current() || !(await this.#release(current))) return
-    this.#session.open(note)
+    if (current()) this.#session.open(note)
   }
 
   /**
-   * Before the open note is replaced or closed: the editor kept it while a read was out, and what was typed
-   * meanwhile is saved now. When that save fails the open note stays, its tab (or, when no tab shows it any
-   * more, a new one) becomes active again, and the gate's notice shows. `true` when the load goes on: the
-   * note is released and `current()` (the load is still the latest transition's) holds.
+   * Whether closing the tabs of the notes `gone` matches can replace or close the open note: it is one of
+   * them, or the active tab does not show it (its load is out, or failed), so the active tab's note loads.
    */
-  async #release(current: () => boolean): Promise<boolean> {
-    const left = this.#session.note
-    if (left && !(await this.leave())) {
-      if (current()) {
-        this.#edit((tabs) => {
-          const kept = tabs.tabs.find((item) => item.kind === 'note' && item.path === left.id)
-          if (kept) tabs.activate(kept.key)
-          else tabs.openNew(left.id)
-        })
-        this.#host.changed()
-      }
-      return false
-    }
-    return current()
+  #replaces(gone: (path: string) => boolean): boolean {
+    const open = this.#session.note?.id
+    if (open === undefined) return false
+    const active = this.tabs.active
+    return gone(open) || active?.kind !== 'note' || active.path !== open
   }
 
   /**

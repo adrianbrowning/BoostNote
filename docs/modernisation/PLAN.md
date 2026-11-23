@@ -266,11 +266,14 @@ closing and reopening tabs, back/forward, new notes, deleting the open note or a
 vault switches. Each runs the leave-note gate (`Navigation.leave`) once: save the open note (refused
 with the unsaved-changes notice when the save fails or the note is in conflict or removed on disk;
 a refused delete trashes nothing), change the tabs, save them to the tab store, load the active tab's
-note from disk. Operations that only need the open note saved first (export, rename, move) call the
-same gate. Background tabs therefore never hold unsaved text. `WorkspaceModel` keeps its tab actions
-and calls through; `tests/app/navigation.test.ts` drives `Navigation` over the in-process router with
-a memory tab store. Vault switches await the tab restore, so a restore that fails reaches the
-model's error notice.
+note from disk. From the gate until it is done the transition holds the open note (`Navigation.hold`):
+the session takes no edits and the editor is read-only while its requests are out, so nothing typed
+meanwhile is dropped when the note is replaced or closed. Operations that change the open note after
+a request (rename, move, folder rename/move, title renames) run through the same `hold`; export only
+needs it saved first and calls the gate. Background tabs therefore never hold unsaved text.
+`WorkspaceModel` keeps its tab actions and calls through; `tests/app/navigation.test.ts` drives
+`Navigation` over the in-process router with a memory tab store. Vault switches await the tab
+restore, so a restore that fails reaches the model's error notice.
 
 - Click in the note list (or a relative `.md` link, or ↑/↓ in the list) navigates the active tab,
   pushing onto its back trail; ⌘/Ctrl+click, middle-click or "Open in New Tab" open a new tab after

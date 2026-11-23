@@ -67,8 +67,8 @@ export class NoteSession extends TypedEventTarget<{ change: Event; doc: DocEvent
   error = ''
   /**
    * While set the open note takes no edits (`edit` ignores them, `setFrontmatter` resolves `false`) and the
-   * editor is read-only (`lock`): a vault switch is loading, and edits made then could reach neither vault
-   * once the switch closes the note.
+   * editor is read-only (`lock`): a transition is running (`Navigation.hold`) that may replace, close or move
+   * the note once its requests return, and edits made meanwhile could be dropped or saved to the wrong place.
    */
   locked = false
 
