@@ -16,10 +16,11 @@ export async function appearedWhilePending(file: string, pending: Promise<unknow
       settled = true
     },
   )
-  while (!existsSync(file)) {
-    if (settled) break
+  do {
+    // One turn first, so a `pending` that has already settled is seen as settled.
     await setImmediate()
-  }
+    if (settled) break
+  } while (!existsSync(file))
   if (settled) {
     await pending
     throw new Error(`${file}: the relocation settled before the file was seen`)
