@@ -175,4 +175,28 @@ describe('WorkspaceModel operations that change the open note after a request', 
       expect(workspace.session.state).toBe('dirty')
     },
   )
+
+  it.each([
+    {
+      what: 'title renames',
+      open: 'meeting.md',
+      run: () => workspace.applyTitleRenames([{ from: 'meeting.md', to: 'Meeting notes.md', title: 'Meeting notes' }]),
+    },
+    { what: 'a move of its folder', open: 'f/n.md', run: () => workspace.moveFolder('f', 'g') },
+  ])('drops its read of the open note after $what once another note was opened meanwhile', async ({ open, run }) => {
+    await workspace.openNote(open)
+    // The request goes through; the read of the open note that follows it waits (held[0]).
+    holdPath = '/api/notes/read'
+    const done = run()
+    await expect.poll(() => held.length).toBe(1)
+    const toOther = workspace.openNote('in first.md')
+    await expect.poll(() => held.length).toBe(2)
+    held[1]?.()
+    await toOther
+    held[0]?.()
+    await done
+    expect(workspace.session.note).toMatchObject({ id: 'in first.md', body: '# In first\n' })
+    expect(workspace.tabs.active).toMatchObject({ kind: 'note', path: 'in first.md' })
+    expect(workspace.session.locked).toBe(false)
+  })
 })

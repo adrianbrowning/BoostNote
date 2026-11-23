@@ -573,7 +573,11 @@ export class WorkspaceModel extends TypedEventTarget<{
       const moved = new Map(report.renamed.map((rename) => [rename.from, rename.to]))
       const openId = this.openId
       this.navigation.rebase((path) => moved.get(path) ?? path)
-      if (openId !== null) this.session.open(await this.#api.readNote(moved.get(openId) ?? openId))
+      if (openId !== null) {
+        const note = await this.#api.readNote(moved.get(openId) ?? openId)
+        // Another note was opened while this was read: the hold locks edits, not navigation, so that one stays.
+        if (this.openId === openId) this.session.open(note)
+      }
       return report
     })
     if (report) await this.refresh()
@@ -922,7 +926,11 @@ export class WorkspaceModel extends TypedEventTarget<{
           }
           this.navigation.rebase(rebase)
           const openId = this.openId
-          if (affectsOpen && openId) this.session.relocated(await this.#api.readNote(rebase(openId)))
+          if (affectsOpen && openId) {
+            const note = await this.#api.readNote(rebase(openId))
+            // Another note was opened while this was read: it keeps its own document.
+            if (this.openId === openId) this.session.relocated(note)
+          }
           return next
         },
         { gate: affectsOpen },
