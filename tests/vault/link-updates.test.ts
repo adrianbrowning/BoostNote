@@ -1,11 +1,10 @@
-import { existsSync } from 'node:fs'
 import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import * as path from 'node:path'
-import { setImmediate } from 'node:timers/promises'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 
 import { type LinkMove, openVault, type Vault } from '../../src/vault/index.ts'
+import { appearedWhilePending } from '../shared/appeared-while-pending.ts'
 import { FROM, LINK_CASES } from '../shared/link-cases.ts'
 
 let root: string
@@ -418,12 +417,21 @@ describe('a rename or move that updates links in the same step', () => {
     expect(await vault.refresh()).toEqual([])
   })
 
+  it.each([
+    ['move', () => vault.moveNote('a.md', '', { links: 'apply' })],
+    ['rename', () => vault.renameNote('a.md', 'a', { links: 'apply' })],
+  ])('a no-op %s still reports `links`: none rewritten', async (_kind, relocate) => {
+    const relocated = await relocate()
+    expect(relocated.links).toEqual({ notes: [], total: 0 })
+    expect(await read('index.md')).toBe('[a](a.md)\n')
+  })
+
   it('lets no write land between the move and the link rewrite', async () => {
     const index = await vault.readNote('index.md')
     const renaming = vault.renameNote('a.md', 'c', { links: 'apply' })
-    while (!existsSync(path.join(root, 'c.md'))) await setImmediate()
+    await appearedWhilePending(path.join(root, 'c.md'), renaming)
     const write = await vault.writeNote('index.md', { body: '[a](a.md) and more\n', baseHash: index.hash })
-    expect((await renaming).links?.total).toBe(1)
+    expect((await renaming).links.total).toBe(1)
     expect(write).toMatchObject({ status: 'conflict', current: { body: '[a](c.md)\n' } })
   })
 })

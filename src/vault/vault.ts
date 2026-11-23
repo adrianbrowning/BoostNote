@@ -2,8 +2,10 @@ import { type Dirent, type FSWatcher, type Stats, watch } from 'node:fs'
 import { lstat, mkdir, readdir, readFile, realpath, rename, rm, stat, utimes } from 'node:fs/promises'
 import * as path from 'node:path'
 import {
+  isAtOrUnder,
   isNoteFileName,
   isRelativeLink,
+  isUnder,
   joinId,
   lastSegment,
   linkPath,
@@ -181,7 +183,10 @@ export interface NoteRelocation extends AssetsLeftBehind {
   note: Note
   /** The moves to pass to `planLinkUpdates`/`applyLinkUpdates`; empty when the note stayed where it was. */
   moves: LinkMove[]
-  /** With `links`: the other notes' links that were rewritten (`'apply'`) or would be (`'plan'`). */
+  /**
+   * With `links`, even when the note stayed: the other notes' links that were rewritten (`'apply'`)
+   * or would be (`'plan'`).
+   */
   links?: LinkUpdateReport
 }
 
@@ -425,6 +430,12 @@ export class Vault {
    * (`Plan.MD` → `Roadmap.MD`); its assets folder follows (unless an extension-case twin shares it)
    * and its own links are rewritten. Other notes' links follow with `links: 'apply'`.
    */
+  renameNote(
+    id: string,
+    name: string,
+    options: Required<RelocateLinksOptions>,
+  ): Promise<NoteRelocation & { links: LinkUpdateReport }>
+  renameNote(id: string, name: string, options?: RelocateLinksOptions): Promise<NoteRelocation>
   renameNote(id: string, name: string, options: RelocateLinksOptions = {}): Promise<NoteRelocation> {
     return this.#exclusive(async () => {
       if (/^\.md$/i.test(name.trim())) {
@@ -601,9 +612,15 @@ export class Vault {
    * …); its assets folder follows unless an extension-case twin shares it. Other notes' links
    * follow with `links: 'apply'`.
    */
+  moveNote(
+    id: string,
+    folder: string,
+    options: Required<RelocateLinksOptions>,
+  ): Promise<NoteRelocation & { links: LinkUpdateReport }>
+  moveNote(id: string, folder: string, options?: RelocateLinksOptions): Promise<NoteRelocation>
   moveNote(id: string, folder: string, options: RelocateLinksOptions = {}): Promise<NoteRelocation> {
     return this.#exclusive(async () => {
-      if (parentOf(id) === folder) return { note: await this.readNote(id), moves: [] }
+      if (parentOf(id) === folder) return this.#withLinks({ note: await this.readNote(id), moves: [] }, options)
       const dir = await this.#existingFolder(folder)
       const toId = joinId(folder, `${await uniqueStem(dir, noteStem(id))}${splitNoteExtension(id).extension}`)
       return this.#withLinks(await this.#relocateNote(id, toId), options)
@@ -753,7 +770,7 @@ export class Vault {
   /** Moves a folder under `parent`. */
   moveFolder(id: string, parent: string): Promise<FolderRelocation> {
     return this.#exclusive(() => {
-      if (parent === id || parent.startsWith(`${id}/`)) {
+      if (isAtOrUnder(parent, id)) {
         throw new VaultError('INVALID_PATH', `Cannot move ${id} into itself`)
       }
       return this.#relocateFolder(id, joinId(parent, lastSegment(id)))
@@ -772,12 +789,12 @@ export class Vault {
       await rename(dir, path.join(trashParent, name))
       const folders: Record<string, FolderConfig> = {}
       for (const [key, folder] of Object.entries(this.#config.folders)) {
-        if (key === id || key.startsWith(`${id}/`)) {
+        if (isAtOrUnder(key, id)) {
           folders[key.slice(id.length + 1)] = folder
           delete this.#config.folders[key]
         }
       }
-      this.#config.folderOrder = this.#config.folderOrder?.filter((key) => key !== id && !key.startsWith(`${id}/`))
+      this.#config.folderOrder = this.#config.folderOrder?.filter((key) => !isAtOrUnder(key, id))
       await writeConfig(this.root, this.#config)
       await this.#scan(false)
       return this.#addTrashEntry(joinId(parentOf(id), name), {
@@ -1021,7 +1038,8 @@ export class Vault {
   }
 
   /**
-   * The incoming-link pass shared by `applyTitleRenames` and `plan`/`applyLinkUpdates`: finds (and
+   * The incoming-link pass shared by `applyTitleRenames`, `plan`/`applyLinkUpdates` and
+   * `renameNote`/`moveNote` with `links` (`#withLinks`): finds (and
    * with `write`, rewrites) relative links in every note that point at the old place of a moved
    * note, its assets or a moved folder's contents. A moved note's own move is skipped for its own
    * links — moving it already re-based them. Trashed notes are not in the index, so not touched.
@@ -1031,7 +1049,7 @@ export class Vault {
     if (moves.length === 0) return report
     for (const meta of this.#index.all()) {
       const applicable = moves.filter((move) =>
-        move.kind === 'note' ? move.to !== meta.id : !meta.id.startsWith(`${move.to}/`),
+        move.kind === 'note' ? move.to !== meta.id : !isUnder(meta.id, move.to),
       )
       if (applicable.length === 0) continue
       const file = await resolveInside(this.root, noteSegments(meta.id))

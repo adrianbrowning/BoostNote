@@ -17,6 +17,7 @@ import type { MenuCommand, MenuEvent } from '../../../../shared/commands.ts'
 import type { NoteMeta } from '../../../../shared/vault-ids.ts'
 import type {
   AssetsLeftBehind,
+  FolderRelocation,
   ImportFilesReport,
   LinkMove,
   LinkUpdate,
@@ -79,11 +80,11 @@ export interface NoteRelocationResult extends AssetsLeftBehind {
   moves: LinkMove[]
 }
 
-/** `POST /api/folders/rename` and `/move`: the folder's new id and the moves to offer to `/api/links/*`. */
-export interface FolderRelocationResult {
-  folder: string
-  moves: LinkMove[]
-}
+/**
+ * `POST /api/folders/rename` and `/move`: the folder's new id and the moves to offer to `/api/links/*`.
+ * The vault's own `FolderRelocation`, which those routes send as is.
+ */
+export type FolderRelocationResult = FolderRelocation
 
 /**
  * `GET /api/reader/:ticket`: an outside `.md` shown read-only in a reader tab; `name` is its base

@@ -9,9 +9,11 @@ import {
   type AssetsLeftBehind,
   type FolderNode,
   type Frontmatter,
+  type LinkUpdateReport,
   type Note,
   type NoteRelocation,
   type ReadonlyNoteMeta,
+  type RelocateLinksOptions,
   type TagCount,
   type Vault,
   VaultError,
@@ -386,7 +388,9 @@ function conflictChecked(id: string, result: WriteNoteResult): Note {
 async function relocated(
   fromId: string,
   options: RelocateOptions,
-  relocate: (links: 'apply' | 'plan') => Promise<NoteRelocation>,
+  relocate: (
+    links: NonNullable<RelocateLinksOptions['links']>,
+  ) => Promise<NoteRelocation & { links: LinkUpdateReport }>,
 ): Promise<RelocateResult> {
   const update = options.updateLinks !== false
   const { note, assetsLeftBehind, links } = await relocate(update ? 'apply' : 'plan')
@@ -397,7 +401,7 @@ async function relocated(
     notesUpdated: 0,
     ...(assetsLeftBehind ? { assetsLeftBehind } : {}),
   }
-  if (note.id === fromId || links === undefined) return result
+  if (note.id === fromId) return result
   if (!update) {
     result.linksNotUpdated = links.total
     return result

@@ -1,6 +1,6 @@
 import { TypedEventTarget } from 'remix/component'
 
-import { lastSegment, movedId, noteStem, parentOf, toMeta } from '../../../../shared/vault-ids.ts'
+import { isAtOrUnder, isUnder, lastSegment, movedId, noteStem, parentOf, toMeta } from '../../../../shared/vault-ids.ts'
 import { ApiError, type Client, setPageVault } from './api.ts'
 import type { DropTicket } from './drop-import.ts'
 import { Navigation, type TabStore } from './navigation.ts'
@@ -929,12 +929,12 @@ export class WorkspaceModel extends TypedEventTarget<{
   }
 
   async moveFolder(id: string, parent: string): Promise<void> {
-    if (parentOf(id) === parent || id === parent || parent.startsWith(`${id}/`)) return
+    if (parentOf(id) === parent || isAtOrUnder(parent, id)) return
     await this.#relocateFolder(id, () => this.#api.moveFolder(id, parent))
   }
 
   async #relocateFolder(id: string, relocate: () => Promise<FolderRelocationResult>): Promise<void> {
-    const affectsOpen = this.openId?.startsWith(`${id}/`) ?? false
+    const affectsOpen = typeof this.openId === 'string' && isUnder(this.openId, id)
     await this.attempt(async () => {
       const relocated = await this.navigation.hold(
         async () => {
@@ -977,7 +977,7 @@ export class WorkspaceModel extends TypedEventTarget<{
     }
     await this.attempt(async () => {
       if (!(await this.navigation.deleteFolder(id))) return
-      if (this.selection.kind === 'folder' && (this.selection.id === id || this.selection.id.startsWith(`${id}/`))) {
+      if (this.selection.kind === 'folder' && isAtOrUnder(this.selection.id, id)) {
         this.selection = { kind: 'all' }
       }
       await this.refresh()
