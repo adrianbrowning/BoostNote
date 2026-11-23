@@ -66,6 +66,45 @@ describe('createLivePreviewEditor', () => {
     expect(editor.view.state.doc.toString()).toBe('# Fresh')
   })
 
+  it('takes no changes while read-only: pastes (HTML, URL, image), drops, a late image save and dispatched edits', async () => {
+    const saved = Promise.withResolvers<string>()
+    const saveAsset = vi.fn(() => saved.promise)
+    const { editor, onChange } = mount('see ', { saveAsset })
+    editor.view.dispatch({ selection: { anchor: 4 } })
+    const image = () => {
+      const data = new DataTransfer()
+      data.items.add(new File(['png'], 'shot.png', { type: 'image/png' }))
+      return data
+    }
+    // An image save that started before the editor went read-only finishes while it is.
+    editor.view.contentDOM.dispatchEvent(new ClipboardEvent('paste', { clipboardData: image(), cancelable: true }))
+    expect(saveAsset).toHaveBeenCalledOnce()
+    editor.setReadOnly(true)
+
+    const html = new DataTransfer()
+    html.setData('text/html', '<p>Hello <strong>world</strong></p>')
+    html.setData('text/plain', 'Hello world')
+    editor.view.contentDOM.dispatchEvent(new ClipboardEvent('paste', { clipboardData: html, cancelable: true }))
+    pasteText(editor, 'https://example.com/cat.png')
+    editor.view.contentDOM.dispatchEvent(new ClipboardEvent('paste', { clipboardData: image(), cancelable: true }))
+    editor.view.contentDOM.dispatchEvent(new DragEvent('drop', { dataTransfer: image(), cancelable: true }))
+    // No image save starts while read-only (it would go to whichever vault the page names by then).
+    expect(saveAsset).toHaveBeenCalledOnce()
+    // The early save's insert runs before this await resumes, and is refused.
+    saved.resolve('./note.assets/shot.png')
+    await saved.promise
+    editor.view.dispatch({ changes: { from: 4, insert: 'typed' } })
+    expect(editor.view.state.doc.toString()).toBe('see ')
+    expect(onChange).not.toHaveBeenCalled()
+
+    // The app's own updates still show while read-only.
+    editor.setDoc('see you', { preserveSelection: true })
+    expect(editor.view.state.doc.toString()).toBe('see you')
+    editor.setReadOnly(false)
+    editor.view.dispatch({ changes: { from: 7, insert: '!' } })
+    expect(onChange).toHaveBeenCalledWith('see you!')
+  })
+
   it('setDoc with preserveSelection keeps the cursor on unchanged text', () => {
     const { editor } = mount('alpha\nbeta\ngamma')
     editor.view.dispatch({ selection: { anchor: 13 } }) // inside "gamma"

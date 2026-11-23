@@ -357,6 +357,22 @@ describe('Navigation', () => {
     expect(saved()).toEqual({ tabs: ['a.md'], active: 0, closed: [] })
   })
 
+  it('does not show a new note whose create returns after the active tab moved to another note in place', async () => {
+    await navigation.open('a.md')
+    const requests: { id: string; release: () => void }[] = []
+    heldReads = requests
+    const created = navigation.newNote('')
+    await expect.poll(() => requests.map((request) => request.id)).toEqual(['create'])
+    const toB = navigation.open('b.md')
+    await expect.poll(() => requests.map((request) => request.id)).toEqual(['create', 'b.md'])
+    requests[0]?.release()
+    expect(await created).toBeNull()
+    requests[1]?.release()
+    await toB
+    expect(session.note?.id).toBe('b.md')
+    expect(navigation.tabs.tabs).toMatchObject([{ kind: 'note', path: 'b.md' }])
+  })
+
   it('takes no edits to the open note while a vault switch loads, so none is dropped when the switch closes it', async () => {
     const other = await folderWith('other', { 'x.md': '# X\n' })
     await navigation.open('a.md')
@@ -371,6 +387,9 @@ describe('Navigation', () => {
     // Main may already be switching the vault: the edit is refused (the editor is read-only meanwhile).
     session.edit('# A\n\nTyped while the vault loads.\n')
     expect(session.body).toBe('# A\n')
+    expect(session.state).toBe('saved')
+    // So are properties: the caller shows its "could not update" notice.
+    expect(await session.setFrontmatter({ ...session.note?.frontmatter, tags: ['late'] })).toBe(false)
     expect(session.state).toBe('saved')
     release()
     expect(await switched).toBe(true)

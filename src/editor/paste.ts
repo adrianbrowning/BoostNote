@@ -126,11 +126,18 @@ function nodeNamesAt(view: EditorView, pos: number): string[] {
   return names
 }
 
-/** Paste/drop: image files go through `saveAsset`; a lone URL becomes `![](url)`; rich HTML becomes markdown (plain text inside code). */
+/**
+ * Paste/drop: image files go through `saveAsset`; a lone URL becomes `![](url)`; rich HTML becomes markdown (plain
+ * text inside code). A read-only editor takes neither, and starts no image save.
+ */
 export const pasteAndDrop = [
   pendingImages,
   EditorView.domEventHandlers({
     paste(event, view) {
+      if (view.state.readOnly) {
+        event.preventDefault()
+        return true
+      }
       const data = event.clipboardData
       if (!data) return false
       const images = imageFiles(data.files)
@@ -169,6 +176,10 @@ export const pasteAndDrop = [
       return true
     },
     drop(event, view) {
+      if (view.state.readOnly) {
+        event.preventDefault()
+        return true
+      }
       const images = imageFiles(event.dataTransfer?.files)
       if (images.length === 0) return false
       event.preventDefault()

@@ -66,8 +66,9 @@ export class NoteSession extends TypedEventTarget<{ change: Event; doc: DocEvent
   /** Message of the last failed save; cleared when a save works. */
   error = ''
   /**
-   * While set the open note takes no edits and the editor is read-only (`lock`): a vault switch is loading, and
-   * edits typed then could reach neither vault once the switch closes the note.
+   * While set the open note takes no edits (`edit` ignores them, `setFrontmatter` resolves `false`) and the
+   * editor is read-only (`lock`): a vault switch is loading, and edits made then could reach neither vault
+   * once the switch closes the note.
    */
   locked = false
 
@@ -119,8 +120,9 @@ export class NoteSession extends TypedEventTarget<{ change: Event; doc: DocEvent
     this.#changed()
   }
 
-  /** Replaces the frontmatter (written with the next save, which happens right away). */
+  /** Replaces the frontmatter (written with the next save, which happens right away); `false` while `locked`. */
   setFrontmatter(frontmatter: Record<string, JsonValue>): Promise<boolean> {
+    if (this.locked) return Promise.resolve(false)
     this.#frontmatter = frontmatter
     if (this.state === 'saved') this.state = 'dirty'
     return this.flush()

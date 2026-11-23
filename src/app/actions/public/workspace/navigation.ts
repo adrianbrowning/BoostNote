@@ -202,9 +202,11 @@ export class Navigation {
    */
   async newNote(folder: string): Promise<NoteDocument | null> {
     if (!(await this.leave())) return null
-    const key = this.tabs.activeKey
+    const tab = this.tabs.active
+    const path = tab?.kind === 'note' ? tab.path : undefined
     const note = await this.#api.createNote(folder)
-    if (!(await this.#release(() => this.tabs.activeKey === key))) return null
+    const current = () => this.tabs.active === tab && (tab?.kind !== 'note' || tab.path === path)
+    if (!(await this.#release(current))) return null
     this.#edit((tabs) => tabs.navigate(note.id))
     this.#session.open(note)
     return note

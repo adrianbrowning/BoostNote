@@ -121,6 +121,11 @@ export function createLivePreviewEditor(opts: LivePreviewEditorOptions): LivePre
         opts.onChange(update.state.doc.toString())
       }
     }),
+    // Read-only also holds against commands, pastes and image saves that finish late, which dispatch changes
+    // themselves; their effects still apply. `setDoc` (the app's own update) goes through.
+    EditorState.transactionFilter.of((tr) =>
+      tr.docChanged && tr.startState.readOnly && !tr.annotation(externalChange) ? { effects: tr.effects } : tr,
+    ),
   ]
   const createState = (doc: string) =>
     EditorState.create({
