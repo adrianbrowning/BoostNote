@@ -26,12 +26,19 @@ const UNSAVED = 'This note has unsaved changes that could not be saved. Resolve 
 let app: TestApp
 /** While set, note saves fail as if the disk were full. */
 let failSaves = false
+/** While set, note reads wait here until the test releases them (`release()` lets the fetch go on). */
+let heldReads: { id: string; release: () => void }[] | null = null
 /** The page's API client over the current test's router. */
-const api = createClient((href, init) =>
-  failSaves && new URL(href, origin).pathname === '/api/notes/save'
-    ? Promise.reject(new Error('Disk full'))
-    : app.fetch(href, init),
-)
+const api = createClient(async (href, init) => {
+  const url = new URL(href, origin)
+  if (failSaves && url.pathname === '/api/notes/save') throw new Error('Disk full')
+  if (heldReads && url.pathname === '/api/notes/read') {
+    const { promise, resolve } = Promise.withResolvers<void>()
+    heldReads.push({ id: url.searchParams.get('id') ?? '', release: resolve })
+    await promise
+  }
+  return app.fetch(href, init)
+})
 let folder: string
 let data: WorkspaceData
 let store: MemoryTabStore
@@ -67,6 +74,7 @@ function createNavigation(tabStore: TabStore): Navigation {
 beforeEach(async () => {
   app = await TestApp.create()
   failSaves = false
+  heldReads = null
   folder = await folderWith('vault', { 'a.md': '# A\n', 'b.md': '# B\n', 'c.md': '# C\n', 'f/n.md': '# N\n' })
   await app.openVault('vault')
   data = await api.workspace()
@@ -229,6 +237,24 @@ describe('Navigation', () => {
       (tabs) => tabs.openNew('x.md'),
     )
     await expect(switched).rejects.toThrow('QuotaExceededError')
+  })
+
+  it('drops a read that returns after a later transition: the session shows the active tab’s note', async () => {
+    const reads: { id: string; release: () => void }[] = []
+    heldReads = reads
+    const toA = navigation.open('a.md')
+    await expect.poll(() => reads.length).toBe(1)
+    const toB = navigation.open('b.md', { newTab: true })
+    await expect.poll(() => reads.map((read) => read.id)).toEqual(['a.md', 'b.md'])
+
+    // B's read returns first, then A's.
+    reads[1]?.release()
+    await toB
+    reads[0]?.release()
+    await toA
+    expect(session.note?.id).toBe('b.md')
+    expect(navigation.tabs.active).toMatchObject({ kind: 'note', path: 'b.md' })
+    expect(notices).toEqual([])
   })
 
   it('the router-backed client names the test app’s vault, whatever vault the page shows', async () => {

@@ -304,9 +304,17 @@ export class Navigation {
       this.#host.changed()
       return
     }
+    // A later transition can change the active tab (or its note) while the read is out: its late result
+    // (or error) is dropped.
+    const current = () => {
+      const active = this.tabs.active
+      return active?.key === tab?.key && active?.kind === 'note' && active.path === id
+    }
     try {
-      this.#session.open(await this.#api.readNote(id))
+      const note = await this.#api.readNote(id)
+      if (current()) this.#session.open(note)
     } catch (error) {
+      if (!current()) return
       if (!(error instanceof ApiError && error.status === 404)) {
         this.#host.fail(error)
         return
