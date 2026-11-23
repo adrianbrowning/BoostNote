@@ -1,4 +1,5 @@
 // @vitest-environment happy-dom
+import { CompletionContext } from '@codemirror/autocomplete'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 const mermaidMock = vi.hoisted(() => ({
@@ -15,6 +16,7 @@ import { continueMarkup } from '../../src/editor/language.ts'
 import { linkAt } from '../../src/editor/links.ts'
 import { setEditorFocused } from '../../src/editor/live-preview/selection.ts'
 import { renderMermaid } from '../../src/editor/render/mermaid.ts'
+import { slashCompletionSource } from '../../src/editor/slash.ts'
 import { docWithSelection, markdownState, runCommand } from './helpers.ts'
 
 let editor: LivePreviewEditor | undefined
@@ -52,6 +54,7 @@ afterEach(() => {
   document.body.replaceChildren()
   mermaidMock.render.mockClear()
   mermaidMock.initialize.mockClear()
+  vi.restoreAllMocks()
 })
 
 describe('createLivePreviewEditor', () => {
@@ -97,12 +100,62 @@ describe('createLivePreviewEditor', () => {
     expect(editor.view.state.doc.toString()).toBe('see ')
     expect(onChange).not.toHaveBeenCalled()
 
-    // The app's own updates still show while read-only.
-    editor.setDoc('see you', { preserveSelection: true })
+    // The app's own updates still show while read-only, and a full reset (another note) stays read-only.
+    editor.setDoc('see', { preserveSelection: true })
+    expect(editor.view.state.doc.toString()).toBe('see')
+    editor.setDoc('see you')
+    editor.view.dispatch({ changes: { from: 7, insert: '?' } })
     expect(editor.view.state.doc.toString()).toBe('see you')
     editor.setReadOnly(false)
     editor.view.dispatch({ changes: { from: 7, insert: '!' } })
     expect(onChange).toHaveBeenCalledWith('see you!')
+  })
+
+  it('inserts nothing and saves nothing from an image picked after the note was replaced or the editor locked', async () => {
+    const saveAsset = vi.fn(async (file: File) => `./note.assets/${file.name}`)
+    const { editor } = mount('/image', { saveAsset })
+    const pickers: HTMLInputElement[] = []
+    vi.spyOn(HTMLInputElement.prototype, 'click').mockImplementation(function (this: HTMLInputElement) {
+      pickers.push(this)
+    })
+    /** Runs `/image` at the end of the document, opening the (fake) file picker. */
+    const runImage = () => {
+      const { state } = editor.view
+      editor.view.dispatch({ selection: { anchor: state.doc.length } })
+      const result = slashCompletionSource(new CompletionContext(editor.view.state, state.doc.length, false))
+      const option = result?.options.find((candidate) => candidate.label === '/image')
+      if (typeof option?.apply !== 'function') throw new Error('no /image command')
+      option.apply(editor.view, option, result?.from ?? 0, state.doc.length)
+    }
+    /**
+     * The user picks `name` in the last opened picker; resolves once the command's reaction to it (a chain of
+     * promise continuations, no timers) has run.
+     */
+    const pick = async (name: string) => {
+      const input = pickers.at(-1)
+      if (!input) throw new Error('no picker opened')
+      Object.defineProperty(input, 'files', { value: [new File(['png'], name, { type: 'image/png' })] })
+      input.dispatchEvent(new Event('change'))
+      // A macrotask runs only after every queued microtask, so the command has checked and saved (or not) by then.
+      const { promise, resolve } = Promise.withResolvers<void>()
+      setTimeout(resolve, 0)
+      await promise
+    }
+
+    runImage()
+    editor.setDoc('Another note')
+    await pick('late.png')
+    editor.setDoc('/image')
+    runImage()
+    editor.setReadOnly(true)
+    await pick('locked.png')
+    editor.setReadOnly(false)
+    editor.setDoc('/image')
+    runImage()
+    await pick('kept.png')
+
+    await vi.waitFor(() => expect(editor.view.state.doc.toString()).toBe('![kept](./note.assets/kept.png)'))
+    expect(saveAsset.mock.calls.map(([file]) => file.name)).toEqual(['kept.png'])
   })
 
   it('setDoc with preserveSelection keeps the cursor on unchanged text', () => {

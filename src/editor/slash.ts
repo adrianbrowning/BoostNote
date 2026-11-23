@@ -10,7 +10,7 @@ import type { EditorView } from '@codemirror/view'
 import type { SyntaxNode } from '@lezer/common'
 
 import { editorHost } from './config.ts'
-import { imageMarkdown } from './paste.ts'
+import { imageMarkdown, trackInsertion } from './paste.ts'
 
 /** A block the slash menu inserts. `cursor` is the offset inside `text` where the cursor lands. */
 interface BlockTemplate {
@@ -138,13 +138,19 @@ function pickImage(): Promise<File | undefined> {
 }
 
 async function runImageCommand(view: EditorView, from: number, to: number): Promise<void> {
-  // Remove the `/query` first; the picker is asynchronous and the user may keep typing meanwhile.
+  // Remove the `/query` first; the picker is asynchronous and the user may keep typing meanwhile, or switch notes.
   view.dispatch({ changes: { from, to }, userEvent: 'input.slash' })
-  const file = await pickImage()
-  if (!file) return
-  const path = await view.state.facet(editorHost).saveAsset(file)
-  const at = Math.min(from, view.state.doc.length)
-  view.dispatch(slashCommandTransaction(view.state, at, at, template(imageMarkdown(file.name, path))))
+  const target = trackInsertion(view, from)
+  try {
+    const file = await pickImage()
+    if (!file || target.at() === undefined) return
+    const path = await view.state.facet(editorHost).saveAsset(file)
+    const at = target.at()
+    if (at === undefined) return
+    view.dispatch(slashCommandTransaction(view.state, at, at, template(imageMarkdown(file.name, path))))
+  } finally {
+    target.done()
+  }
 }
 
 function applySlashCommand(view: EditorView, command: SlashCommand, from: number, to: number): void {
