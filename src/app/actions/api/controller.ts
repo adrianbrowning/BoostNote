@@ -24,7 +24,7 @@ import type {
 } from '../public/workspace/types.ts'
 import { exportFolder, exportNote } from './export.ts'
 import { parseUiPatch, preferencesState, savePreferences } from './preferences.ts'
-import { importSummary, toNoteDocument, workspaceData } from './workspace-data.ts'
+import { importSummary, toNoteDocument, toNoteRelocationResult, workspaceData } from './workspace-data.ts'
 
 /** Largest asset the editor may upload (pasted screenshots, dropped images). */
 export const MAX_ASSET_BYTES = 50 * 1024 * 1024
@@ -197,15 +197,18 @@ export function createApiController(services: AppServices) {
       noteRename: guarded(async ({ request }: { request: Request }) => {
         const vault = requireVault(services, request)
         const body = await readJsonObject(request)
-        const note = await vault.renameNote(requireString(body.id, 'id'), requireString(body.name, 'name'))
-        return json(toNoteDocument(note))
+        return json(
+          toNoteRelocationResult(
+            await vault.renameNote(requireString(body.id, 'id'), requireString(body.name, 'name')),
+          ),
+        )
       }),
 
       noteMove: guarded(async ({ request }: { request: Request }) => {
         const vault = requireVault(services, request)
         const body = await readJsonObject(request)
         const folder = requireString(body.folder, 'folder', { allowEmpty: true })
-        return json(toNoteDocument(await vault.moveNote(requireString(body.id, 'id'), folder)))
+        return json(toNoteRelocationResult(await vault.moveNote(requireString(body.id, 'id'), folder)))
       }),
 
       noteDelete: guarded(async ({ request }: { request: Request }) => {
@@ -261,14 +264,14 @@ export function createApiController(services: AppServices) {
       folderRename: guarded(async ({ request }: { request: Request }) => {
         const vault = requireVault(services, request)
         const body = await readJsonObject(request)
-        return json({ id: await vault.renameFolder(requireString(body.id, 'id'), requireString(body.name, 'name')) })
+        return json(await vault.renameFolder(requireString(body.id, 'id'), requireString(body.name, 'name')))
       }),
 
       folderMove: guarded(async ({ request }: { request: Request }) => {
         const vault = requireVault(services, request)
         const body = await readJsonObject(request)
         const parent = requireString(body.parent, 'parent', { allowEmpty: true })
-        return json({ id: await vault.moveFolder(requireString(body.id, 'id'), parent) })
+        return json(await vault.moveFolder(requireString(body.id, 'id'), parent))
       }),
 
       folderDelete: guarded(async ({ request }: { request: Request }) => {

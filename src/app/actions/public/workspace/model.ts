@@ -1,15 +1,16 @@
 import { TypedEventTarget } from 'remix/component'
 
-import { lastSegment, noteStem, parentOf, toMeta } from '../../../../shared/vault-ids.ts'
+import { lastSegment, movedId, noteStem, parentOf, toMeta } from '../../../../shared/vault-ids.ts'
 import { ApiError, type Client, setPageVault } from './api.ts'
 import type { DropTicket } from './drop-import.ts'
 import { Navigation, type TabStore } from './navigation.ts'
 import { NoteSaving } from './note-saving.ts'
 import { NoteSession } from './note-session.ts'
 import { folderChain } from './paths.ts'
-import { linkMovesAfterRelocate, linksUpdatedNotice, linkUpdateFailedNotice } from './relocate.ts'
+import { linksUpdatedNotice, linkUpdateFailedNotice, relocateNotice } from './relocate.ts'
 import type { ReaderTab, Tabs } from './tabs.ts'
 import type {
+  FolderRelocationResult,
   FolderSummary,
   ImportFilesReport,
   JsonValue,
@@ -547,17 +548,17 @@ export class WorkspaceModel extends TypedEventTarget<{
         const sameVault = this.navigation.vaultToken()
         const renamed = await this.#api.renameNote(id, name)
         if (!sameVault()) return renamed
-        this.navigation.rebase((path) => (path === id ? renamed.id : path))
-        if (this.openId === id) this.session.relocated(renamed)
+        this.navigation.rebase((path) => (path === id ? renamed.note.id : path))
+        if (this.openId === id) this.session.relocated(renamed.note)
         return renamed
       },
       { gate: this.openId === id },
     )
     if (!renamed) return
     await this.refresh()
-    const outcome = linkMovesAfterRelocate({ from: id, result: renamed })
+    const outcome = relocateNotice({ assetsLeftBehind: renamed.assetsLeftBehind })
     if (outcome.notice) this.notify('info', outcome.notice, [], outcome.sticky)
-    for (const move of outcome.moves) void this.#offerLinkUpdates(move, outcome.warning)
+    void this.#offerLinkUpdates(renamed.moves, outcome.warning)
   }
 
   setTitleRenamesOpen(open: boolean): void {
@@ -600,28 +601,34 @@ export class WorkspaceModel extends TypedEventTarget<{
           const sameVault = this.navigation.vaultToken()
           const moved = await this.#api.moveNote(id, folder)
           if (!sameVault()) return moved
-          this.navigation.rebase((path) => (path === id ? moved.id : path))
-          if (this.openId === id) this.session.relocated(moved)
+          this.navigation.rebase((path) => (path === id ? moved.note.id : path))
+          if (this.openId === id) this.session.relocated(moved.note)
           return moved
         },
         { gate: this.openId === id },
       )
       if (!moved) return
       await this.refresh()
-      const outcome = linkMovesAfterRelocate({ from: id, result: moved, done: `Moved to ${this.folderName(folder)}` })
+      const outcome = relocateNotice({
+        assetsLeftBehind: moved.assetsLeftBehind,
+        done: `Moved to ${this.folderName(folder)}`,
+      })
       if (outcome.notice) this.notify('info', outcome.notice, [], outcome.sticky)
-      for (const move of outcome.moves) void this.#offerLinkUpdates(move, outcome.warning)
+      void this.#offerLinkUpdates(moved.moves, outcome.warning)
     })
   }
 
   /**
-   * After the app renamed/moved a note or folder: when other notes still link to its old place,
-   * asks whether to update those links, and rewrites them on "Update links" (the open note's
-   * pending edits are saved first; if it was rewritten it reloads like any outside change).
+   * After the app renamed/moved a note or folder (`moves`, as the server returned them): when other
+   * notes still link to its old place, asks whether to update those links, and rewrites them on
+   * "Update links" (the open note's pending edits are saved first; if it was rewritten it reloads
+   * like any outside change).
    */
-  async #offerLinkUpdates(move: LinkMove, warning?: string): Promise<void> {
+  async #offerLinkUpdates(moves: LinkMove[], warning?: string): Promise<void> {
+    const [move] = moves
+    if (!move) return
     try {
-      const plan = await this.#api.planLinkUpdates([move])
+      const plan = await this.#api.planLinkUpdates(moves)
       if (plan.total === 0) return
       const name = noteStem(move.from)
       const links = plan.total === 1 ? '1 link' : `${plan.total} links`
@@ -638,7 +645,7 @@ export class WorkspaceModel extends TypedEventTarget<{
       })
       if (!(await promise)) return
       await this.session.flush()
-      const report = await this.#api.applyLinkUpdates([move])
+      const report = await this.#api.applyLinkUpdates(moves)
       const openId = this.openId
       if (openId !== null && report.notes.some((note) => note.id === openId)) await this.session.externalChange()
       await this.refresh()
@@ -678,7 +685,7 @@ export class WorkspaceModel extends TypedEventTarget<{
       const trashed = await this.navigation.deleteNote(id)
       if (!trashed) return
       await this.refresh()
-      const { notice, sticky } = linkMovesAfterRelocate({ result: { id, ...trashed }, done: 'Moved to Trash' })
+      const { notice, sticky } = relocateNotice({ assetsLeftBehind: trashed.assetsLeftBehind, done: 'Moved to Trash' })
       if (notice) this.notify('info', notice, [], sticky)
     })
   }
@@ -926,16 +933,15 @@ export class WorkspaceModel extends TypedEventTarget<{
     await this.#relocateFolder(id, () => this.#api.moveFolder(id, parent))
   }
 
-  async #relocateFolder(id: string, relocate: () => Promise<{ id: string }>): Promise<void> {
+  async #relocateFolder(id: string, relocate: () => Promise<FolderRelocationResult>): Promise<void> {
     const affectsOpen = this.openId?.startsWith(`${id}/`) ?? false
     await this.attempt(async () => {
-      const next = await this.navigation.hold(
+      const relocated = await this.navigation.hold(
         async () => {
           const sameVault = this.navigation.vaultToken()
-          const { id: next } = await relocate()
-          if (!sameVault()) return next
-          const rebase = (value: string) =>
-            value === id || value.startsWith(`${id}/`) ? next + value.slice(id.length) : value
+          const relocated = await relocate()
+          if (!sameVault()) return relocated
+          const rebase = (value: string) => movedId(value, id, relocated.folder) ?? value
           if (this.selection.kind === 'folder') this.selection = { kind: 'folder', id: rebase(this.selection.id) }
           for (const folder of [...this.expanded]) {
             this.expanded.delete(folder)
@@ -949,13 +955,13 @@ export class WorkspaceModel extends TypedEventTarget<{
             const note = await this.#api.readNote(rebase(openId))
             if (current()) this.session.relocated(note)
           }
-          return next
+          return relocated
         },
         { gate: affectsOpen },
       )
-      if (next === null) return
+      if (relocated === null) return
       await this.refresh()
-      void this.#offerLinkUpdates({ from: id, to: next, kind: 'folder' })
+      void this.#offerLinkUpdates(relocated.moves)
     })
   }
 
@@ -992,7 +998,10 @@ export class WorkspaceModel extends TypedEventTarget<{
       const restored = await this.#api.restore(trashId)
       this.selectedTrashId = null
       await this.refresh()
-      const { notice, sticky } = linkMovesAfterRelocate({ result: restored, done: `Restored ${restored.id}` })
+      const { notice, sticky } = relocateNotice({
+        assetsLeftBehind: restored.assetsLeftBehind,
+        done: `Restored ${restored.id}`,
+      })
       if (notice) this.notify('info', notice, [], sticky)
     })
   }

@@ -51,7 +51,7 @@ describe('NoteSession', () => {
 
   it('Save my copy writes the editor copy as a new note where the removed one was, keeping the moved disk copy and the frontmatter', async () => {
     const note = await openNote('start\n', { tags: ['x'] })
-    const moved = await api.renameNote(note.id, 'Elsewhere')
+    const { note: moved } = await api.renameNote(note.id, 'Elsewhere')
     session.edit('mine\n')
     expect(await session.flush()).toBe(false)
     expect(session.state).toBe('removed')

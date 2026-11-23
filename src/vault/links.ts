@@ -5,6 +5,7 @@ import {
   isRelativeLink,
   lastSegment,
   linkPath,
+  movedId,
   normalizeLinkPath,
   parentOf,
   splitNoteExtension,
@@ -132,9 +133,12 @@ function movedPrefixes(moves: readonly LinkMove[]): MovedPrefix[] {
 /** Where the vault path `target` is after the moves, or `undefined` when none of them moved it. */
 function movedTarget(target: string, prefixes: readonly MovedPrefix[]): string | undefined {
   for (const prefix of prefixes) {
-    if (target === prefix.from || (!prefix.exact && target.startsWith(`${prefix.from}/`))) {
-      return prefix.to + target.slice(prefix.from.length)
-    }
+    const moved = prefix.exact
+      ? target === prefix.from
+        ? prefix.to
+        : undefined
+      : movedId(target, prefix.from, prefix.to)
+    if (moved !== undefined) return moved
   }
   return undefined
 }

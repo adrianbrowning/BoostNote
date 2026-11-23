@@ -7,6 +7,7 @@ import {
   joinId,
   lastSegment,
   linkPath,
+  movedId,
   noteStem,
   parentOf,
   resolveLinkPath,
@@ -167,6 +168,27 @@ export interface LinkUpdateReport {
   notes: LinkUpdate[]
   /** Links in all `notes`. */
   total: number
+}
+
+/** What `renameNote`/`moveNote` do about other notes' links to the note's old place, in the same locked step. */
+export interface RelocateLinksOptions {
+  /** `'apply'` rewrites them (`applyLinkUpdates`), `'plan'` only finds them (`planLinkUpdates`); left out, neither. */
+  links?: 'apply' | 'plan'
+}
+
+/** A renamed or moved note. */
+export interface NoteRelocation extends AssetsLeftBehind {
+  note: Note
+  /** The moves to pass to `planLinkUpdates`/`applyLinkUpdates`; empty when the note stayed where it was. */
+  moves: LinkMove[]
+  /** With `links`: the other notes' links that were rewritten (`'apply'`) or would be (`'plan'`). */
+  links?: LinkUpdateReport
+}
+
+/** A renamed or moved folder: its new id and the moves to pass to `planLinkUpdates`/`applyLinkUpdates`. */
+export interface FolderRelocation {
+  folder: string
+  moves: LinkMove[]
 }
 
 interface KnownFile {
@@ -401,9 +423,9 @@ export class Vault {
   /**
    * Renames the file — the note's name — to `name` with the note's extension as the file has it
    * (`Plan.MD` → `Roadmap.MD`); its assets folder follows (unless an extension-case twin shares it)
-   * and its own links are rewritten.
+   * and its own links are rewritten. Other notes' links follow with `links: 'apply'`.
    */
-  renameNote(id: string, name: string): Promise<Note & AssetsLeftBehind> {
+  renameNote(id: string, name: string, options: RelocateLinksOptions = {}): Promise<NoteRelocation> {
     return this.#exclusive(async () => {
       if (/^\.md$/i.test(name.trim())) {
         throw new VaultError('INVALID_PATH', `Invalid note name: ${JSON.stringify(name)}`)
@@ -411,7 +433,7 @@ export class Vault {
       const stem = sanitizeFileName(splitNoteExtension(name).base)
       if (stem === '') throw new VaultError('INVALID_PATH', `Invalid note name: ${JSON.stringify(name)}`)
       const toId = joinId(parentOf(id), `${stem}${splitNoteExtension(id).extension}`)
-      return this.#relocateNote(id, toId)
+      return this.#withLinks(await this.#relocateNote(id, toId), options)
     })
   }
 
@@ -506,9 +528,9 @@ export class Vault {
           if (sanitizeFileName(noteStem(rename.to)) !== noteStem(rename.to)) {
             throw new VaultError('INVALID_PATH', `Invalid note name: ${JSON.stringify(noteStem(rename.to))}`)
           }
-          const note = await this.#relocateNote(rename.from, rename.to)
-          const { assetsLeftBehind } = note
-          moves.push({ from: rename.from, to: rename.to, kind: 'note', assets: assetsLeftBehind === undefined })
+          const relocation = await this.#relocateNote(rename.from, rename.to)
+          const { note, assetsLeftBehind } = relocation
+          moves.push(...relocation.moves)
           report.renamed.push(assetsLeftBehind ? { ...rename, assetsLeftBehind } : rename)
           const { title: _title, ...rest } = note.frontmatter
           if (note.frontmatter.title === noteStem(rename.to)) {
@@ -576,15 +598,22 @@ export class Vault {
 
   /**
    * Moves a note into `folder`, keeping its file name (extension case too) unless taken (then ` 2`,
-   * …); its assets folder follows unless an extension-case twin shares it.
+   * …); its assets folder follows unless an extension-case twin shares it. Other notes' links
+   * follow with `links: 'apply'`.
    */
-  moveNote(id: string, folder: string): Promise<Note & AssetsLeftBehind> {
+  moveNote(id: string, folder: string, options: RelocateLinksOptions = {}): Promise<NoteRelocation> {
     return this.#exclusive(async () => {
-      if (parentOf(id) === folder) return this.readNote(id)
+      if (parentOf(id) === folder) return { note: await this.readNote(id), moves: [] }
       const dir = await this.#existingFolder(folder)
       const toId = joinId(folder, `${await uniqueStem(dir, noteStem(id))}${splitNoteExtension(id).extension}`)
-      return this.#relocateNote(id, toId)
+      return this.#withLinks(await this.#relocateNote(id, toId), options)
     })
+  }
+
+  /** `relocation` with the link pass `options.links` asks for, run inside the caller's `#exclusive` section. */
+  async #withLinks(relocation: NoteRelocation, options: RelocateLinksOptions): Promise<NoteRelocation> {
+    if (options.links === undefined) return relocation
+    return { ...relocation, links: await this.#rewriteIncomingLinks(relocation.moves, options.links === 'apply') }
   }
 
   /**
@@ -716,13 +745,13 @@ export class Vault {
     })
   }
 
-  /** Renames a folder in place; returns the new id. Colours and order follow the folder. */
-  renameFolder(id: string, name: string): Promise<string> {
+  /** Renames a folder in place. Colours and order follow the folder. */
+  renameFolder(id: string, name: string): Promise<FolderRelocation> {
     return this.#exclusive(() => this.#relocateFolder(id, joinId(parentOf(id), this.#folderName(name))))
   }
 
-  /** Moves a folder under `parent`; returns the new id. */
-  moveFolder(id: string, parent: string): Promise<string> {
+  /** Moves a folder under `parent`. */
+  moveFolder(id: string, parent: string): Promise<FolderRelocation> {
     return this.#exclusive(() => {
       if (parent === id || parent.startsWith(`${id}/`)) {
         throw new VaultError('INVALID_PATH', `Cannot move ${id} into itself`)
@@ -928,12 +957,12 @@ export class Vault {
     for (let folder = parentOf(id); folder !== ''; folder = parentOf(folder)) this.#folders.add(folder)
   }
 
-  async #relocateNote(fromId: string, toId: string): Promise<Note & AssetsLeftBehind> {
+  async #relocateNote(fromId: string, toId: string): Promise<NoteRelocation> {
     const from = await resolveInside(this.root, noteSegments(fromId))
     const to = await resolveInside(this.root, noteSegments(toId))
     const raw = await readOptional(from)
     if (raw === undefined) throw new VaultError('NOT_FOUND', `Note not found: ${fromId}`)
-    if (fromId === toId) return this.#track(fromId, from, raw)
+    if (fromId === toId) return { note: await this.#track(fromId, from, raw), moves: [] }
     const assetsLeftBehind = await sharedAssetsOf(fromId, from)
     const assetsMove = assetsLeftBehind === undefined
     if (
@@ -946,36 +975,34 @@ export class Vault {
     // Rename first (also handles case-only renames on case-insensitive file systems), then fix links.
     await rename(from, to)
     if (assetsMove) await renameIfExists(assetsDirOf(from), assetsDirOf(to))
+    const moves: LinkMove[] = [{ from: fromId, to: toId, kind: 'note', assets: assetsMove }]
     const text = parseNoteText(raw)
-    const body = rebaseNoteLinks(text.body, fromId, toId, [
-      { from: fromId, to: toId, kind: 'note', assets: assetsMove },
-    ])
+    const body = rebaseNoteLinks(text.body, fromId, toId, moves)
     const next = body === text.body ? raw : raw.slice(0, raw.length - text.body.length) + body
     if (next !== raw) await writeFileAtomic(to, next)
     this.#untrack(fromId)
     const note = await this.#track(toId, to, next)
-    return assetsLeftBehind ? { ...note, assetsLeftBehind } : note
+    return assetsLeftBehind ? { note, moves, assetsLeftBehind } : { note, moves }
   }
 
   /**
    * Moves a folder; the relative links of the notes in it are re-based on their new place (links
    * between notes inside the folder, and into their assets, follow the move).
    */
-  async #relocateFolder(id: string, toId: string): Promise<string> {
+  async #relocateFolder(id: string, toId: string): Promise<FolderRelocation> {
     if (id === '') throw new VaultError('INVALID_PATH', 'Cannot move the vault root')
     const from = await this.#existingFolder(id)
     const to = await resolveInside(this.root, folderSegments(toId))
-    if (id === toId) return id
+    if (id === toId) return { folder: id, moves: [] }
     await this.#existingFolder(parentOf(toId))
     if (!(await sameOrMissing(from, to))) throw new VaultError('EXISTS', `Already exists: ${toId}`)
-    const inside = this.#index
-      .all()
-      .map((meta) => meta.id)
-      .filter((noteId) => noteId.startsWith(`${id}/`))
+    const inside = this.#index.all().flatMap((meta) => {
+      const noteId = movedId(meta.id, id, toId)
+      return noteId === undefined ? [] : [{ fromId: meta.id, noteId }]
+    })
     await rename(from, to)
     const moves: LinkMove[] = [{ from: id, to: toId, kind: 'folder' }]
-    for (const fromId of inside) {
-      const noteId = toId + fromId.slice(id.length)
+    for (const { fromId, noteId } of inside) {
       const file = await resolveInside(this.root, noteSegments(noteId))
       const raw = await readOptional(file)
       if (raw === undefined) continue
@@ -983,14 +1010,14 @@ export class Vault {
       const body = rebaseNoteLinks(text.body, fromId, noteId, moves)
       if (body !== text.body) await writeFileAtomic(file, raw.slice(0, raw.length - text.body.length) + body)
     }
-    const moveKey = (key: string) => (key === id || key.startsWith(`${id}/`) ? toId + key.slice(id.length) : key)
+    const moveKey = (key: string) => movedId(key, id, toId) ?? key
     this.#config.folders = Object.fromEntries(
       Object.entries(this.#config.folders).map(([key, folder]) => [moveKey(key), folder]),
     )
     if (this.#config.folderOrder) this.#config.folderOrder = this.#config.folderOrder.map(moveKey)
     await writeConfig(this.root, this.#config)
     await this.#scan(false)
-    return toId
+    return { folder: toId, moves }
   }
 
   /**

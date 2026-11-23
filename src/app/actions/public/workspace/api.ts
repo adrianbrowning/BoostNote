@@ -2,6 +2,7 @@ import { routes } from '../../../routes.ts'
 import type {
   AssetsLeftBehind,
   ExportResult,
+  FolderRelocationResult,
   ImportCandidate,
   ImportFilesReport,
   ImportSummary,
@@ -9,6 +10,7 @@ import type {
   LinkMove,
   LinkUpdateReport,
   NoteDocument,
+  NoteRelocationResult,
   OpenRequest,
   PreferencesState,
   ReaderDocument,
@@ -130,8 +132,8 @@ export function createClient(transport: Transport) {
     readNote,
     createNote: (folder: string) => post<NoteDocument>(api.noteCreate.href(), { folder }),
     saveNote,
-    renameNote: (id: string, name: string) => post<NoteDocument>(api.noteRename.href(), { id, name }),
-    moveNote: (id: string, folder: string) => post<NoteDocument>(api.noteMove.href(), { id, folder }),
+    renameNote: (id: string, name: string) => post<NoteRelocationResult>(api.noteRename.href(), { id, name }),
+    moveNote: (id: string, folder: string) => post<NoteRelocationResult>(api.noteMove.href(), { id, folder }),
     deleteNote: (id: string) => post<AssetsLeftBehind>(api.noteDelete.href(), { id }),
     revealNote: (id: string) => post<unknown>(api.noteReveal.href(), { id }),
     planTitleRenames: () => request<TitleRenamePlan>(api.titleRenamesPlan.href()),
@@ -141,8 +143,8 @@ export function createClient(transport: Transport) {
     applyLinkUpdates: (moves: LinkMove[]) => post<LinkUpdateReport>(api.linksApply.href(), { moves }),
 
     createFolder: (parent: string, name: string) => post<{ id: string }>(api.folderCreate.href(), { parent, name }),
-    renameFolder: (id: string, name: string) => post<{ id: string }>(api.folderRename.href(), { id, name }),
-    moveFolder: (id: string, parent: string) => post<{ id: string }>(api.folderMove.href(), { id, parent }),
+    renameFolder: (id: string, name: string) => post<FolderRelocationResult>(api.folderRename.href(), { id, name }),
+    moveFolder: (id: string, parent: string) => post<FolderRelocationResult>(api.folderMove.href(), { id, parent }),
     deleteFolder: (id: string) => post<unknown>(api.folderDelete.href(), { id }),
     setFolderColor: (id: string, color: string | null) => post<unknown>(api.folderColor.href(), { id, color }),
 

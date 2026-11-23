@@ -61,15 +61,28 @@ export type JsonValue = string | number | boolean | null | JsonValue[] | { [key:
 /** What lists show about a note: the vault index's `NoteMeta`. */
 export type NoteSummary = NoteMeta
 
-/**
- * A note as the editor needs it: frontmatter and body kept apart, `hash` for optimistic concurrency.
- * After a rename or move, `assetsLeftBehind` is set when an extension-case twin kept the shared assets folder.
- */
-export interface NoteDocument extends NoteSummary, AssetsLeftBehind {
+/** A note as the editor needs it: frontmatter and body kept apart, `hash` for optimistic concurrency. */
+export interface NoteDocument extends NoteSummary {
   frontmatter: { [key: string]: JsonValue }
   body: string
   /** sha256 of the whole file as last read or written. */
   hash: string
+}
+
+/**
+ * `POST /api/notes/rename` and `/move`: the note at its new place, the moves to offer to
+ * `/api/links/*` (empty when it stayed), and `assetsLeftBehind` when an extension-case twin kept the
+ * shared assets folder.
+ */
+export interface NoteRelocationResult extends AssetsLeftBehind {
+  note: NoteDocument
+  moves: LinkMove[]
+}
+
+/** `POST /api/folders/rename` and `/move`: the folder's new id and the moves to offer to `/api/links/*`. */
+export interface FolderRelocationResult {
+  folder: string
+  moves: LinkMove[]
 }
 
 /**

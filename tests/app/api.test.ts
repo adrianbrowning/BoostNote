@@ -3,10 +3,12 @@ import * as path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { MAX_IMPORT_PATHS } from '../../src/app/actions/api/controller.ts'
 import type {
+  FolderRelocationResult,
   ImportFilesReport,
   ImportSummary,
   LinkUpdateReport,
   NoteDocument,
+  NoteRelocationResult,
   OpenRequest,
   PreferencesState,
   ReaderFolderResult,
@@ -179,10 +181,19 @@ describe('notes', () => {
   it('creates, renames, moves, deletes and restores notes', async () => {
     await app.post(api.folderCreate.href(), { parent: '', name: 'Work' })
     const note = await createNote()
-    const renamed = await readJson<NoteDocument>(await app.post(api.noteRename.href(), { id: note.id, name: 'plan' }))
-    expect(renamed.id).toBe('plan.md')
-    const moved = await readJson<NoteDocument>(await app.post(api.noteMove.href(), { id: 'plan.md', folder: 'Work' }))
-    expect(moved.id).toBe('Work/plan.md')
+    const renamed = await readJson<NoteRelocationResult>(
+      await app.post(api.noteRename.href(), { id: note.id, name: 'plan' }),
+    )
+    expect(renamed.note.id).toBe('plan.md')
+    expect(renamed.moves).toEqual([{ from: note.id, to: 'plan.md', kind: 'note', assets: true }])
+    expect(renamed.assetsLeftBehind).toBeUndefined()
+    const moved = await readJson<NoteRelocationResult>(
+      await app.post(api.noteMove.href(), { id: 'plan.md', folder: 'Work' }),
+    )
+    expect(moved).toMatchObject({
+      note: { id: 'Work/plan.md', body: renamed.note.body },
+      moves: [{ from: 'plan.md', to: 'Work/plan.md', kind: 'note', assets: true }],
+    })
 
     expect((await app.post(api.noteDelete.href(), { id: 'Work/plan.md' })).status).toBe(200)
     let workspace = await readJson<WorkspaceData>(await app.get(api.workspace.href()))
@@ -217,9 +228,17 @@ describe('notes', () => {
     expect((await app.post(api.folderColor.href(), { id: 'A', color: 'red;}' })).status).toBe(400)
     expect((await app.post(api.folderColor.href(), { id: 'A', color: '#12345' })).status).toBe(400)
     expect((await app.post(api.folderColor.href(), { id: 'A', color: '#1234567' })).status).toBe(400)
-    expect(await readJson(await app.post(api.folderRename.href(), { id: 'A', name: 'Alpha' }))).toEqual({ id: 'Alpha' })
-    expect(await readJson(await app.post(api.folderMove.href(), { id: 'Alpha', parent: 'B' }))).toEqual({
-      id: 'B/Alpha',
+    expect(
+      await readJson<FolderRelocationResult>(await app.post(api.folderRename.href(), { id: 'A', name: 'Alpha' })),
+    ).toEqual({
+      folder: 'Alpha',
+      moves: [{ from: 'A', to: 'Alpha', kind: 'folder' }],
+    })
+    expect(
+      await readJson<FolderRelocationResult>(await app.post(api.folderMove.href(), { id: 'Alpha', parent: 'B' })),
+    ).toEqual({
+      folder: 'B/Alpha',
+      moves: [{ from: 'Alpha', to: 'B/Alpha', kind: 'folder' }],
     })
     let workspace = await readJson<WorkspaceData>(await app.get(api.workspace.href()))
     expect(workspace.tree?.folders).toMatchObject([{ id: 'B', folders: [{ id: 'B/Alpha', color: '#E10051' }] }])
@@ -279,8 +298,9 @@ describe('notes', () => {
     await writeFile(path.join(vault.root, 'target.md'), '# Target\n')
     await writeFile(path.join(vault.root, 'linker.md'), '[t](./target.md#x)\n')
     await vault.refresh()
-    await app.post(api.noteRename.href(), { id: 'target.md', name: 'New name' })
-    const moves = [{ from: 'target.md', to: 'New name.md', kind: 'note' }]
+    const { moves } = await readJson<NoteRelocationResult>(
+      await app.post(api.noteRename.href(), { id: 'target.md', name: 'New name' }),
+    )
 
     const plan = await readJson<LinkUpdateReport>(await app.post(api.linksPlan.href(), { moves }))
     expect(plan).toEqual({ notes: [{ id: 'linker.md', title: 'linker', links: 1 }], total: 1 })
@@ -315,9 +335,15 @@ describe('notes', () => {
     if ((await readdir(work)).length !== 3) ctx.skip()
     await vault.refresh()
 
-    const renamed = await readJson<NoteDocument>(await app.post(api.noteRename.href(), { id: 'work/a.md', name: 'b' }))
-    expect(renamed).toMatchObject({ id: 'work/b.md', assetsLeftBehind: 'work/a.assets' })
-    const moves = [{ from: 'work/a.md', to: renamed.id, kind: 'note', assets: false }]
+    const renamed = await readJson<NoteRelocationResult>(
+      await app.post(api.noteRename.href(), { id: 'work/a.md', name: 'b' }),
+    )
+    expect(renamed).toMatchObject({
+      note: { id: 'work/b.md' },
+      assetsLeftBehind: 'work/a.assets',
+      moves: [{ from: 'work/a.md', to: 'work/b.md', kind: 'note', assets: false }],
+    })
+    const { moves } = renamed
     const plan = await readJson<LinkUpdateReport>(await app.post(api.linksPlan.href(), { moves }))
     expect(plan).toEqual({ notes: [{ id: 'work/a.MD', title: 'a', links: 1 }], total: 1 })
     await app.post(api.linksApply.href(), { moves })

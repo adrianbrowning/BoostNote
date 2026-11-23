@@ -2,19 +2,29 @@ import * as path from 'node:path'
 
 import type { MigrationReport } from '../../../migrate/index.ts'
 import { toMeta } from '../../../shared/vault-ids.ts'
-import { type AssetsLeftBehind, type FolderNode, type Note, toJsonValue, type Vault } from '../../../vault/index.ts'
+import { type FolderNode, type Note, type NoteRelocation, toJsonValue, type Vault } from '../../../vault/index.ts'
 import { HttpError } from '../../http.ts'
 import type { AppServices } from '../../services.ts'
-import type { FolderSummary, ImportSummary, NoteDocument, WorkspaceData } from '../public/workspace/types.ts'
+import type {
+  FolderSummary,
+  ImportSummary,
+  NoteDocument,
+  NoteRelocationResult,
+  WorkspaceData,
+} from '../public/workspace/types.ts'
 
-export function toNoteDocument(note: Note & AssetsLeftBehind): NoteDocument {
+export function toNoteDocument(note: Note): NoteDocument {
   return {
     ...toMeta(note),
     frontmatter: toJsonValue(note.frontmatter) as NoteDocument['frontmatter'],
     body: note.body,
     hash: note.hash,
-    ...(note.assetsLeftBehind ? { assetsLeftBehind: note.assetsLeftBehind } : {}),
   }
+}
+
+/** A vault `renameNote`/`moveNote` result as the routes send it. */
+export function toNoteRelocationResult({ note, moves, assetsLeftBehind }: NoteRelocation): NoteRelocationResult {
+  return { note: toNoteDocument(note), moves, ...(assetsLeftBehind ? { assetsLeftBehind } : {}) }
 }
 
 function folderSummary(node: FolderNode): FolderSummary {

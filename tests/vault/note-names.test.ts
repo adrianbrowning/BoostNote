@@ -90,7 +90,7 @@ describe('note titles', () => {
   it('renames with the same sanitiser and refuses empty names', async () => {
     await put('a.md', 'x')
     vault = await openVault(root)
-    expect((await vault.renameNote('a.md', ' Notes: today? ')).id).toBe('Notes- today-.md')
+    expect((await vault.renameNote('a.md', ' Notes: today? ')).note.id).toBe('Notes- today-.md')
     await expect(vault.renameNote('Notes- today-.md', ' .. ')).rejects.toMatchObject({ code: 'INVALID_PATH' })
     await expect(vault.renameNote('Notes- today-.md', '.md')).rejects.toMatchObject({ code: 'INVALID_PATH' })
     await expect(vault.renameNote('Notes- today-.md', ' .MD ')).rejects.toMatchObject({ code: 'INVALID_PATH' })
@@ -100,9 +100,9 @@ describe('note titles', () => {
     await put('a.md', 'x')
     await put('Plan.MD', 'y')
     vault = await openVault(root)
-    expect((await vault.renameNote('a.md', 'B.md')).id).toBe('B.md')
-    expect((await vault.renameNote('B.md', 'C.MD')).id).toBe('C.md')
-    expect((await vault.renameNote('Plan.MD', 'Roadmap.md')).id).toBe('Roadmap.MD')
+    expect((await vault.renameNote('a.md', 'B.md')).note.id).toBe('B.md')
+    expect((await vault.renameNote('B.md', 'C.MD')).note.id).toBe('C.md')
+    expect((await vault.renameNote('Plan.MD', 'Roadmap.md')).note.id).toBe('Roadmap.MD')
   })
 })
 

@@ -607,9 +607,14 @@ Notice only: no electron-updater, no downloads, no installs.
 Renaming or moving a note or folder asks each time whether to update links pointing at it (Obsidian
 style).
 
-- **Moves** (`LinkMove`, `src/vault/links.ts`): `{ from, to, kind: 'note' | 'folder' }`, ids before →
-  after. A note move also covers its `<stem>.assets/`; a folder move is a path-prefix map over every
-  note, asset and subfolder under it. The most specific (longest) prefix wins.
+- **Moves** (`LinkMove`, `src/vault/links.ts`): `{ from, to, kind: 'note' | 'folder', assets? }`, ids
+  before → after. A note move also covers its `<stem>.assets/` (unless `assets: false`: an
+  extension-case twin kept it); a folder move is a path-prefix map over every note, asset and subfolder
+  under it (`movedId`, `src/shared/vault-ids.ts`, the one prefix rule). The most specific (longest)
+  prefix wins. The vault builds them: `renameNote`/`moveNote` return `{ note, moves, assetsLeftBehind? }`
+  and `renameFolder`/`moveFolder` `{ folder, moves }` (empty `moves` when nothing moved); the
+  `/api/notes/rename|move` and `/api/folders/rename|move` routes send them on, and callers pass them to
+  `planLinkUpdates`/`applyLinkUpdates` as they are.
 - **Vault:** `planLinkUpdates(moves)` (dry run, writes nothing) and `applyLinkUpdates(moves)` →
   `{ notes: [{ id, title, links }], total }`, run under the vault's mutation queue. One private pass
   (`#rewriteIncomingLinks`, also used by `applyTitleRenames`) resolves every relative link of every
@@ -622,7 +627,8 @@ style).
   rename/move does the same for every note inside it, so links out of the folder gain/lose `../` and
   links between notes inside it stay valid.
 - **Workspace:** after a successful inline rename, Rename…, Move to…, drag onto a folder, or a folder
-  rename/move, the model calls `POST /api/links/plan`; with `total > 0` it shows "Update links? N links
+  rename/move, the model calls `POST /api/links/plan` with the `moves` the rename/move route returned
+  (the app asks first, so plan and apply stay two steps); with `total > 0` it shows "Update links? N links
   in M notes point to “old name”." with the notes listed (scrolls past eight). **Update links**
   (focused, Enter) flushes the open note's pending save, calls `POST /api/links/apply`, reloads the open
   note through the live-reload path if it was rewritten (`setDoc` with `preserveSelection` when clean,
@@ -643,10 +649,12 @@ deleted for good: `trash` moves a note to `.trash/` (restorable), there is no em
   `search`; id, title, excerpt, score), `read` (document with frontmatter, body and `hash`; `--raw`
   the file), `create`, `write` (body only, frontmatter kept), `append`, `set-props` / MCP
   `update_properties { set, remove }` (`writeNote` with the edited frontmatter, so YAML of keys not
-  named keeps its bytes; `created` is always kept by the vault), `rename` / `move` (then
-  `applyLinkUpdates` for the move, as the app's "Update links"; `--no-update-links` reports
-  `planLinkUpdates`' count instead), `trash`, `restore`, `tags`, `folders`, `tasks` (the app's
-  `taskProgress`). All writes go through the vault (atomic, traversal-safe, serialised).
+  named keeps its bytes; `created` is always kept by the vault), `rename` / `move` (one locked vault
+  step: `Vault.renameNote`/`moveNote` with `links: 'apply'` moves the note and rewrites the other
+  notes' links to it in the same `#exclusive` section, so no write lands in between;
+  `--no-update-links` passes `links: 'plan'` and reports that count instead), `trash`, `restore`,
+  `tags`, `folders`, `tasks` (the app's `taskProgress`). All writes go through the vault (atomic,
+  traversal-safe, serialised).
 - **Conflicts:** `write --base-hash` passes `baseHash` to `writeNote` (checked on entry and just
   before the rename); `append`/`set-props` (and MCP `append_to_note`/`update_properties`) go through
   `Vault.editNote(id, baseHash, edit)`, which reads once, checks `--base-hash` against that read,
