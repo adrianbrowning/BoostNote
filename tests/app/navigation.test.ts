@@ -1,12 +1,12 @@
-import { access, mkdir, readFile, realpath, writeFile } from 'node:fs/promises'
+import { access, readFile, realpath, writeFile } from 'node:fs/promises'
 import * as path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { createClient, setPageVault } from '../../src/app/actions/public/workspace/api.ts'
+import { type Client, setPageVault } from '../../src/app/actions/public/workspace/api.ts'
 import { Navigation, type NavigationHost, type TabStore } from '../../src/app/actions/public/workspace/navigation.ts'
 import { NoteSession } from '../../src/app/actions/public/workspace/note-session.ts'
 import type { TabsSnapshot } from '../../src/app/actions/public/workspace/tabs.ts'
 import type { WorkspaceData } from '../../src/app/actions/public/workspace/types.ts'
-import { origin, TestApp } from './helpers.ts'
+import { folderWith, type HeldClient, heldClient, TestApp } from './helpers.ts'
 
 /** Tab snapshots by vault root, as the app keeps them in `localStorage`. */
 class MemoryTabStore implements TabStore {
@@ -24,32 +24,19 @@ class MemoryTabStore implements TabStore {
 const UNSAVED = 'This note has unsaved changes that could not be saved. Resolve them first.'
 
 let app: TestApp
-/** While set, note saves fail as if the disk were full. */
-let failSaves = false
-/**
- * While set, note and reader reads, note creates and note and folder deletes wait here until the test releases
- * them (`release()` lets the request go on; a create's `id` is `'create'`, a note delete's `'delete'`, a folder
- * delete's `'delete folder'`).
- */
-let heldRequests: { id: string; release: () => void }[] | null = null
-/** While set, a held request fails as if the disk were full once it is released. */
-let failHeld = false
-/** The page's API client over the current test's router. */
-const api = createClient(async (href, init) => {
-  const url = new URL(href, origin)
-  if (failSaves && url.pathname === '/api/notes/save') throw new Error('Disk full')
-  const id = heldId(url)
-  if (heldRequests && id !== undefined) {
-    const { promise, resolve } = Promise.withResolvers<void>()
-    heldRequests.push({ id, release: resolve })
-    await promise
-    if (failHeld) throw new Error('Disk full')
-  }
-  return app.fetch(href, init)
-})
+/** Holds and fails the requests of `api` (`heldClient`). */
+let net: HeldClient
+/** The API client the page would use, built over the current test's router (`TestApp.fetch`), with requests held and failed by `net`. */
+let api: Client
 
-/** The `id` a request is held under while `heldRequests` is set (`undefined`: never held). */
-function heldId(url: URL): string | undefined {
+/** Note saves fail as if the disk were full while `net.fail` is this. */
+const saves = (url: URL) => url.pathname === '/api/notes/save'
+
+/**
+ * What `net.hold(heldIds)` holds: note and reader reads (by note id or ticket), note creates (`'create'`), note
+ * deletes (`'delete'`) and folder deletes (`'delete folder'`).
+ */
+function heldIds(url: URL): string | undefined {
   if (url.pathname === '/api/notes/read') return url.searchParams.get('id') ?? ''
   if (url.pathname === '/api/notes/create') return 'create'
   if (url.pathname === '/api/notes/delete') return 'delete'
@@ -62,16 +49,6 @@ let store: MemoryTabStore
 let notices: string[]
 let session: NoteSession
 let navigation: Navigation
-
-/** Writes `files` into a new folder `name` of the test app's temp dir. */
-async function folderWith(name: string, files: Record<string, string>): Promise<string> {
-  const dir = path.join(app.dir, name)
-  for (const [id, body] of Object.entries(files)) {
-    await mkdir(path.dirname(path.join(dir, id)), { recursive: true })
-    await writeFile(path.join(dir, id), body)
-  }
-  return dir
-}
 
 /** Navigation over `api`, the session and `tabStore`, in a workspace that shows `data`. */
 function createNavigation(tabStore: TabStore): Navigation {
@@ -90,10 +67,9 @@ function createNavigation(tabStore: TabStore): Navigation {
 
 beforeEach(async () => {
   app = await TestApp.create()
-  failSaves = false
-  heldRequests = null
-  failHeld = false
-  folder = await folderWith('vault', { 'a.md': '# A\n', 'b.md': '# B\n', 'c.md': '# C\n', 'f/n.md': '# N\n' })
+  net = heldClient(app)
+  api = net.client
+  folder = await folderWith(app, 'vault', { 'a.md': '# A\n', 'b.md': '# B\n', 'c.md': '# C\n', 'f/n.md': '# N\n' })
   await app.openVault('vault')
   data = await api.workspace()
   store = new MemoryTabStore()
@@ -128,7 +104,7 @@ describe('Navigation', () => {
     expect(await onDisk('a.md')).toMatch(/\n# A\n\nMine\.\n$/)
 
     session.edit('# B\n\nMine.\n')
-    failSaves = true
+    net.fail = saves
     await navigation.open('a.md')
     expect(session.note?.id).toBe('b.md')
     expect(session.body).toBe('# B\n\nMine.\n')
@@ -174,7 +150,7 @@ describe('Navigation', () => {
   it('refuses to delete the open note while its save fails: the note stays on disk, open, with its edits', async () => {
     await navigation.open('a.md')
     session.edit('# A\n\nMine.\n')
-    failSaves = true
+    net.fail = saves
     expect(await navigation.deleteNote('a.md')).toBeNull()
     expect(await onDisk('a.md')).toBe('# A\n')
     expect(notices).toEqual([UNSAVED])
@@ -215,8 +191,8 @@ describe('Navigation', () => {
       await navigation.open('a.md')
       await navigation.open(id, { newTab: true })
       session.edit('# Mine\n\nSaved by the gate.\n')
-      const requests: { id: string; release: () => void }[] = []
-      heldRequests = requests
+      net.hold(heldIds)
+      const requests = net.held
       const deleted = remove()
       await expect.poll(() => requests.map((held) => held.id)).toEqual([request])
       // The gate saved the note; until it is trashed and its tab closed, the session refuses edits (the editor is read-only).
@@ -224,7 +200,7 @@ describe('Navigation', () => {
       session.edit('# Mine\n\nSaved by the gate.\n\nTyped while it is trashed.\n')
       expect(session.body).toBe('# Mine\n\nSaved by the gate.\n')
       expect(session.state).toBe('saved')
-      heldRequests = null
+      net.hold(null)
       requests[0]?.release()
       expect(await deleted).toBeTruthy()
       expect(session.note?.id).toBe('a.md')
@@ -244,13 +220,12 @@ describe('Navigation', () => {
     'takes edits to the open note again when the delete of its $what fails: it stays open, on disk',
     async ({ id, remove, request }) => {
       await navigation.open(id)
-      const requests: { id: string; release: () => void }[] = []
-      heldRequests = requests
+      net.hold(heldIds)
+      const requests = net.held
       const deleted = remove()
       await expect.poll(() => requests.map((held) => held.id)).toEqual([request])
       expect(session.locked).toBe(true)
-      failHeld = true
-      requests[0]?.release()
+      requests[0]?.release('Disk full')
       await expect(deleted).rejects.toThrow('Disk full')
       expect(session.note?.id).toBe(id)
       expect(session.locked).toBe(false)
@@ -263,15 +238,13 @@ describe('Navigation', () => {
 
   it('saves the open note before deleting another note loads the active tab’s note in its place (its read had failed)', async () => {
     await navigation.open('a.md')
-    const reads: { id: string; release: () => void }[] = []
-    heldRequests = reads
-    failHeld = true
+    net.hold(heldIds)
+    const reads = net.held
     const toB = navigation.open('b.md', { newTab: true })
     await expect.poll(() => reads.length).toBe(1)
-    reads[0]?.release()
+    reads[0]?.release('Disk full')
     await toB
-    heldRequests = null
-    failHeld = false
+    net.hold(null)
     // B's read failed: the editor keeps A (and takes edits) while B's tab is active.
     session.edit('# A\n\nTyped after B failed.\n')
     expect(await navigation.deleteNote('c.md')).not.toBeNull()
@@ -281,7 +254,7 @@ describe('Navigation', () => {
   })
 
   it('switches vaults, keeping each vault’s tabs under its root and counting the other vault’s tabs', async () => {
-    const other = await folderWith('other', { 'x.md': '# X\n' })
+    const other = await folderWith(app, 'other', { 'x.md': '# X\n' })
     await navigation.open('a.md')
     await navigation.open('b.md', { newTab: true })
     const first = data.vault?.root ?? ''
@@ -303,7 +276,7 @@ describe('Navigation', () => {
   it('refuses a vault switch while the open note cannot be saved, asking main nothing', async () => {
     await navigation.open('a.md')
     session.edit('# A\n\nMine.\n')
-    failSaves = true
+    net.fail = saves
     let asked = false
     const switched = await navigation.switchVault(async () => {
       asked = true
@@ -316,7 +289,7 @@ describe('Navigation', () => {
   })
 
   it('switchVault rejects when saving the restored tabs throws (WorkspaceModel’s tests cover the callers)', async () => {
-    const other = await folderWith('other', { 'x.md': '# X\n' })
+    const other = await folderWith(app, 'other', { 'x.md': '# X\n' })
     // Like `localStorage.setItem` over its quota: saving the restored tabs after `change` throws.
     navigation = createNavigation({
       load: () => null,
@@ -332,8 +305,8 @@ describe('Navigation', () => {
   })
 
   it('drops a read that returns after a later transition: the session shows the active tab’s note', async () => {
-    const reads: { id: string; release: () => void }[] = []
-    heldRequests = reads
+    net.hold(heldIds)
+    const reads = net.held
     const toA = navigation.open('a.md')
     await expect.poll(() => reads.length).toBe(1)
     const toB = navigation.open('b.md', { newTab: true })
@@ -354,8 +327,8 @@ describe('Navigation', () => {
 
   it('takes no edits to the open note while the next note’s read is out, then opens that note', async () => {
     await navigation.open('a.md')
-    const reads: { id: string; release: () => void }[] = []
-    heldRequests = reads
+    net.hold(heldIds)
+    const reads = net.held
     const toB = navigation.open('b.md', { newTab: true })
     await expect.poll(() => reads.length).toBe(1)
     // The gate saved A; the editor still shows A while B is read, but the session refuses edits (read-only).
@@ -372,13 +345,12 @@ describe('Navigation', () => {
 
   it('takes edits to the open note again when the next note’s read fails', async () => {
     await navigation.open('a.md')
-    const reads: { id: string; release: () => void }[] = []
-    heldRequests = reads
+    net.hold(heldIds)
+    const reads = net.held
     const toB = navigation.open('b.md', { newTab: true })
     await expect.poll(() => reads.length).toBe(1)
     expect(session.locked).toBe(true)
-    failHeld = true
-    reads[0]?.release()
+    reads[0]?.release('Disk full')
     await toB
     expect(notices).toEqual(['Disk full'])
     expect(session.note?.id).toBe('a.md')
@@ -390,8 +362,8 @@ describe('Navigation', () => {
 
   it('takes no edits while the read of a note that turns out gone is out; its only tab then closes', async () => {
     await navigation.open('a.md')
-    const reads: { id: string; release: () => void }[] = []
-    heldRequests = reads
+    net.hold(heldIds)
+    const reads = net.held
     // In place: A's tab now shows a note that is not on disk, so the read answers 404 and that tab closes.
     const toGone = navigation.open('gone.md')
     await expect.poll(() => reads.length).toBe(1)
@@ -408,20 +380,20 @@ describe('Navigation', () => {
   })
 
   it('takes no edits while the read of a note that turns out gone is out; the reader tab beside it then shows', async () => {
-    const outside = path.join(await folderWith('outside', { 'outside.md': '# Outside\n' }), 'outside.md')
+    const outside = path.join(await folderWith(app, 'outside', { 'outside.md': '# Outside\n' }), 'outside.md')
     const ticket = await app.vaults.readers.grant(await realpath(outside))
     if (ticket === undefined) throw new Error('No reader ticket for outside.md')
     await navigation.openReader(ticket, 'outside.md')
     await navigation.open('a.md', { newTab: true })
-    const reads: { id: string; release: () => void }[] = []
-    heldRequests = reads
+    net.hold(heldIds)
+    const reads = net.held
     // A's tab moves in place to a note that is not on disk: its 404 closes the tab, and the reader tab is active.
     const toGone = navigation.open('gone.md')
     await expect.poll(() => reads.map((read) => read.id)).toEqual(['gone.md'])
     expect(session.locked).toBe(true)
     session.edit('# A\n\nTyped while gone.md loads.\n')
     expect(session.body).toBe('# A\n')
-    heldRequests = null
+    net.hold(null)
     reads[0]?.release()
     await toGone
     expect(notices).toEqual(['Note not found: gone.md'])
@@ -434,8 +406,8 @@ describe('Navigation', () => {
 
   it('takes no edits to the open note while a new note is created, then shows the new note', async () => {
     await navigation.open('a.md')
-    const requests: { id: string; release: () => void }[] = []
-    heldRequests = requests
+    net.hold(heldIds)
+    const requests = net.held
     const created = navigation.newNote('')
     await expect.poll(() => requests.map((request) => request.id)).toEqual(['create'])
     expect(session.locked).toBe(true)
@@ -451,13 +423,12 @@ describe('Navigation', () => {
 
   it('takes edits to the open note again when creating a new note fails', async () => {
     await navigation.open('a.md')
-    const requests: { id: string; release: () => void }[] = []
-    heldRequests = requests
+    net.hold(heldIds)
+    const requests = net.held
     const created = navigation.newNote('')
     await expect.poll(() => requests.map((request) => request.id)).toEqual(['create'])
     expect(session.locked).toBe(true)
-    failHeld = true
-    requests[0]?.release()
+    requests[0]?.release('Disk full')
     await expect(created).rejects.toThrow('Disk full')
     expect(session.note?.id).toBe('a.md')
     expect(session.locked).toBe(false)
@@ -469,8 +440,8 @@ describe('Navigation', () => {
 
   it('does not show a new note whose create returns after the active tab moved to another note in place', async () => {
     await navigation.open('a.md')
-    const requests: { id: string; release: () => void }[] = []
-    heldRequests = requests
+    net.hold(heldIds)
+    const requests = net.held
     const created = navigation.newNote('')
     await expect.poll(() => requests.map((request) => request.id)).toEqual(['create'])
     const toB = navigation.open('b.md')
@@ -484,7 +455,7 @@ describe('Navigation', () => {
   })
 
   it('takes no edits to the open note while a vault switch loads, so none is dropped when the switch closes it', async () => {
-    const other = await folderWith('other', { 'x.md': '# X\n' })
+    const other = await folderWith(app, 'other', { 'x.md': '# X\n' })
     await navigation.open('a.md')
     const { promise: held, resolve: release } = Promise.withResolvers<void>()
     let loading = false
@@ -523,8 +494,8 @@ describe('Navigation', () => {
   })
 
   it('drops a reader read that fails after a later transition: no notice, the reader tab stays', async () => {
-    const reads: { id: string; release: () => void }[] = []
-    heldRequests = reads
+    net.hold(heldIds)
+    const reads = net.held
     // A ticket main never granted: its read answers 404, which closes the tab while it is active.
     const toReader = navigation.openReader('made-up', 'gone.md')
     await expect.poll(() => reads.length).toBe(1)

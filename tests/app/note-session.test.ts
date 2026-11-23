@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createClient, type NoteApi } from '../../src/app/actions/public/workspace/api.ts'
 import { NoteSession } from '../../src/app/actions/public/workspace/note-session.ts'
 import type { Vault } from '../../src/vault/index.ts'
-import { TestApp } from './helpers.ts'
+import { heldClient, TestApp } from './helpers.ts'
 
 let app: TestApp
 let vault: Vault
@@ -152,25 +152,16 @@ describe('NoteSession', () => {
   }
 
   function heldSaves(): HeldSaves {
-    const held: Array<(fail: boolean) => void> = []
-    let holding = false
-    const client = createClient((href, init) => {
-      if (!holding || new URL(href, 'http://app').pathname !== '/api/notes/save') return app.fetch(href, init)
-      const { promise, resolve, reject } = Promise.withResolvers<Response>()
-      held.push((fail) => (fail ? reject(new Error('offline')) : resolve(app.fetch(href, init))))
-      return promise
-    })
+    const net = heldClient(app)
     return {
-      client,
-      hold: () => {
-        holding = true
-      },
+      client: net.client,
+      hold: () => net.hold((url) => (url.pathname === '/api/notes/save' ? 'save' : undefined)),
       sent: async (count) => {
-        await vi.waitFor(() => expect(held).toHaveLength(count))
+        await vi.waitFor(() => expect(net.held).toHaveLength(count))
       },
       settle: async (count, fail) => {
-        await vi.waitFor(() => expect(held).toHaveLength(count))
-        held[count - 1]?.(fail)
+        await vi.waitFor(() => expect(net.held).toHaveLength(count))
+        net.held[count - 1]?.release(fail ? 'offline' : undefined)
       },
     }
   }
