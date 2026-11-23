@@ -73,7 +73,7 @@ export function EditorPane(handle: Handle<{ model: WorkspaceModel }>) {
       },
       { signal },
     )
-    // Read-only while the session takes no edits (a note transition or vault switch is running).
+    // Read-only while the session is locked (`Navigation.hold`: a transition, vault switch, or rename/move of the open note is running).
     session().addEventListener('change', () => instance.setReadOnly(session().locked), { signal })
     handle.props.model.addEventListener(
       'find',

@@ -2,7 +2,7 @@ import { readFile, writeFile } from 'node:fs/promises'
 import * as path from 'node:path'
 import type { Page } from '@playwright/test'
 
-import { expect, failableSaves, test } from './fixtures.ts'
+import { expect, failableSaves, holdRequests, test } from './fixtures.ts'
 
 test.use({ files: { 'a.md': '# A\n\nStart.\n', 'work/n.md': '# N\n\nStart.\n' }, ui: { confirmDelete: false } })
 
@@ -55,4 +55,37 @@ test('deleting the folder of the open note while that note is in conflict is ref
   await expect(page.locator('[data-folder="work"]')).toHaveCount(1)
   await expect(editor(page)).toContainText('Mine.')
   await expect(page.locator('[data-conflict="changed"]')).toBeVisible()
+})
+
+test('while another note’s delete is out the open note takes no edits: the editor and its properties are locked', async ({
+  app,
+}) => {
+  const { page, vault } = app
+  await page.locator('[data-note="a.md"]').click()
+  await expect(editor(page)).toContainText('Start.')
+  await page.locator('[data-toggle-properties]').click()
+  const tagInput = page.locator('#property-tags')
+  await expect(tagInput).toBeEnabled()
+
+  const deletes = await holdRequests(page, '/api/notes/delete')
+  await page.locator('[data-note="work/n.md"]').click({ button: 'right' })
+  await page.getByRole('menuitem', { name: 'Move to Trash' }).click()
+  await expect.poll(() => deletes.held()).toBe(1)
+  // The properties panel is locked too: its controls (inside one disabled fieldset) take nothing.
+  await expect(tagInput).toBeDisabled()
+  await expect(page.getByRole('button', { name: 'Add', exact: true })).toBeDisabled()
+  // The editor is read-only meanwhile: typing changes nothing.
+  await editor(page).click()
+  await page.keyboard.press('ControlOrMeta+End')
+  await page.keyboard.type('\nTyped while held.')
+  await expect(editor(page)).not.toContainText('Typed while held.')
+
+  await deletes.release()
+  await expect(page.locator('[data-note="work/n.md"]')).toHaveCount(0)
+  await expect(tagInput).toBeEnabled()
+  await editor(page).click()
+  await page.keyboard.press('ControlOrMeta+End')
+  await page.keyboard.type('\nAfter.')
+  await editor(page).blur()
+  await expect.poll(() => readFile(path.join(vault, 'a.md'), 'utf8'), { timeout: 15_000 }).toContain('After.')
 })

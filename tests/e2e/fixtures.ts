@@ -180,6 +180,8 @@ declare global {
      * `hold` was set); then, while `fail` is set, they answer `status` with a "Disk full" error body.
      */
     failingSaves?: { fail: boolean; status: number; hold: Promise<void> | null; held: number; release(): void }
+    /** `holdRequests`' page-side state: requests to `pathname` wait for `hold` (`held` counts them). */
+    heldRequests?: { pathname: string; hold: Promise<void>; held: number; release(): void }
   }
 }
 
@@ -239,6 +241,35 @@ export async function failableSaves(page: Page): Promise<FailableSaves> {
       }),
     held: () => page.evaluate(() => window.failingSaves?.held ?? 0),
     release: () => page.evaluate(() => window.failingSaves?.release()),
+  }
+}
+
+/** Controls of the requests `holdRequests` holds. */
+export interface HeldRequests {
+  /** How many requests have waited so far. */
+  held(): Promise<number>
+  /** Lets the held requests (and later ones) through. */
+  release(): Promise<void>
+}
+
+/** Wraps the page's `fetch` so requests to API path `pathname` wait until `release` (`page.route` misses `boost://`). */
+export async function holdRequests(page: Page, pathname: string): Promise<HeldRequests> {
+  await page.evaluate((target) => {
+    const original = window.fetch
+    const { promise, resolve } = Promise.withResolvers<void>()
+    const state: NonNullable<Window['heldRequests']> = { pathname: target, hold: promise, held: 0, release: resolve }
+    window.heldRequests = state
+    window.fetch = async (input, init) => {
+      if (new URL(String(input), location.href).pathname === state.pathname) {
+        state.held += 1
+        await state.hold
+      }
+      return original(input, init)
+    }
+  }, pathname)
+  return {
+    held: () => page.evaluate(() => window.heldRequests?.held ?? 0),
+    release: () => page.evaluate(() => window.heldRequests?.release()),
   }
 }
 

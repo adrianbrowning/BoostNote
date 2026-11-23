@@ -850,10 +850,15 @@ export class WorkspaceModel extends TypedEventTarget<{
     })
   }
 
-  /** Properties panel: writes the open note's frontmatter (keys sent back unchanged keep their YAML bytes). */
-  async setFrontmatter(frontmatter: Record<string, JsonValue>): Promise<void> {
-    if (!this.session.note) return
-    if (!(await this.session.setFrontmatter(frontmatter))) this.notify('error', 'Could not update the note')
+  /**
+   * Properties panel: writes the open note's frontmatter (keys sent back unchanged keep their YAML bytes).
+   * `false`, with the "could not update" notice, when it was not written (no note, or it is locked).
+   */
+  async setFrontmatter(frontmatter: Record<string, JsonValue>): Promise<boolean> {
+    if (!this.session.note) return false
+    if (await this.session.setFrontmatter(frontmatter)) return true
+    this.notify('error', 'Could not update the note')
+    return false
   }
 
   // ── Preferences and layout ──────────────────────────────────────────────────────────────
