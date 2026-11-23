@@ -26,16 +26,20 @@ const UNSAVED = 'This note has unsaved changes that could not be saved. Resolve 
 let app: TestApp
 /** While set, note saves fail as if the disk were full. */
 let failSaves = false
-/** While set, note and reader reads wait here until the test releases them (`release()` lets the fetch go on). */
+/**
+ * While set, note and reader reads and note creates wait here until the test releases them (`release()` lets
+ * the fetch go on; a create's `id` is `'create'`).
+ */
 let heldReads: { id: string; release: () => void }[] | null = null
 /** The page's API client over the current test's router. */
 const api = createClient(async (href, init) => {
   const url = new URL(href, origin)
   if (failSaves && url.pathname === '/api/notes/save') throw new Error('Disk full')
   const reader = /^\/api\/reader\/([^/]+)$/.exec(url.pathname)?.[1]
-  if (heldReads && (url.pathname === '/api/notes/read' || reader !== undefined)) {
+  const create = url.pathname === '/api/notes/create'
+  if (heldReads && (url.pathname === '/api/notes/read' || reader !== undefined || create)) {
     const { promise, resolve } = Promise.withResolvers<void>()
-    heldReads.push({ id: reader ?? url.searchParams.get('id') ?? '', release: resolve })
+    heldReads.push({ id: create ? 'create' : (reader ?? url.searchParams.get('id') ?? ''), release: resolve })
     await promise
   }
   return app.fetch(href, init)
@@ -321,6 +325,72 @@ describe('Navigation', () => {
     expect(session.body).toBe('# A\n\nTyped while gone.md loads.\n')
     expect(navigation.tabs.active).toMatchObject({ kind: 'note', path: 'a.md' })
     expect(saved()).toEqual({ tabs: ['a.md'], active: 0, closed: [] })
+  })
+
+  it('saves edits made to the open note while a new note is created, then shows the new note', async () => {
+    await navigation.open('a.md')
+    const requests: { id: string; release: () => void }[] = []
+    heldReads = requests
+    const created = navigation.newNote('')
+    await expect.poll(() => requests.map((request) => request.id)).toEqual(['create'])
+    session.edit('# A\n\nTyped while the note is created.\n')
+    requests[0]?.release()
+    const note = await created
+    expect(await onDisk('a.md')).toMatch(/\n# A\n\nTyped while the note is created\.\n$/)
+    expect(session.note?.id).toBe(note?.id)
+    expect(notices).toEqual([])
+  })
+
+  it('keeps the open note when edits made while a new note is created do not save; the new note is not shown', async () => {
+    await navigation.open('a.md')
+    const requests: { id: string; release: () => void }[] = []
+    heldReads = requests
+    const created = navigation.newNote('')
+    await expect.poll(() => requests.map((request) => request.id)).toEqual(['create'])
+    failSaves = true
+    session.edit('# A\n\nTyped while the note is created.\n')
+    requests[0]?.release()
+    expect(await created).toBeNull()
+    expect(notices).toEqual([UNSAVED])
+    expect(session.note?.id).toBe('a.md')
+    expect(session.body).toBe('# A\n\nTyped while the note is created.\n')
+    expect(saved()).toEqual({ tabs: ['a.md'], active: 0, closed: [] })
+  })
+
+  it('takes no edits to the open note while a vault switch loads, so none is dropped when the switch closes it', async () => {
+    const other = await folderWith('other', { 'x.md': '# X\n' })
+    await navigation.open('a.md')
+    const { promise: held, resolve: release } = Promise.withResolvers<void>()
+    let loading = false
+    const switched = navigation.switchVault(async () => {
+      loading = true
+      await held
+      return (await api.openVault(other)).workspace
+    })
+    await expect.poll(() => loading).toBe(true)
+    // Main may already be switching the vault: the edit is refused (the editor is read-only meanwhile).
+    session.edit('# A\n\nTyped while the vault loads.\n')
+    expect(session.body).toBe('# A\n')
+    expect(session.state).toBe('saved')
+    release()
+    expect(await switched).toBe(true)
+    expect(session.note).toBeNull()
+    expect(await onDisk('a.md')).toBe('# A\n')
+  })
+
+  it('takes edits again once a vault switch is cancelled or fails', async () => {
+    await navigation.open('a.md')
+    expect(await navigation.switchVault(async () => undefined)).toBe(true)
+    session.edit('# A\n\nAfter the cancelled picker.\n')
+    expect(session.state).toBe('dirty')
+    await expect(
+      navigation.switchVault(async () => {
+        throw new Error('NOT_A_VAULT')
+      }),
+    ).rejects.toThrow('NOT_A_VAULT')
+    session.edit('# A\n\nAfter the failed open.\n')
+    expect(session.body).toBe('# A\n\nAfter the failed open.\n')
+    expect(session.locked).toBe(false)
   })
 
   it('drops a reader read that fails after a later transition: no notice, the reader tab stays', async () => {

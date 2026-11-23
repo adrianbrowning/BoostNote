@@ -37,6 +37,8 @@ export interface LivePreviewEditor {
   /** Replaces the document. With `preserveSelection` the selection and undo history survive (live reload). */
   setDoc(doc: string, opts?: { preserveSelection?: boolean }): void
   setTheme(theme: EditorTheme): void
+  /** Read-only: the text keeps its focus and selection and can be copied, but typing changes nothing. */
+  setReadOnly(readOnly: boolean): void
   focus(): void
   destroy(): void
 }
@@ -109,6 +111,8 @@ function livePreviewExtensions(): Extension {
 export function createLivePreviewEditor(opts: LivePreviewEditorOptions): LivePreviewEditor {
   const theme = new Compartment()
   let currentTheme = opts.theme
+  const readOnly = new Compartment()
+  let currentReadOnly = false
   const shared = [
     livePreviewExtensions(),
     editorHost.of(opts),
@@ -119,7 +123,14 @@ export function createLivePreviewEditor(opts: LivePreviewEditorOptions): LivePre
     }),
   ]
   const createState = (doc: string) =>
-    EditorState.create({ doc, extensions: [shared, theme.of(themeExtension(currentTheme))] })
+    EditorState.create({
+      doc,
+      extensions: [
+        shared,
+        theme.of(themeExtension(currentTheme)),
+        readOnly.of(EditorState.readOnly.of(currentReadOnly)),
+      ],
+    })
 
   const view = new EditorView({ state: createState(opts.doc), parent: opts.parent })
 
@@ -155,6 +166,11 @@ export function createLivePreviewEditor(opts: LivePreviewEditorOptions): LivePre
       if (next === currentTheme) return
       currentTheme = next
       view.dispatch({ effects: theme.reconfigure(themeExtension(next)) })
+    },
+    setReadOnly(next) {
+      if (next === currentReadOnly) return
+      currentReadOnly = next
+      view.dispatch({ effects: readOnly.reconfigure(EditorState.readOnly.of(next)) })
     },
     focus() {
       view.focus()

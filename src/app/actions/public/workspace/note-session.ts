@@ -65,6 +65,11 @@ export class NoteSession extends TypedEventTarget<{ change: Event; doc: DocEvent
   theirs: NoteDocument | null = null
   /** Message of the last failed save; cleared when a save works. */
   error = ''
+  /**
+   * While set the open note takes no edits and the editor is read-only (`lock`): a vault switch is loading, and
+   * edits typed then could reach neither vault once the switch closes the note.
+   */
+  locked = false
 
   #timer: ReturnType<typeof setTimeout> | undefined
   #inflight: Promise<SaveOutcome> | undefined
@@ -97,9 +102,15 @@ export class NoteSession extends TypedEventTarget<{ change: Event; doc: DocEvent
     this.#changed()
   }
 
+  /** Sets `locked`; the editor follows on `change`. */
+  lock(locked: boolean): void {
+    this.locked = locked
+    this.#changed()
+  }
+
   /** The user edited the body. */
   edit(body: string): void {
-    if (!this.note || body === this.body) return
+    if (!this.note || this.locked || body === this.body) return
     this.body = body
     if (this.state !== 'conflict' && this.state !== 'removed') {
       this.state = 'dirty'

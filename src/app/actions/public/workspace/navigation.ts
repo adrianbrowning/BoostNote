@@ -70,6 +70,8 @@ export class Navigation {
   readonly #api: NavigationApi
   readonly #store: TabStore
   readonly #host: NavigationHost
+  /** How many vault switches are loading (`switchVault`); the session is locked while any is. */
+  #loadingVaults = 0
 
   constructor({ session, api, store, host }: NavigationOptions) {
     this.#session = session
@@ -195,11 +197,14 @@ export class Navigation {
 
   /**
    * "New note": after the gate, creates a note in `folder` and shows it in the active tab. `null` when the
-   * gate refused (nothing is created).
+   * gate refused (nothing is created), or when the note was created but is not shown: what was typed into
+   * the open note during the request did not save (`#release`), or a later transition changed the active tab.
    */
   async newNote(folder: string): Promise<NoteDocument | null> {
     if (!(await this.leave())) return null
+    const key = this.tabs.activeKey
     const note = await this.#api.createNote(folder)
+    if (!(await this.#release(() => this.tabs.activeKey === key))) return null
     this.#edit((tabs) => tabs.navigate(note.id))
     this.#session.open(note)
     return note
@@ -233,14 +238,23 @@ export class Navigation {
    * Shows another vault (or none) after the gate. `load` asks main for it (`undefined`: no switch, such as a
    * cancelled folder picker); the host shows its lists, then its tabs are restored from the tab store,
    * `change` edits them (and they are saved) and the active one loads. `false` when the gate refused; a
-   * failing restore rejects, so the caller's error handling sees it.
+   * failing restore rejects, so the caller's error handling sees it. While `load` runs the open note takes
+   * no edits (`NoteSession.locked`): main may already be on the other vault, so they could not be saved.
    */
   async switchVault(
     load: () => Promise<WorkspaceData | undefined>,
     change?: (tabs: Tabs) => unknown,
   ): Promise<boolean> {
     if (!(await this.leave())) return false
-    const data = await load()
+    let data: WorkspaceData | undefined
+    this.#loadingVaults++
+    this.#session.lock(true)
+    try {
+      data = await load()
+    } finally {
+      this.#loadingVaults--
+      this.#session.lock(this.#loadingVaults > 0)
+    }
     if (!data) return true
     this.#session.close()
     this.#host.showVault(data)

@@ -73,6 +73,8 @@ export function EditorPane(handle: Handle<{ model: WorkspaceModel }>) {
       },
       { signal },
     )
+    // Read-only while the session takes no edits (a vault switch is loading).
+    session().addEventListener('change', () => instance.setReadOnly(session().locked), { signal })
     handle.props.model.addEventListener(
       'find',
       () => {
