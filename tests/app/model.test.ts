@@ -198,6 +198,18 @@ describe('WorkspaceModel operations that change the open note after a request', 
     expect(workspace.session.note?.id).toBe('in first.md')
     expect(workspace.data.notes).toHaveLength(before + 1)
   })
+
+  it('lists no made-up note when the open note cannot be read again, nor the lists refreshed, after its folder moved', async () => {
+    await workspace.openNote('f/n.md')
+    const listed = workspace.data.notes.map((note) => note.id)
+    net.fail = (url) => url.pathname === '/api/notes/read' || url.pathname === '/api/workspace'
+    await workspace.moveFolder('f', 'g')
+    net.fail = null
+    expect(workspace.notice).toEqual({ kind: 'error', text: 'Could not refresh: Disk full' })
+    expect(workspace.session.note?.id).toBe('g/f/n.md')
+    // The lists stay as last read (the refresh failed): nothing is added for the note's new place.
+    expect(workspace.data.notes.map((note) => note.id)).toEqual(listed)
+  })
 })
 
 describe('WorkspaceModel relocations that return after a vault switch', () => {
@@ -258,6 +270,21 @@ describe('WorkspaceModel relocations that return after a vault switch', () => {
       expect(workspace.notice).toBeNull()
     },
   )
+
+  it('drops a list refresh of the vault left that returns once another vault shows', async () => {
+    const other = await realpath(await folderWith(app, 'other', { 'only here.md': '# Only here\n' }))
+    saved.set(other, { tabs: ['only here.md'], active: 0, closed: [] })
+    net.hold(onPath('/api/workspace'))
+    const refreshing = workspace.refresh()
+    await expect.poll(() => net.held.length).toBe(1)
+    net.hold(null)
+    await workspace.openVault(other)
+    net.held[0]?.release()
+    await refreshing
+    expect(workspace.data.vault?.root).toBe(other)
+    expect(workspace.data.notes.map((note) => note.id)).toEqual(['only here.md'])
+    expect(workspace.tabs.tabs).toMatchObject([{ kind: 'note', path: 'only here.md' }])
+  })
 })
 
 describe('WorkspaceModel link questions', () => {

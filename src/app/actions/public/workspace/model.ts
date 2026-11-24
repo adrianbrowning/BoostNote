@@ -965,10 +965,15 @@ export class WorkspaceModel extends TypedEventTarget<{
 
   // ── Live updates ────────────────────────────────────────────────────────────────────────
 
-  /** Re-reads the lists (after a mutation, or when the vault changed on disk). */
+  /**
+   * Re-reads the lists (after a mutation, or when the vault changed on disk). Lists that return once another vault
+   * shows are dropped: they are the vault left's.
+   */
   async refresh(): Promise<void> {
     clearTimeout(this.#refreshTimer)
-    this.#showData(await this.#api.workspace())
+    const sameVault = this.navigation.vaultToken()
+    const data = await this.#api.workspace()
+    if (sameVault()) this.#showData(data)
   }
 
   /** Shows the open vault's lists as `data` has them (same vault): selection and tabs follow. */

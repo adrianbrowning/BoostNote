@@ -57,8 +57,9 @@ export function EditorPane(handle: Handle<{ model: WorkspaceModel }>) {
         const id = session().note?.id
         return id === undefined ? relPath : vaultAssetUrl(id, relPath)
       },
-      // Follows the note when it is renamed or moved while the image is saved (`NoteSession.saveAsset`).
       saveAsset: (file) => session().saveAsset(file),
+      // An image pending while the note is renamed or moved is saved again for its new place.
+      assetPlace: () => session().note?.id,
       onOpenLink,
     })
     scheme.addEventListener('change', () => instance.setTheme(pageTheme()), { signal })

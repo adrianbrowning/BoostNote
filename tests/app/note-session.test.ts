@@ -301,4 +301,17 @@ describe('NoteSession.saveAsset', () => {
     expect(await saving).toMatch(new RegExp(`^\\./${note.id.replace(/\.md$/, '')}\\.assets/`))
     await expect(access(path.join(vault.root, `${other.id.replace(/\.md$/, '')}.assets`))).rejects.toThrow()
   })
+
+  it('refuses with no note open, and when the note closed while the image was saved', async () => {
+    const net = heldClient(app)
+    session = new NoteSession(net.client)
+    await expect(session.saveAsset(image())).rejects.toThrow('No note is open')
+    await openNote('start\n')
+    net.hold((url) => (url.pathname === '/api/assets' ? 'upload' : undefined))
+    const saving = session.saveAsset(image())
+    await vi.waitFor(() => expect(net.held).toHaveLength(1))
+    session.close()
+    net.held[0]?.release()
+    await expect(saving).rejects.toThrow('No note is open')
+  })
 })

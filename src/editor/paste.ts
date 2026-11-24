@@ -98,16 +98,20 @@ const wakeWhenEditable = EditorView.updateListener.of((update) => {
   for (const wake of waiters) wake()
 })
 
+/** Where a pending image goes (`trackInsertion`). */
+export interface PendingInsertion {
+  at(): number | undefined
+  whenEditable(): Promise<number | undefined>
+  done(): void
+}
+
 /**
  * Tracks `pos` while an image is picked or saved, through edits made meanwhile. `at()` is where it is now, or
  * `undefined` once the document was replaced (another note): then nothing is saved or inserted. While the editor
  * is read-only (a transition holds the note) `whenEditable()` waits until it takes edits again, then gives `at()`.
  * `done()` stops tracking.
  */
-export function trackInsertion(
-  view: EditorView,
-  pos: number,
-): { at(): number | undefined; whenEditable(): Promise<number | undefined>; done(): void } {
+export function trackInsertion(view: EditorView, pos: number): PendingInsertion {
   const id = ++nextPendingId
   view.dispatch({ effects: addPending.of({ id, pos }) })
   const at = () => view.state.field(pendingImages, false)?.get(id)
@@ -125,26 +129,55 @@ export function trackInsertion(
   }
 }
 
-/** Saves each image through the host and inserts `![…](path)` at `pos` (tracked while saving; see `trackInsertion`). */
-async function insertImages(view: EditorView, files: readonly File[], pos: number): Promise<void> {
-  const target = trackInsertion(view, pos)
-  try {
-    const links: string[] = []
-    for (const file of files) {
+/**
+ * Saves `files` through the host (tracked at `target`), waits until the editor takes edits, then calls `insert` with
+ * the position (`target.at()`) and the images' note-relative paths, in the same step as the last check (nothing
+ * runs in between, so the editor is still editable). An image whose place changed while it was pending
+ * (`EditorHost.assetPlace`: the note was renamed or moved) is saved again for the new place first, so its link
+ * fits where the note is. Nothing is inserted once the document was replaced (another note).
+ */
+export async function insertSavedImages(
+  view: EditorView,
+  target: PendingInsertion,
+  files: readonly File[],
+  insert: (at: number, paths: string[]) => void,
+): Promise<void> {
+  const host = view.state.facet(editorHost)
+  const saved: Array<{ place: string | undefined; path: string }> = []
+  for (;;) {
+    for (const [index, file] of files.entries()) {
+      if (saved[index] !== undefined && saved[index].place === host.assetPlace()) continue
       // Editable: the save starts right away (no await); read-only: it waits until the editor takes edits.
       if ((view.state.readOnly ? await target.whenEditable() : target.at()) === undefined) return
-      links.push(imageMarkdown(file.name, await view.state.facet(editorHost).saveAsset(file)))
+      const place = host.assetPlace()
+      saved[index] = { place, path: await host.saveAsset(file) }
     }
-    // Wait out read-only periods, then read the position right before the insert (nothing ran in between).
+    // Wait out read-only periods (a relocation may land in one), then check the places right before the insert.
     while (view.state.readOnly && (await target.whenEditable()) !== undefined) {}
     const at = target.at()
     if (at === undefined) return
-    const insert = links.join('\n')
-    view.dispatch({
-      changes: { from: at, insert },
-      selection: { anchor: at + insert.length },
-      userEvent: 'input.paste',
-      scrollIntoView: true,
+    if (saved.every((entry) => entry.place === host.assetPlace())) {
+      insert(
+        at,
+        saved.map((entry) => entry.path),
+      )
+      return
+    }
+  }
+}
+
+/** Saves each image through the host and inserts `![…](path)` at `pos` (tracked while saving; see `insertSavedImages`). */
+async function insertImages(view: EditorView, files: readonly File[], pos: number): Promise<void> {
+  const target = trackInsertion(view, pos)
+  try {
+    await insertSavedImages(view, target, files, (at, paths) => {
+      const insert = paths.map((path, index) => imageMarkdown(files[index]?.name ?? '', path)).join('\n')
+      view.dispatch({
+        changes: { from: at, insert },
+        selection: { anchor: at + insert.length },
+        userEvent: 'input.paste',
+        scrollIntoView: true,
+      })
     })
   } catch (error) {
     console.error('Saving image failed', error)

@@ -16,6 +16,11 @@ export interface EditorHost {
   resolveAssetUrl(relPath: string): string
   /** Stores a pasted/dropped/picked image and returns the note-relative path to reference. */
   saveAsset(file: File): Promise<string>
+  /**
+   * Where `saveAsset` stores images now (the open note's id); a pending image whose place changed before its
+   * insert (the note was renamed or moved) is saved again, so its link fits where the note is.
+   */
+  assetPlace(): string | undefined
   /** Opens a link the user Cmd/Ctrl-clicked (or clicked in a rendered widget). */
   onOpenLink(href: string): void
 }
@@ -23,6 +28,7 @@ export interface EditorHost {
 const noopHost: EditorHost = {
   resolveAssetUrl: (relPath) => relPath,
   saveAsset: () => Promise.reject(new Error('Saving assets is not supported here')),
+  assetPlace: () => undefined,
   onOpenLink: () => {},
 }
 

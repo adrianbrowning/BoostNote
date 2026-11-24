@@ -1,5 +1,6 @@
 import { TypedEventTarget } from 'remix/component'
 
+import { parentOf } from '../../../../shared/vault-ids.ts'
 import { ApiError, type NoteApi } from './api.ts'
 import type { JsonValue, NoteDocument } from './types.ts'
 
@@ -89,8 +90,10 @@ export class NoteSession extends TypedEventTarget<{ change: Event; doc: DocEvent
    * Saves an image pasted or dropped into the open note (`POST /api/assets`) and resolves with the link to insert,
    * relative to the note. When the note was renamed or moved while the image was saved (`relocated`), it is saved
    * again for the note's new place (assets are stored by content hash, so that is the same file) until the note
-   * stays put, so the link fits where the note is now. When another note replaced it meanwhile, it resolves with
-   * the link for the note it was saved for (the editor drops that insert).
+   * stays put, and the last link is the one returned. Rejects with "No note is open" when no note is open, or the
+   * note closed meanwhile. When another note replaced it meanwhile, it resolves with the link for the note it was
+   * saved for (the editor drops that insert). The editor also checks the place right before the insert
+   * (`EditorHost.assetPlace`), for a relocation that lands after this resolved.
    */
   async saveAsset(file: File): Promise<string> {
     const opened = this.#opened
@@ -98,8 +101,9 @@ export class NoteSession extends TypedEventTarget<{ change: Event; doc: DocEvent
     if (id === undefined) throw new Error('No note is open')
     for (;;) {
       const { href } = await this.#api.uploadAsset(id, file)
-      const now = this.note?.id
-      if (this.#opened !== opened || now === undefined || now === id) return href
+      const now: string | undefined = this.note?.id
+      if (now === undefined) throw new Error('No note is open')
+      if (this.#opened !== opened || now === id) return href
       id = now
     }
   }
@@ -129,6 +133,17 @@ export class NoteSession extends TypedEventTarget<{ change: Event; doc: DocEvent
       this.dispatchEvent(new DocEvent(note.body, true))
     }
     this.dispatchEvent(new SavedEvent(note))
+    this.#changed()
+  }
+
+  /**
+   * The app moved the open note to `id` but could not read it there: it follows with the hash and text it had, so
+   * its next save goes to the new place and conflicts (instead of overwriting) when the vault changed the file
+   * meanwhile. No `saved` event: the lists learn the new place from their next refresh.
+   */
+  retarget(id: string): void {
+    if (!this.note) return
+    this.note = { ...this.note, id, folder: parentOf(id) }
     this.#changed()
   }
 

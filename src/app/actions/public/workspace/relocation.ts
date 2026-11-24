@@ -55,6 +55,20 @@ interface Done<R> {
   sameVault: () => boolean
   /** Why the app could not catch up (the open note's read, or the list refresh, failed); `undefined` when it did. */
   failed: string | undefined
+  /**
+   * Asks the link question (with the relocation's assets `warning`) in its place in the question order; resolves
+   * once it is answered and done. Called once for every relocation with moves, also when another vault shows (then
+   * nothing is asked, and the questions after it go on).
+   */
+  ask(warning?: string): Promise<void>
+}
+
+/** A place in the order of link questions (`Relocation.#reserve`). */
+interface QuestionSlot {
+  /** Asks the question there once the questions before it are answered and done. */
+  ask(warning?: string): Promise<void>
+  /** Gives the place up (the relocation failed after it was taken). */
+  skip(): void
 }
 
 const message = (error: unknown) => (error instanceof Error ? error.message : String(error))
@@ -98,11 +112,12 @@ export class Relocation {
           (open) => open === id,
           renamed.note,
         ),
+      (renamed) => renamed.moves,
     )
-    if (!done?.sameVault()) return
+    if (!done) return
     const outcome = relocateNotice({ assetsLeftBehind: done.result.assetsLeftBehind })
-    this.#report(outcome.notice, outcome.sticky, done.failed)
-    await this.#offerLinkUpdates(done.result.moves, done.sameVault, outcome.warning)
+    if (done.sameVault()) this.#report(outcome.notice, outcome.sticky, done.failed)
+    await done.ask(outcome.warning)
   }
 
   /** Moves note `id` into `folder`. */
@@ -116,14 +131,15 @@ export class Relocation {
           (open) => open === id,
           moved.note,
         ),
+      (moved) => moved.moves,
     )
-    if (!done?.sameVault()) return
+    if (!done) return
     const outcome = relocateNotice({
       assetsLeftBehind: done.result.assetsLeftBehind,
       done: `Moved to ${this.#host.folderName(folder)}`,
     })
-    this.#report(outcome.notice, outcome.sticky, done.failed)
-    await this.#offerLinkUpdates(done.result.moves, done.sameVault, outcome.warning)
+    if (done.sameVault()) this.#report(outcome.notice, outcome.sticky, done.failed)
+    await done.ask(outcome.warning)
   }
 
   renameFolder(id: string, name: string): Promise<void> {
@@ -160,37 +176,67 @@ export class Relocation {
 
   async #relocateFolder(id: string, relocate: () => Promise<FolderRelocation>): Promise<void> {
     const inside = (path: string) => isUnder(path, id)
-    const done = await this.#run(this.#openId !== null && inside(this.#openId), relocate, (relocated) => {
-      const rebase = (value: string) => movedId(value, id, relocated.folder) ?? value
-      this.#host.folderMoved(rebase)
-      // Decided now: a note inside the folder may have been opened while the request was out.
-      return this.#follow(rebase, inside)
-    })
-    if (!done?.sameVault()) return
-    this.#report(undefined, false, done.failed)
-    await this.#offerLinkUpdates(done.result.moves, done.sameVault)
+    const done = await this.#run(
+      this.#openId !== null && inside(this.#openId),
+      relocate,
+      (relocated) => {
+        const rebase = (value: string) => movedId(value, id, relocated.folder) ?? value
+        this.#host.folderMoved(rebase)
+        // Decided now: a note inside the folder may have been opened while the request was out.
+        return this.#follow(rebase, inside)
+      },
+      (relocated) => relocated.moves,
+    )
+    if (!done) return
+    if (done.sameVault()) this.#report(undefined, false, done.failed)
+    await done.ask()
   }
 
   /**
    * The sequence up to the list refresh: the gate (with `gate`), the vault's `request` and `follow`, holding the
    * open note; then the lists refresh. `null` when the gate refused; `request`'s failure rejects. When another vault
    * shows by the time the request returns (`sameVault()` is `false`), nothing follows and the caller does nothing
-   * more for it (no refresh, notice or link question: they would reach the vault on screen).
+   * more for it (no refresh, notice or link question: they would reach the vault on screen). With `moves`, the link
+   * question takes its place in the question order as soon as the request returns (`Done.ask` asks it there).
+   * Nothing is requested (`null`, like a refused gate) when another vault shows by the time the gate let it through.
    */
   async #run<R>(
     gate: boolean,
     request: () => Promise<R>,
     follow: (result: R) => Promise<string | undefined>,
+    moves?: (result: R) => LinkMove[],
   ): Promise<Done<R> | null> {
-    const done = await this.#navigation.hold(
-      async () => {
-        const sameVault = this.#navigation.vaultToken()
-        const result = await request()
-        return { result, sameVault, failed: sameVault() ? await follow(result) : undefined }
-      },
-      { gate },
-    )
-    if (!done?.sameVault()) return done
+    let slot: QuestionSlot | undefined
+    /** What `run` returned: the hold can still reject after it, when saving the tabs to the store throws. */
+    let landed: Omit<Done<R>, 'ask'> | undefined
+    let held: Omit<Done<R>, 'ask'> | null
+    // Taken before the gate: the operation is for the vault on screen when it was asked for.
+    const sameVault = this.#navigation.vaultToken()
+    try {
+      held = await this.#navigation.hold(
+        async () => {
+          if (!sameVault()) return null
+          const result = await request()
+          if (sameVault()) {
+            if (moves) slot = this.#reserve(moves(result), sameVault)
+            landed = { result, sameVault, failed: await follow(result) }
+          } else landed = { result, sameVault, failed: undefined }
+          return landed
+        },
+        { gate },
+      )
+    } catch (error) {
+      if (!landed) {
+        slot?.skip()
+        throw error
+      }
+      // The vault did its part: it still counts, with the store's error as what the app could not catch up with.
+      held = landed
+      held.failed ??= message(error)
+    }
+    if (!held) return null
+    const done: Done<R> = { ...held, ask: (warning) => slot?.ask(warning) ?? Promise.resolve() }
+    if (!done.sameVault()) return done
     try {
       await this.#host.refresh()
     } catch (error) {
@@ -202,13 +248,15 @@ export class Relocation {
   /**
    * After the vault relocated notes (`map` gives each path's new path): when `affects` the open note, it takes the
    * vault's document at its new place (`returned`, or read again); then tabs follow. Runs inside the relocation's
-   * `hold`. Resolves with the read's error message when it failed (the tabs follow all the same).
+   * `hold`, in the vault relocated in. Resolves with the read's error message when it failed (the tabs follow all
+   * the same); nothing follows once another vault shows by the time the read returns (its tabs are not these).
    */
   async #follow(
     map: (path: string) => string,
     affects: (id: string) => boolean,
     returned?: NoteDocument,
   ): Promise<string | undefined> {
+    const sameVault = this.#navigation.vaultToken()
     const openId = this.#openId
     let failed: string | undefined
     if (openId !== null && affects(openId)) {
@@ -216,25 +264,29 @@ export class Relocation {
       if (returned?.id === to) this.#session.relocated(returned)
       else failed = await this.#reread(openId, to)
     }
-    await this.#navigation.rebase(map)
+    if (sameVault()) await this.#navigation.rebase(map)
     return failed
   }
 
   /**
    * The open note `from`, now at `to`, takes the vault's document there (`NoteSession.relocated`). Resolves with the
-   * read's error message when it failed.
+   * read's error message when it failed: the note then still follows to `to` (`NoteSession.retarget`), so its next
+   * save goes to its new place and conflicts (instead of overwriting) when the vault changed its text meanwhile.
    */
   async #reread(from: string, to: string): Promise<string | undefined> {
     // Another note opened while this is read (the hold locks edits, not navigation) keeps its own document.
     const current = this.#navigation.token()
-    let note: NoteDocument
+    let note: NoteDocument | undefined
+    let failed: string | undefined
     try {
       note = await this.#api.readNote(to)
     } catch (error) {
-      return message(error)
+      failed = message(error)
     }
-    if (current() && this.#openId === from) this.#session.relocated(note)
-    return undefined
+    if (!current() || this.#session.note?.id !== from) return failed
+    if (note) this.#session.relocated(note)
+    else if (to !== from) this.#session.retarget(to)
+    return failed
   }
 
   /** Shows `notice` (if any); when the app could not catch up (`failed`), the could-not-refresh notice after it. */
@@ -244,16 +296,26 @@ export class Relocation {
   }
 
   /**
-   * After the app renamed/moved a note or folder (`moves`, as the server returned them): when other notes still
-   * link to its old place, asks whether to update those links, and rewrites them on "Update links". Questions are
-   * asked one at a time, in the order their relocations landed: each waits for the answer (and the update) of the
-   * one before, so none is dropped. Resolves once this one is answered and done; it never rejects (a failure is
-   * the link-update notice).
+   * Takes the next place in the order of link questions for a relocation that just landed (`moves`, as the server
+   * returned them). Questions are asked one at a time, in the order their relocations landed: each waits for the
+   * answer (and the update) of the one before, so none is dropped. The slot's `ask` asks this one there and resolves
+   * once it is answered and done (it never rejects: a failure is the link-update notice); `skip` gives the place up.
+   * One of them must be called, or the questions after it wait for good.
    */
-  #offerLinkUpdates(moves: LinkMove[], sameVault: () => boolean, warning?: string): Promise<void> {
-    const turn = this.#questions.then(() => this.#askLinks(moves, sameVault, warning))
+  #reserve(moves: LinkMove[], sameVault: () => boolean): QuestionSlot {
+    const { promise, resolve } = Promise.withResolvers<{ warning: string | undefined } | null>()
+    const turn = this.#questions.then(async () => {
+      const asked = await promise
+      if (asked) await this.#askLinks(moves, sameVault, asked.warning)
+    })
     this.#questions = turn
-    return turn
+    return {
+      ask: (warning) => {
+        resolve({ warning })
+        return turn
+      },
+      skip: () => resolve(null),
+    }
   }
 
   /**
@@ -266,6 +328,8 @@ export class Relocation {
     const [move] = moves
     if (!move || !sameVault()) return
     let done: { total: number; failed: string | undefined } | null
+    /** What the rewrite did: the hold can still reject after it, when saving the tabs to the store throws. */
+    let applied: { total: number; failed: string | undefined } | undefined
     try {
       const plan = await this.#api.planLinkUpdates(moves)
       if (plan.total === 0 || !sameVault()) return
@@ -281,18 +345,27 @@ export class Relocation {
       })
       if (!ok || !sameVault()) return
       done = await this.#navigation.hold(async () => {
+        // The gate saved the open note first: another vault may show by now.
+        if (!sameVault()) return null
         const report = await this.#api.applyLinkUpdates(moves)
         const openId = this.#openId
         const rewritten = openId !== null && report.notes.some((note) => note.id === openId)
-        return {
+        applied = {
           total: report.total,
           failed: rewritten && sameVault() ? await this.#reread(openId, openId) : undefined,
         }
+        return applied
       })
     } catch (error) {
-      const notice = linkUpdateFailedNotice(message(error), warning)
-      this.#host.notify('error', notice.text, notice.sticky)
-      return
+      if (applied) {
+        // The links were rewritten: that still counts, with the store's error as what the app could not catch up with.
+        done = applied
+        done.failed ??= message(error)
+      } else {
+        const notice = linkUpdateFailedNotice(message(error), warning)
+        this.#host.notify('error', notice.text, notice.sticky)
+        return
+      }
     }
     if (!done || !sameVault()) return
     try {

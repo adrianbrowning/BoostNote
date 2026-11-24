@@ -653,8 +653,9 @@ style).
      rewritten text like step 3, the lists refresh and "Updated N links" shows (plus "Could not refresh"
      as in step 4). **Don’t update** (Esc) writes nothing. With nothing to update no dialog appears.
   A relocation that returns after a vault switch does nothing more: no rebase, refresh, notice or question
-  (they would reach the other vault). An image whose save was out while the open note moved is saved again
-  for its new place, so its link fits (`NoteSession.saveAsset`).
+  (they would reach the other vault). An image pasted, dropped or picked while the open note moves is saved
+  again for its new place, so its link fits: when the save returns (`NoteSession.saveAsset`) and right before
+  the insert (`EditorHost.assetPlace`, `insertSavedImages`).
 
 ## CLI and MCP (phase 11)
 

@@ -32,6 +32,7 @@ function mount(doc: string, overrides: Partial<Parameters<typeof createLivePrevi
     onChange,
     resolveAssetUrl: (relPath) => `asset:${relPath}`,
     saveAsset: async (file) => `./note.assets/${file.name}`,
+    assetPlace: () => 'note.md',
     onOpenLink: vi.fn(),
     ...overrides,
   })
