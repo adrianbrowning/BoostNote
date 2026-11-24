@@ -31,7 +31,7 @@ function fewestEdits(a: string, b: string): number {
 }
 
 describe('docChanges', () => {
-  it('turns one document into the other with the fewest edits (seeded random documents, few characters)', () => {
+  it('turns one document into the other, a line with the fewest edits (seeded random documents, few characters)', () => {
     // A fixed linear congruential generator: the same cases on every run.
     let seed = 17
     const random = () => {
@@ -41,13 +41,14 @@ describe('docChanges', () => {
     const text = (alphabet: string) =>
       Array.from({ length: Math.floor(random() * 14) }, () => alphabet[Math.floor(random() * alphabet.length)]).join('')
     for (let n = 0; n < 3000; n++) {
-      // Without newlines the documents are diffed as a whole; with them, line by line when the count stays.
+      // Single lines are diffed character by character; with newlines, lines are matched first, which can cost more
+      // characters than the fewest but keeps each unchanged line whole.
       const alphabet = n % 2 === 0 ? 'ab' : 'ab\n'
       const from = text(alphabet)
       const to = text(alphabet)
       const changes = docChanges(from, to)
       expect(apply(from, changes)).toBe(to)
-      if (from.split('\n').length !== to.split('\n').length) expect(edits(changes)).toBe(fewestEdits(from, to))
+      if (!alphabet.includes('\n')) expect(edits(changes)).toBe(fewestEdits(from, to))
     }
   })
 

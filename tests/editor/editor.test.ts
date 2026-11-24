@@ -256,6 +256,17 @@ describe('createLivePreviewEditor', () => {
     expect(editor.view.state.doc.toString()).toBe(note('../../../', 'middle'))
   })
 
+  it('setDoc with preserveSelection of an outside edit that shifts lines keeps undo to the typed text', () => {
+    const { editor } = mount('one\ntwo\nthree\nfour\nfive\n')
+    const at = 'one\ntwo\nth'.length
+    editor.view.dispatch({ changes: { from: at, insert: 'X' }, selection: { anchor: at + 1 }, userEvent: 'input.type' })
+    // Another editor inserted a line at the top and deleted "five": as many lines, each shifted down one.
+    editor.setDoc('zero\none\ntwo\nthXree\nfour\n', { preserveSelection: true })
+    expect(editor.view.state.selection.main.head).toBe('zero\none\ntwo\nthX'.length)
+    undo(editor.view)
+    expect(editor.view.state.doc.toString()).toBe('zero\none\ntwo\nthree\nfour\n')
+  })
+
   it('setDoc with preserveSelection takes a CRLF note’s text with the editor’s line breaks, adding no blank lines', () => {
     const { editor, onChange } = mount('a\r\n[b](./b.md)\r\nc')
     editor.view.dispatch({ selection: { anchor: 'a\n[b](./b.md)\nc'.length } })

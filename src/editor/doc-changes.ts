@@ -15,24 +15,107 @@ const MAX_EDITS = 1024
 /**
  * The changes that turn document `from` into `to`, ascending and in `from`'s positions, changing only the
  * characters that differ: the selection and undo history then map through all the text the two share (two links
- * a relocation rebased keep the text between them, and the cursor there). With as many lines in both (relocations
- * and link rewrites change text within lines), each changed line is diffed on its own, so a long note stays cheap.
+ * a relocation rebased keep the text between them, and the cursor there). The lines are diffed first, so a line
+ * that moved (an outside edit added or removed lines above it) maps to itself, and only the runs of changed lines
+ * are diffed character by character.
  */
 export function docChanges(from: string, to: string): DocChange[] {
   const changes: DocChange[] = []
   const fromLines = from.split('\n')
   const toLines = to.split('\n')
-  if (fromLines.length !== toLines.length) {
-    characterChanges(from, to, 0, changes)
-    return changes
-  }
-  let offset = 0
-  for (const [index, line] of fromLines.entries()) {
-    const next = toLines[index] ?? ''
-    if (line !== next) characterChanges(line, next, offset, changes)
-    offset += line.length + 1
+  const fromStarts = lineStarts(fromLines)
+  const toStarts = lineStarts(toLines)
+  for (const [fromLine, fromEndLine, toLine, toEndLine] of lineHunks(fromLines, toLines)) {
+    // A run that reaches the end of a document takes the line break before it, so lines added or removed at the
+    // end bring their break with them.
+    const back = fromLine === fromLines.length || toLine === toLines.length ? 1 : 0
+    const start = (fromStarts[fromLine] ?? 0) - back
+    const toStart = (toStarts[toLine] ?? 0) - back
+    const end = back ? from.length : (fromStarts[fromEndLine] ?? 0)
+    const toEnd = back ? to.length : (toStarts[toEndLine] ?? 0)
+    characterChanges(from.slice(start, end), to.slice(toStart, toEnd), start, changes)
   }
   return changes
+}
+
+/** Where each of `lines` starts in their text, and one past the end of it (as if it ended in a line break). */
+function lineStarts(lines: string[]): number[] {
+  const starts = [0]
+  for (const line of lines) starts.push((starts.at(-1) ?? 0) + line.length + 1)
+  return starts
+}
+
+/**
+ * The runs of lines that differ between `from` and `to`, as `[fromStart, fromEnd, toStart, toEnd]` line indexes,
+ * ascending: Myers' diff over whole lines. Each run follows the documents' start or a run of equal lines. Lines too
+ * different for `MAX_EDITS` line inserts and deletes form one run, which the character diff then takes.
+ */
+function lineHunks(from: string[], to: string[]): [number, number, number, number][] {
+  let start = 0
+  while (start < from.length && start < to.length && from[start] === to[start]) start++
+  let fromEnd = from.length
+  let toEnd = to.length
+  while (fromEnd > start && toEnd > start && from[fromEnd - 1] === to[toEnd - 1]) {
+    fromEnd--
+    toEnd--
+  }
+  const n = fromEnd - start
+  const m = toEnd - start
+  if (n === 0 && m === 0) return []
+  if (n === 0 || m === 0) return [[start, fromEnd, start, toEnd]]
+  const limit = Math.min(n + m, MAX_EDITS)
+  const ends = new Int32Array(2 * limit + 3)
+  const at = (k: number) => ends[k + limit + 1] ?? 0
+  const rounds: Int32Array[] = []
+  let edits: number | undefined
+  let finished = 0
+  for (let d = 0; d <= limit && edits === undefined; d++) {
+    rounds.push(ends.slice())
+    for (let k = -d; k <= d; k += 2) {
+      let x = k === -d || (k !== d && at(k - 1) < at(k + 1)) ? at(k + 1) : at(k - 1) + 1
+      let y = x - k
+      while (x < n && y < m && from[start + x] === to[start + y]) {
+        x++
+        y++
+      }
+      ends[k + limit + 1] = x
+      if (x >= n && y >= m) {
+        edits = d
+        finished = k
+        break
+      }
+    }
+  }
+  if (edits === undefined) return [[start, fromEnd, start, toEnd]]
+  // Steps back from the end, collecting the runs of equal lines (as where they end and how long they are).
+  const equal: [number, number, number][] = []
+  let x = at(finished)
+  let y = x - finished
+  for (let d = edits; d > 0; d--) {
+    const before = rounds[d]
+    const ended = (k: number) => before?.[k + limit + 1] ?? 0
+    const k = x - y
+    const previous = k === -d || (k !== d && ended(k - 1) < ended(k + 1)) ? k + 1 : k - 1
+    const previousX = ended(previous)
+    const previousY = previousX - previous
+    // The step moves one line right or down from (previousX, previousY); the equal lines run from there.
+    const length = previous === k + 1 ? x - previousX : y - previousY
+    if (length > 0) equal.push([x, y, length])
+    x = previousX
+    y = previousY
+  }
+  if (x > 0) equal.push([x, y, x])
+  const hunks: [number, number, number, number][] = []
+  let fromAt = 0
+  let toAt = 0
+  for (const [endX, endY, length] of [...equal.reverse(), [n, m, 0] as [number, number, number]]) {
+    if (endX - length > fromAt || endY - length > toAt) {
+      hunks.push([start + fromAt, start + endX - length, start + toAt, start + endY - length])
+    }
+    fromAt = endX
+    toAt = endY
+  }
+  return hunks
 }
 
 /**
