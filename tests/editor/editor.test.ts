@@ -242,9 +242,25 @@ describe('createLivePreviewEditor', () => {
     expect(editor.view.state.doc.toString()).toBe(note('../', 'middle'))
   })
 
+  it('setDoc with preserveSelection keeps the cursor and undo between links of a line with more than a thousand rebased characters', () => {
+    // 400 links moved three folders deeper: 2400 characters inserted on one line, more than one diff pass takes.
+    const links = (dir: string, from: number, to: number) =>
+      Array.from({ length: to - from }, (_, i) => `[n${from + i}](${dir}n${from + i}.md)`).join(' · ')
+    const note = (dir: string, middle: string) => `${links(dir, 0, 200)} ${middle} ${links(dir, 200, 400)}\n`
+    const { editor } = mount(note('./', 'middle'))
+    const at = `${links('./', 0, 200)} mid`.length
+    editor.view.dispatch({ changes: { from: at, insert: 'X' }, selection: { anchor: at + 1 }, userEvent: 'input.type' })
+    editor.setDoc(note('../../../', 'midXdle'), { preserveSelection: true })
+    expect(editor.view.state.selection.main.head).toBe(`${links('../../../', 0, 200)} midX`.length)
+    undo(editor.view)
+    expect(editor.view.state.doc.toString()).toBe(note('../../../', 'middle'))
+  })
+
   it('setDoc with preserveSelection takes a CRLF note’s text with the editor’s line breaks, adding no blank lines', () => {
     const { editor, onChange } = mount('a\r\n[b](./b.md)\r\nc')
+    editor.view.dispatch({ selection: { anchor: 'a\n[b](./b.md)\nc'.length } })
     editor.setDoc('a\r\n[b](../b.md)\r\nc', { preserveSelection: true })
+    expect(editor.view.state.selection.main.head).toBe('a\n[b](../b.md)\nc'.length)
     expect(editor.view.state.doc.toString()).toBe('a\n[b](../b.md)\nc')
     expect(editor.view.state.doc.lines).toBe(3)
     editor.view.dispatch({ changes: { from: 0, insert: 'X' }, userEvent: 'input.type' })
