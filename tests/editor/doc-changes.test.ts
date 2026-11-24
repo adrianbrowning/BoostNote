@@ -126,6 +126,20 @@ describe('docChanges', () => {
     expect(apply(from, docChanges(from, to))).toBe(to)
   })
 
+  it('keeps every unchanged line of a 200,000-character note whose outside edit inserted a line and changed every other one', () => {
+    const line = (i: number) => `${i}: ${'lorem ipsum '.repeat(17)}`
+    const lines = Array.from({ length: 1000 }, (_, i) => line(i))
+    const from = lines.join('\n')
+    expect(from.length).toBeGreaterThan(200_000)
+    // Every other line changed in a few characters, and one line inserted in the middle: the line counts differ.
+    const changed = lines.map((text, i) => (i % 2 === 1 ? text.replace('ipsum', 'IPSUM') : text))
+    changed.splice(500, 0, 'An inserted line.')
+    const to = changed.join('\n')
+    const changes = docChanges(from, to)
+    expect(apply(from, changes)).toBe(to)
+    expect(untouchedLines(from, changes)).toBe(500)
+  })
+
   it('stops diffing finely once the call’s diff budget is spent, and still rebuilds the target', () => {
     // 10k short lines, every other one changed: more line and character diff rounds than one call may run.
     const from = Array.from({ length: 10_000 }, (_, i) => `line ${i}`).join('\n')
