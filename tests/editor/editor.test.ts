@@ -1,5 +1,6 @@
 // @vitest-environment happy-dom
 import { CompletionContext } from '@codemirror/autocomplete'
+import { undo } from '@codemirror/commands'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 const mermaidMock = vi.hoisted(() => ({
@@ -205,6 +206,28 @@ describe('createLivePreviewEditor', () => {
     expect(editor.view.state.selection.main.head).toBe(14)
     editor.setDoc('other')
     expect(editor.view.state.selection.main.head).toBe(0)
+  })
+
+  it('setDoc with preserveSelection changes only what differs: the cursor and undo between two changed links stay', () => {
+    const { editor } = mount('[a](./a.md) middle [b](./b.md)\n')
+    const at = '[a](./a.md) mid'.length
+    editor.view.dispatch({ changes: { from: at, insert: 'X' }, selection: { anchor: at + 1 }, userEvent: 'input.type' })
+    editor.setDoc('[a](../a.md) midXdle [b](../b.md)\n', { preserveSelection: true })
+    expect(editor.view.state.selection.main.head).toBe('[a](../a.md) midX'.length)
+    undo(editor.view)
+    expect(editor.view.state.doc.toString()).toBe('[a](../a.md) middle [b](../b.md)\n')
+  })
+
+  it('setDoc with preserveSelection keeps the cursor and undo between two changed links of a long note', () => {
+    const filler = 'Some text that stays as it is.\n'.repeat(200)
+    const note = (dir: string, middle: string) => `[a](${dir}a.md)\n${filler}${middle}\n${filler}[b](${dir}b.md)\n`
+    const { editor } = mount(note('./', 'middle'))
+    const at = `[a](./a.md)\n${filler}mid`.length
+    editor.view.dispatch({ changes: { from: at, insert: 'X' }, selection: { anchor: at + 1 }, userEvent: 'input.type' })
+    editor.setDoc(note('../', 'midXdle'), { preserveSelection: true })
+    expect(editor.view.state.selection.main.head).toBe(at + 2)
+    undo(editor.view)
+    expect(editor.view.state.doc.toString()).toBe(note('../', 'middle'))
   })
 
   it('toggles a task when its checkbox is clicked', () => {

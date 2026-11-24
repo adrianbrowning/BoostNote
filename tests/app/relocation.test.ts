@@ -154,6 +154,24 @@ describe('Relocation: the open note after it moved', () => {
     expect(session.note).toMatchObject({ id: 'h/renamed.md', body: '# Y\n' })
     expect(navigation.tabs.active).toMatchObject({ kind: 'note', path: 'h/renamed.md' })
   })
+
+  it('follows the open note through a second folder move that lands while the first one reads it again', async () => {
+    await api.createFolder('', 'k')
+    await navigation.open('g/x.md')
+    net.hold((url) =>
+      url.pathname === '/api/notes/read' && url.searchParams.get('id') === 'h/g/x.md' ? 'read' : undefined,
+    )
+    const first = relocation.moveFolder('g', 'h')
+    await expect.poll(() => net.held.length).toBe(1)
+    const second = relocation.moveFolder('h', 'k')
+    // The second move landed (its list refresh shows the note's last place) while the first one's read is out.
+    await expect.poll(() => data.notes.some((note) => note.id === 'k/h/g/x.md')).toBe(true)
+    net.held[0]?.release()
+    await Promise.all([first, second])
+    expect(session.note).toMatchObject({ id: 'k/h/g/x.md', body: '# X\n\n[b](../../../b.md)\n' })
+    expect(navigation.tabs.active).toMatchObject({ kind: 'note', path: 'k/h/g/x.md' })
+    expect(notices).toEqual([])
+  })
 })
 
 describe('Relocation: link questions', () => {

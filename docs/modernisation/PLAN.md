@@ -152,8 +152,9 @@ returns `{ view, setDoc(doc, { preserveSelection }), setTheme, focus, destroy }`
 - **Themes.** Colours are CSS variables scoped to `.cm-editor` (values match `base.css`); hosts tune
   `--editor-font`, `--editor-font-size`, `--editor-line-height`, `--editor-max-width`, `--editor-padding`.
 - **`setDoc`** without options resets the state (selection, history); with `preserveSelection` it
-  replaces only the changed middle so the selection maps through, isn't undoable, and doesn't call
-  `onChange`.
+  changes only the characters that differ (line by line when the line count stays, as relocations and
+  link rewrites keep it; `src/editor/doc-changes.ts`), so the selection and undo history map through
+  all unchanged text; it isn't undoable and doesn't call `onChange`.
 - The workspace (phase 4) hosts the editor; the phase-3 `/dev/editor` harness is gone. `pnpm build`
   compiles the workspace entry's whole graph, including every lazily loaded language.
 
@@ -636,11 +637,13 @@ style).
      first (`Navigation.leave`); when that fails nothing runs and the unsaved-changes notice shows.
   2. **Vault operation**, the open note held (`Navigation.hold`: no edits while it is out).
   3. **The open note follows**, decided when the response arrives (a note opened meanwhile counts): it
-     takes the vault's document at its new place (the rename/move route returns it; folder moves and
-     title renames read it again), its rebased links included, and the editor keeps cursor, selection
-     and undo (`NoteSession.relocated`, `setDoc` with `preserveSelection`). Then tabs, trails and the
-     view (selected and expanded folders) follow; an active tab whose read was out as the move landed
-     loads at its new place.
+     takes the vault's document at its new place (the rename/move route returns it), its rebased links
+     included, and the editor keeps cursor, selection and undo (`NoteSession.relocated`, `setDoc` with
+     `preserveSelection`). Folder moves and title renames have no document to return: the note follows
+     to its new place at once (`NoteSession.retarget`) and is read again there after the tabs followed,
+     so a relocation that lands meanwhile maps it on from there (each in the order the vault answered).
+     Tabs, trails and the view (selected and expanded folders) follow; an active tab whose read was out
+     as the move landed loads at its new place.
   4. **Refresh** of the lists, then the notice as before (twin-assets warning, "Moved to X"). When the
      vault succeeded but the refresh or the read of step 3 failed, it still counts: the title-rename
      dialog keeps its report, and the notice adds "Could not refresh: …".

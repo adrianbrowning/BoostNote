@@ -11,6 +11,7 @@ import { Annotation, Compartment, EditorSelection, EditorState, type Extension, 
 import { drawSelection, dropCursor, EditorView, highlightSpecialChars, keymap } from '@codemirror/view'
 import { indentListItem, insertLink, outdentListItem, toggleInlineMarker } from './commands.ts'
 import { type EditorHost, type EditorTheme, editorHost } from './config.ts'
+import { docChanges } from './doc-changes.ts'
 import { markdownSupport } from './language.ts'
 import { openLinkOnModClick } from './links.ts'
 import { previewWidgets } from './live-preview/blocks.ts'
@@ -150,19 +151,9 @@ export function createLivePreviewEditor(opts: LivePreviewEditorOptions): LivePre
       }
       const current = view.state.doc.toString()
       if (current === doc) return
-      // Replace only the differing middle so the selection and history map through unchanged text.
-      let start = 0
-      const max = Math.min(current.length, doc.length)
-      while (start < max && current.charCodeAt(start) === doc.charCodeAt(start)) start++
-      let end = 0
-      while (
-        end < max - start &&
-        current.charCodeAt(current.length - 1 - end) === doc.charCodeAt(doc.length - 1 - end)
-      ) {
-        end++
-      }
       view.dispatch({
-        changes: { from: start, to: current.length - end, insert: doc.slice(start, doc.length - end) },
+        // Only what differs changes, so the selection and history map through all unchanged text.
+        changes: docChanges(current, doc),
         // External edits are not undoable; local history maps through them.
         annotations: [externalChange.of(true), Transaction.addToHistory.of(false)],
       })

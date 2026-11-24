@@ -249,45 +249,48 @@ export class Relocation {
 
   /**
    * After the vault relocated notes (`map` gives each path's new path): when `affects` the open note, it takes the
-   * vault's document at its new place (`returned`, or read again); then tabs follow. Runs inside the relocation's
-   * `hold`, in the vault relocated in. Resolves with the read's error message when it failed (the tabs follow all
-   * the same); nothing follows once another vault shows by the time the read returns (its tabs are not these).
+   * vault's document at its new place (`returned`), or follows there at once (`NoteSession.retarget`) and is read
+   * again; tabs follow before that read. So relocations map the open note and the tabs in the order the vault made
+   * them, also when another one lands while the read is out. Runs inside the relocation's `hold`, in the vault
+   * relocated in. Resolves with the read's error message when it failed.
    */
   async #follow(
     map: (path: string) => string,
     affects: (id: string) => boolean,
     returned?: NoteDocument,
   ): Promise<string | undefined> {
-    const sameVault = this.#navigation.vaultToken()
     const openId = this.#openId
-    let failed: string | undefined
+    let read: string | undefined
     if (openId !== null && affects(openId)) {
       const to = map(openId)
       if (returned?.id === to) this.#session.relocated(returned)
-      else failed = await this.#reread(openId, to)
+      else {
+        if (to !== openId) this.#session.retarget(to)
+        read = to
+      }
     }
-    if (sameVault()) await this.#navigation.rebase(map)
-    return failed
+    await this.#navigation.rebase(map)
+    return read === undefined ? undefined : this.#reread(read)
   }
 
   /**
-   * The open note `from`, now at `to`, takes the vault's document there (`NoteSession.relocated`). Resolves with the
-   * read's error message when it failed: the note then still follows to `to` (`NoteSession.retarget`), so its next
-   * save goes to its new place and conflicts (instead of overwriting) when the vault changed its text meanwhile.
+   * The open note `id` takes the vault's document there (`NoteSession.relocated`). Resolves with the read's error
+   * message when it failed: the note then keeps the hash and text it had, so its next save conflicts (instead of
+   * overwriting) when the vault changed its text meanwhile. Nothing is taken, nor a failure reported, once the note
+   * is no longer open there (another note opened, another relocation moved it again, or another vault shows).
    */
-  async #reread(from: string, to: string): Promise<string | undefined> {
-    // Another note opened while this is read (the hold locks edits, not navigation) keeps its own document.
+  async #reread(id: string): Promise<string | undefined> {
     const current = this.#navigation.token()
+    const sameVault = this.#navigation.vaultToken()
     let note: NoteDocument | undefined
     let failed: string | undefined
     try {
-      note = await this.#api.readNote(to)
+      note = await this.#api.readNote(id)
     } catch (error) {
       failed = message(error)
     }
-    if (!current() || this.#session.note?.id !== from) return failed
+    if (!current() || !sameVault() || this.#session.note?.id !== id) return undefined
     if (note) this.#session.relocated(note)
-    else if (to !== from) this.#session.retarget(to)
     return failed
   }
 
@@ -354,7 +357,7 @@ export class Relocation {
         const rewritten = openId !== null && report.notes.some((note) => note.id === openId)
         applied = {
           total: report.total,
-          failed: rewritten && sameVault() ? await this.#reread(openId, openId) : undefined,
+          failed: rewritten && sameVault() ? await this.#reread(openId) : undefined,
         }
         return applied
       })

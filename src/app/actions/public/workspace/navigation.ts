@@ -360,9 +360,9 @@ export class Navigation {
 
   /**
    * App renames/moves of notes or folders (`map` gives each path's new path): tabs, trails and closed tabs follow.
-   * Run inside the relocation's `hold`, after the open note took its new place (`NoteSession.relocated`). When the
-   * active tab's note moved and the session does not hold it (its read was out as the relocation landed, and is
-   * dropped as a stale transition), it loads at its new place.
+   * Run inside the relocation's `hold`, after the open note took its new place (`NoteSession.relocated`, or
+   * `retarget` while it is read there again). When the active tab's note moved and the session does not hold it (its
+   * read was out as the relocation landed, and is dropped as a stale transition), it loads at its new place.
    */
   async rebase(map: (path: string) => string): Promise<void> {
     const before = this.tabs.active

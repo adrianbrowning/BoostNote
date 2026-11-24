@@ -137,9 +137,10 @@ export class NoteSession extends TypedEventTarget<{ change: Event; doc: DocEvent
   }
 
   /**
-   * The app moved the open note to `id` but could not read it there: it follows with the hash and text it had, so
-   * its next save goes to the new place and conflicts (instead of overwriting) when the vault changed the file
-   * meanwhile. No `saved` event: the lists learn the new place from their next refresh.
+   * The app moved the open note to `id` and has not read it there yet (`relocated` takes that read): it follows with
+   * the hash and text it had, so when the read fails its next save goes to the new place and conflicts (instead of
+   * overwriting) when the vault changed the file meanwhile. No `saved` event: the lists learn the new place from
+   * their next refresh.
    */
   retarget(id: string): void {
     if (!this.note) return
