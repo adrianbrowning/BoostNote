@@ -150,10 +150,12 @@ export function createLivePreviewEditor(opts: LivePreviewEditorOptions): LivePre
         return
       }
       const current = view.state.doc.toString()
-      if (current === doc) return
+      // The editor's text has LF line breaks: a CRLF body diffed as is would insert a bare '\r', a line break, per line.
+      const next = view.state.toText(doc).toString()
+      if (current === next) return
       view.dispatch({
         // Only what differs changes, so the selection and history map through all unchanged text.
-        changes: docChanges(current, doc),
+        changes: docChanges(current, next),
         // External edits are not undoable; local history maps through them.
         annotations: [externalChange.of(true), Transaction.addToHistory.of(false)],
       })

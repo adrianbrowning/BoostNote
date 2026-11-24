@@ -242,6 +242,15 @@ describe('createLivePreviewEditor', () => {
     expect(editor.view.state.doc.toString()).toBe(note('../', 'middle'))
   })
 
+  it('setDoc with preserveSelection takes a CRLF note’s text with the editor’s line breaks, adding no blank lines', () => {
+    const { editor, onChange } = mount('a\r\n[b](./b.md)\r\nc')
+    editor.setDoc('a\r\n[b](../b.md)\r\nc', { preserveSelection: true })
+    expect(editor.view.state.doc.toString()).toBe('a\n[b](../b.md)\nc')
+    expect(editor.view.state.doc.lines).toBe(3)
+    editor.view.dispatch({ changes: { from: 0, insert: 'X' }, userEvent: 'input.type' })
+    expect(onChange).toHaveBeenLastCalledWith('Xa\n[b](../b.md)\nc')
+  })
+
   it('toggles a task when its checkbox is clicked', () => {
     const { editor, parent, onChange } = mount('- [ ] buy milk\n\nend')
     editor.view.dispatch({ selection: { anchor: editor.view.state.doc.length } })

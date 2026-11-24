@@ -63,4 +63,40 @@ describe('docChanges', () => {
     expect(docChanges('one\ntwo\nthree', 'one\nTWO\nthree')).toEqual([{ from: 4, to: 7, insert: 'TWO' }])
     expect(docChanges('same', 'same')).toEqual([])
   })
+
+  it('keeps the text between links of a line with more edits than the character diff takes at once', () => {
+    // 400 links on one line moved three folders deeper: 2400 characters inserted, more than one diff pass takes.
+    const names = Array.from({ length: 400 }, (_, i) => `n${i}`)
+    const line = (dir: string) => names.map((name) => `[${name}](${dir}${name}.md)`).join(' · ')
+    const from = line('./')
+    const to = line('../../../')
+    const changes = docChanges(from, to)
+    expect(apply(from, changes)).toBe(to)
+    // Every change lies within one link, so the " · " between links is never replaced.
+    const links: [number, number][] = []
+    let position = 0
+    for (const name of names) {
+      const link = `[${name}](./${name}.md)`
+      links.push([position, position + link.length])
+      position += link.length + ' · '.length
+    }
+    for (const change of changes) {
+      expect(links.some(([start, end]) => start <= change.from && change.to <= end)).toBe(true)
+    }
+    expect(changes.length).toBeGreaterThanOrEqual(names.length)
+  })
+
+  it('turns long, very different documents into each other over several diff passes', () => {
+    let seed = 29
+    const random = () => {
+      seed = (seed * 1103515245 + 12345) % 2 ** 31
+      return seed / 2 ** 31
+    }
+    const text = () => Array.from({ length: 3000 }, () => 'abc'[Math.floor(random() * 3)]).join('')
+    for (let n = 0; n < 5; n++) {
+      const from = text()
+      const to = text()
+      expect(apply(from, docChanges(from, to))).toBe(to)
+    }
+  })
 })
