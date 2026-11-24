@@ -152,9 +152,9 @@ returns `{ view, setDoc(doc, { preserveSelection }), setTheme, focus, destroy }`
 - **Themes.** Colours are CSS variables scoped to `.cm-editor` (values match `base.css`); hosts tune
   `--editor-font`, `--editor-font-size`, `--editor-line-height`, `--editor-max-width`, `--editor-padding`.
 - **`setDoc`** without options resets the state (selection, history); with `preserveSelection` it
-  changes only the characters that differ (line by line when the line count stays, as relocations and
-  link rewrites keep it; `src/editor/doc-changes.ts`), so the selection and undo history map through
-  all unchanged text; it isn't undoable and doesn't call `onChange`.
+  changes only the characters that differ (a character diff, line by line when the line count stays,
+  as relocations and link rewrites keep it; `src/editor/doc-changes.ts`), so the selection and undo
+  history map through all unchanged text; it isn't undoable and doesn't call `onChange`.
 - The workspace (phase 4) hosts the editor; the phase-3 `/dev/editor` harness is gone. `pnpm build`
   compiles the workspace entry's whole graph, including every lazily loaded language.
 

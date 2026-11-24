@@ -230,6 +230,18 @@ describe('createLivePreviewEditor', () => {
     expect(editor.view.state.doc.toString()).toBe(note('../', 'middle'))
   })
 
+  it('setDoc with preserveSelection keeps the cursor and undo between two changed links far apart on one line', () => {
+    const filler = 'Some text that stays as it is. '.repeat(40)
+    const note = (dir: string, middle: string) => `[a](${dir}a.md) ${filler}${middle} ${filler}[b](${dir}b.md)\n`
+    const { editor } = mount(note('./', 'middle'))
+    const at = `[a](./a.md) ${filler}mid`.length
+    editor.view.dispatch({ changes: { from: at, insert: 'X' }, selection: { anchor: at + 1 }, userEvent: 'input.type' })
+    editor.setDoc(note('../', 'midXdle'), { preserveSelection: true })
+    expect(editor.view.state.selection.main.head).toBe(at + 2)
+    undo(editor.view)
+    expect(editor.view.state.doc.toString()).toBe(note('../', 'middle'))
+  })
+
   it('toggles a task when its checkbox is clicked', () => {
     const { editor, parent, onChange } = mount('- [ ] buy milk\n\nend')
     editor.view.dispatch({ selection: { anchor: editor.view.state.doc.length } })
