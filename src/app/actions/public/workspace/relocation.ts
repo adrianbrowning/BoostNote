@@ -95,6 +95,8 @@ export class Relocation {
   readonly #host: RelocationHost
   /** The link question asked last (or waiting to be): the next one is asked once it is answered and done. */
   #questions: Promise<void> = Promise.resolve()
+  /** Counts the documents the open note took or was read for (`#reread`, `#follow`): only the latest one's shows. */
+  #takes = 0
 
   constructor({ session, navigation, api, host }: RelocationOptions) {
     this.#session = session
@@ -271,8 +273,10 @@ export class Relocation {
     let read: string | undefined
     if (openId !== null && affects(openId)) {
       const to = map(openId)
-      if (returned?.id === to) this.#session.relocated(returned)
-      else {
+      if (returned?.id === to) {
+        this.#takes++
+        this.#session.relocated(returned)
+      } else {
         if (to !== openId) this.#session.retarget(to)
         read = to
       }
@@ -286,11 +290,13 @@ export class Relocation {
    * The open note `id` takes the vault's document there (`NoteSession.relocated`). Resolves with the read's error
    * message when it failed: the note then keeps the hash and text it had, so its next save conflicts (instead of
    * overwriting) when the vault changed its text meanwhile. Nothing is taken, nor a failure reported, once the note
-   * is no longer open there (another note opened, another relocation moved it again, or another vault shows).
+   * is no longer open there (another note opened, another relocation moved it again, or another vault shows), or a
+   * later read (or a relocation's returned document) took its place: this read may be older than that one's.
    */
   async #reread(id: string): Promise<string | undefined> {
     const current = this.#navigation.token()
     const sameVault = this.#navigation.vaultToken()
+    const at = ++this.#takes
     let note: NoteDocument | undefined
     let failed: string | undefined
     try {
@@ -298,7 +304,7 @@ export class Relocation {
     } catch (error) {
       failed = message(error)
     }
-    if (!current() || !sameVault() || this.#session.note?.id !== id) return undefined
+    if (!current() || !sameVault() || this.#session.note?.id !== id || at !== this.#takes) return undefined
     if (note) this.#session.relocated(note)
     return failed
   }
@@ -336,7 +342,8 @@ export class Relocation {
    * One link question: the plan, the question, then on "Update links" the gate (the open note's pending edits are
    * saved first; nothing is rewritten when that fails) and the rewrite; the open note takes its rewritten text
    * (keeping the editor's cursor, selection and undo), the lists refresh and "Updated N links" shows. Nothing is
-   * asked or rewritten once another vault shows: its links are not the ones that pointed at the move.
+   * asked or rewritten once another vault shows: its links are not the ones that pointed at the move; nor is the
+   * update's result or failure shown there.
    */
   async #askLinks(moves: LinkMove[], sameVault: () => boolean, warning?: string): Promise<void> {
     const [move] = moves
@@ -376,8 +383,11 @@ export class Relocation {
         done = applied
         done.failed ??= message(error)
       } else {
-        const notice = linkUpdateFailedNotice(message(error), warning)
-        this.#host.notify('error', notice.text, notice.sticky)
+        // The vault left's failure is not the one on screen's.
+        if (sameVault()) {
+          const notice = linkUpdateFailedNotice(message(error), warning)
+          this.#host.notify('error', notice.text, notice.sticky)
+        }
         return
       }
     }
@@ -387,6 +397,7 @@ export class Relocation {
     } catch (error) {
       done.failed ??= message(error)
     }
+    if (!sameVault()) return
     const notice = linksUpdatedNotice(done.total, warning)
     this.#report(notice.text, notice.sticky, done.failed)
   }

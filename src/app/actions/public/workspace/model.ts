@@ -180,6 +180,8 @@ export class WorkspaceModel extends TypedEventTarget<{
   #openRequests: Promise<void> = Promise.resolve()
   /** An "Update links?" question waiting for the dialog over it to close (`#showDialog`). */
   #parked: Dialog | null = null
+  /** Counts the list refreshes started (`refresh`): only the latest one's lists show. */
+  #refreshes = 0
 
   constructor(initial: WorkspaceData, preferences: PreferencesState, { api, store }: WorkspaceOptions) {
     super()
@@ -953,7 +955,11 @@ export class WorkspaceModel extends TypedEventTarget<{
     })
   }
 
-  /** Shows another vault's lists (or none) before `navigation` restores its tabs. */
+  /**
+   * Shows another vault's lists (or none) before `navigation` restores its tabs. An "Update links?" question of the
+   * vault left, showing or parked, is answered "Don't update" (its links are not this vault's), so the questions
+   * queued behind it go on; a dialog over it stays.
+   */
   #showVault(data: WorkspaceData): void {
     this.data = data
     setPageVault(data.vault?.root ?? null)
@@ -961,19 +967,28 @@ export class WorkspaceModel extends TypedEventTarget<{
     this.expanded.clear()
     this.importOpen = false
     this.setQuery('')
+    const question = this.dialog?.kind === 'links' ? this.dialog : this.#parked
+    if (question?.kind === 'links') {
+      const over = question === this.dialog ? null : this.dialog
+      this.#parked = null
+      question.resolve(false)
+      this.dialog = over
+    }
   }
 
   // ── Live updates ────────────────────────────────────────────────────────────────────────
 
   /**
    * Re-reads the lists (after a mutation, or when the vault changed on disk). Lists that return once another vault
-   * shows are dropped: they are the vault left's.
+   * shows are dropped: they are the vault left's; so are lists that return once a later refresh started: they may
+   * be older than its (an earlier relocation's refresh returning after a later one's).
    */
   async refresh(): Promise<void> {
     clearTimeout(this.#refreshTimer)
     const sameVault = this.navigation.vaultToken()
+    const at = ++this.#refreshes
     const data = await this.#api.workspace()
-    if (sameVault()) this.#showData(data)
+    if (sameVault() && at === this.#refreshes) this.#showData(data)
   }
 
   /** Shows the open vault's lists as `data` has them (same vault): selection and tabs follow. */

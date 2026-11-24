@@ -94,6 +94,8 @@ describe('an image pasted while the open note is renamed', () => {
     expect(await renaming).toBeNull()
     held('/api/assets')?.release()
     await expectLinkedIntoRenamedFolder()
+    // The upload for the old name was refused: no assets folder is left where the note no longer is.
+    expect((await readdir(root)).sort()).toEqual(['renamed.assets', 'renamed.md'])
   })
 
   it('is inserted with a link into the new assets folder when the rename lands after the image was saved', async () => {
@@ -104,5 +106,58 @@ describe('an image pasted while the open note is renamed', () => {
     held('/api/notes/rename')?.release()
     expect(await renaming).toBeNull()
     await expectLinkedIntoRenamedFolder()
+  })
+
+  it('saves again only the image saved for the old name when two are pasted, and inserts both in order', async () => {
+    editor.view.dispatch({ selection: { anchor: editor.view.state.doc.length } })
+    const data = new DataTransfer()
+    data.items.add(new File([new Uint8Array([1])], 'a.png', { type: 'image/png' }))
+    data.items.add(new File([new Uint8Array([2])], 'b.png', { type: 'image/png' }))
+    editor.view.contentDOM.dispatchEvent(new ClipboardEvent('paste', { clipboardData: data, cancelable: true }))
+    await expect.poll(() => net.held.length).toBe(1)
+    const renaming = workspace.renameOpenNote('renamed')
+    await expect.poll(() => net.held.length).toBe(2)
+    // a.png is saved for the old name while the rename is out; b.png waits until the editor takes edits again.
+    held('/api/assets')?.release()
+    await expect.poll(() => readdir(path.join(root, 'in first.assets')).catch(() => [])).toHaveLength(1)
+    held('/api/notes/rename')?.release()
+    expect(await renaming).toBeNull()
+    // Then b.png, for the new name, and a.png again for it: two more uploads, no third.
+    for (const count of [3, 4]) {
+      await expect.poll(() => net.held.length).toBe(count)
+      net.held[count - 1]?.release()
+    }
+    const links = /!\[a\]\(\.\/renamed\.assets\/([0-9a-f]+\.png)\)\n!\[b\]\(\.\/renamed\.assets\/([0-9a-f]+\.png)\)$/
+    await vi.waitFor(() => expect(editor.view.state.doc.toString()).toMatch(links))
+    const [, a, b] = links.exec(editor.view.state.doc.toString()) ?? []
+    expect(await readFile(path.join(root, 'renamed.assets', a ?? ''))).toEqual(Buffer.from([1]))
+    expect(await readFile(path.join(root, 'renamed.assets', b ?? ''))).toEqual(Buffer.from([2]))
+    expect(net.held).toHaveLength(4)
+  })
+})
+
+describe('an image pasted while the open note’s folder is moved', () => {
+  it('is linked at the note’s new place once the move landed first, and the old folder is not made again', async () => {
+    await api.createFolder('', 'f')
+    await api.createFolder('', 'g')
+    const note = await api.createNote('f')
+    await workspace.openNote(note.id)
+    net.hold((url) =>
+      url.pathname === '/api/assets' || url.pathname === '/api/folders/move' ? url.pathname : undefined,
+    )
+    pasteImage()
+    await expect.poll(() => net.held.length).toBe(1)
+    const moving = workspace.moveFolder('f', 'g')
+    await expect.poll(() => net.held.length).toBe(2)
+    net.hold(null)
+    net.held.find((request) => request.id === '/api/folders/move')?.release()
+    await moving
+    expect(workspace.session.note?.id).toBe(`g/${note.id}`)
+    net.held.find((request) => request.id === '/api/assets')?.release()
+    const linked = /!\[shot\]\((\.\/Untitled\.assets\/[0-9a-f]+\.png)\)$/
+    await vi.waitFor(() => expect(editor.view.state.doc.toString()).toMatch(linked))
+    const href = linked.exec(editor.view.state.doc.toString())?.[1] ?? ''
+    expect(await readFile(path.join(root, 'g/f', href))).toEqual(Buffer.from([1, 2, 3]))
+    expect(await readdir(root)).not.toContain('f')
   })
 })

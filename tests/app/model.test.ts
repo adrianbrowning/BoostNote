@@ -210,6 +210,37 @@ describe('WorkspaceModel operations that change the open note after a request', 
     // The lists stay as last read (the refresh failed): nothing is added for the note's new place.
     expect(workspace.data.notes.map((note) => note.id)).toEqual(listed)
   })
+
+  it('keeps the lists and tabs of a later relocation when an earlier one’s list refresh returns after it', async () => {
+    await workspace.openNote('meeting.md')
+    await workspace.openNote('f/n.md', { newTab: true })
+    await workspace.openNote('g/x.md', { newTab: true })
+    let first = true
+    // The first move's lists are read at once (before the second move) and return late.
+    net.hold(
+      (url) => {
+        if (url.pathname !== '/api/workspace' || !first) return undefined
+        first = false
+        return 'refresh'
+      },
+      { answered: true },
+    )
+    const one = workspace.moveNote('meeting.md', 'g')
+    await expect.poll(() => net.held.length).toBe(1)
+    // The second move's link question waits its turn behind the first's: its lists show before that.
+    const two = workspace.moveNote('f/n.md', 'g')
+    await expect.poll(() => workspace.data.notes.some((note) => note.id === 'g/n.md')).toBe(true)
+    net.held[0]?.release()
+    await Promise.all([one, two])
+    const ids = workspace.data.notes.map((note) => note.id)
+    expect(ids).toContain('g/n.md')
+    expect(ids).not.toContain('f/n.md')
+    expect(workspace.tabs.tabs.map((tab) => tab.kind === 'note' && tab.path)).toEqual([
+      'g/meeting.md',
+      'g/n.md',
+      'g/x.md',
+    ])
+  })
 })
 
 describe('WorkspaceModel relocations that return after a vault switch', () => {
@@ -320,4 +351,29 @@ describe('WorkspaceModel link questions', () => {
     expect(workspace.dialog).toBeNull()
     expect(await readFile(path.join(app.dir, 'links', 'linker.md'), 'utf8')).toBe('# L\n\n[a](./g/a.md)\n')
   })
+
+  it.each([
+    { what: 'showing', over: false },
+    { what: 'parked under a prompt', over: true },
+  ])(
+    'closes an Update links? question $what when another vault shows, and the relocation settles',
+    async ({ over }) => {
+      const other = await realpath(await folderWith(app, 'other', { 'b.md': '# B\n' }))
+      const moving = workspace.moveNote('a.md', 'g')
+      await expect.poll(() => workspace.dialog?.kind).toBe('links')
+      const naming = over
+        ? workspace.prompt({ title: 'New folder', label: 'Folder name', value: '', confirm: 'Create' })
+        : undefined
+      await workspace.openVault(other)
+      expect(workspace.data.vault?.root).toBe(other)
+      await moving
+      // A prompt over the question stays: only the vault left's question goes.
+      expect(workspace.dialog?.kind).toBe(over ? 'prompt' : undefined)
+      const prompt = workspace.dialog
+      if (prompt?.kind === 'prompt') prompt.resolve(null)
+      if (naming) expect(await naming).toBeNull()
+      expect(workspace.dialog).toBeNull()
+      expect(await readFile(path.join(app.dir, 'links', 'linker.md'), 'utf8')).toBe('# L\n\n[a](./a.md)\n')
+    },
+  )
 })

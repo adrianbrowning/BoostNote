@@ -93,17 +93,27 @@ export class NoteSession extends TypedEventTarget<{ change: Event; doc: DocEvent
    * Saves an image pasted or dropped into the open note (`POST /api/assets`) and resolves with the link to insert,
    * relative to the note. When the note was renamed or moved while the image was saved (`relocated`), it is saved
    * again for the note's new place (assets are stored by content hash, so that is the same file) until the note
-   * stays put, and the last link is the one returned. Rejects with "No note is open" when no note is open, or the
-   * note closed meanwhile. When another note replaced it meanwhile, it resolves with the link for the note it was
-   * saved for (the editor drops that insert). The editor also checks the place right before the insert
-   * (`EditorHost.assetPlace`), for a relocation that lands after this resolved.
+   * stays put, and the last link is the one returned; an upload that reached the vault once the note had left its
+   * old place is refused there (`404`, nothing written) and saved again the same way. Rejects with "No note is open"
+   * when no note is open, or the note closed meanwhile. When another note replaced it meanwhile, it resolves with
+   * the link for the note it was saved for (the editor drops that insert). The editor also checks the place right
+   * before the insert (`EditorHost.assetPlace`), for a relocation that lands after this resolved.
    */
   async saveAsset(file: File): Promise<string> {
     const opened = this.#opened
     let id = this.note?.id
     if (id === undefined) throw new Error('No note is open')
     for (;;) {
-      const { href } = await this.#api.uploadAsset(id, file)
+      let href: string
+      try {
+        href = (await this.#api.uploadAsset(id, file)).href
+      } catch (error) {
+        const now = this.note?.id
+        const left = this.#opened === opened && now !== undefined && now !== id
+        if (!(error instanceof ApiError && error.status === 404 && left)) throw error
+        id = now
+        continue
+      }
       const now: string | undefined = this.note?.id
       if (now === undefined) throw new Error('No note is open')
       if (this.#opened !== opened || now === id) return href

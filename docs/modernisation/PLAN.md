@@ -156,7 +156,9 @@ returns `{ view, setDoc(doc, { preserveSelection }), setReadOnly, setTheme, focu
   changes only the characters that differ (the lines are matched first, so unchanged lines map
   through even when lines were added or removed, then each run of changed lines is diffed character
   by character; `src/editor/doc-changes.ts`), so the selection and undo history map through all
-  unchanged text; it isn't undoable and doesn't call `onChange`.
+  unchanged text; it isn't undoable and doesn't call `onChange`. One call runs at most `DIFF_ROUNDS`
+  diff rounds (line and character passes together): a very different or many-line outside edit then
+  replaces the rest left to diff as one span, so it cannot freeze the renderer.
 - The workspace (phase 4) hosts the editor; the phase-3 `/dev/editor` harness is gone. `pnpm build`
   compiles the workspace entry's whole graph, including every lazily loaded language.
 
@@ -219,7 +221,7 @@ not open → 409 `NO_VAULT`.
 | `POST /api/links/plan {moves}` · `POST /api/links/apply {moves}` | After a rename/move: links in other notes to the old place, dry run / rewrite → `{ notes: [{ id, title, links }], total }` (phase 10) |
 | `POST /api/folders/create {parent, name}` · `rename` · `move` · `delete` · `color {id, color\|null}` | Folder CRUD and colour |
 | `POST /api/trash/restore {id}` · `empty` | Trash |
-| `POST /api/assets?note=&ext=` (raw body, ≤ 50 MB) | Editor `saveAsset` → `{ href: "./<stem>.assets/<hash>.<ext>" }` |
+| `POST /api/assets?note=&ext=` (raw body, ≤ 50 MB) | Editor `saveAsset` → `{ href: "./<stem>.assets/<hash>.<ext>" }`; `404 NOT_FOUND`, writing nothing, when the note does not exist |
 | `GET /api/import/candidates` · `POST /api/import/pick {purpose}` · `POST /api/import/run {source, target, dryRun, force}` | Importer: storages found on this machine, folder dialog, dry run / run → summary |
 | `POST /api/open-external {url}` | http(s) links only |
 | `GET /api/preferences` · `POST /api/preferences {…UiPatch}` | `{ ui, hotkeyRegistered }`; save validates every field, `409 HOTKEY_UNAVAILABLE` when the OS refuses the global hotkey (phase 5) |
@@ -661,9 +663,14 @@ style).
      rewritten text like step 3, the lists refresh and "Updated N links" shows (plus "Could not refresh"
      as in step 4). **Don’t update** (Esc) writes nothing. With nothing to update no dialog appears.
   A relocation that returns after a vault switch does nothing more: no rebase, refresh, notice or question
-  (they would reach the other vault). An image pasted, dropped or picked while the open note moves is saved
-  again for its new place, so its link fits: when the save returns (`NoteSession.saveAsset`) and right before
-  the insert (`EditorHost.assetPlace`, `insertSavedImages`).
+  (they would reach the other vault); a vault switch answers an "Update links?" question of the vault left
+  (showing or parked) with Don’t update, and that question's result or failure shows nowhere. Of two list
+  refreshes out at once only the later one shows (`WorkspaceModel.refresh`), and of two reads of the open
+  note only the later one is taken (`Relocation.#reread`). An image pasted, dropped or picked while the open
+  note moves is saved again for its new place, so its link fits: when the save returns
+  (`NoteSession.saveAsset`; an upload that reaches the vault once the note left is refused with `404`, so no
+  assets folder, nor the old folder, is made there) and right before the insert (`EditorHost.assetPlace`,
+  `insertSavedImages`).
 
 ## CLI and MCP (phase 11)
 

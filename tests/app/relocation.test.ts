@@ -241,6 +241,34 @@ describe('Relocation: link questions', () => {
   })
 })
 
+describe('Relocation: two reads of the open note at once', () => {
+  it('keeps the newer read when an older one, of a link update, returns after it', async () => {
+    await navigation.open('linker.md')
+    const renaming = relocation.renameNote('a.md', 'a2')
+    await expect.poll(() => questions.length).toBe(1)
+    let first = true
+    // The update's read of the open note is answered at once and returns late.
+    net.hold(
+      (url) => {
+        if (url.pathname !== '/api/notes/read' || url.searchParams.get('id') !== 'linker.md' || !first) return undefined
+        first = false
+        return 'read'
+      },
+      { answered: true },
+    )
+    questions[0]?.answer(true)
+    await expect.poll(() => net.held.length).toBe(1)
+    // A title rename rewrites the open note's links again, and reads it again, while that read is out.
+    await relocation.applyTitleRenames([{ from: 'meeting.md', to: 'Meeting notes.md', title: 'Meeting notes' }])
+    net.held[0]?.release()
+    await renaming
+    const disk = await api.readNote('linker.md')
+    expect(disk.body).toBe('# Linker\n\n[a](./a2.md) [c](./c.md) [m](./Meeting%20notes.md)\n')
+    expect(session.body).toBe(disk.body)
+    expect(session.note?.hash).toBe(disk.hash)
+  })
+})
+
 describe('Relocation after a vault switch', () => {
   it('skips the refresh, the notice and the link question of a rename that returns once another vault shows', async () => {
     const other = await realpath(
@@ -285,6 +313,45 @@ describe('Relocation after a vault switch', () => {
     expect(session.note).toMatchObject({ id: 'g/x.md', body: '# Other X\n' })
     expect(navigation.tabs.tabs.map((tab) => tab.kind === 'note' && tab.path)).toEqual(['g/x.md'])
     expect(snapshots.get(other)?.tabs).toEqual(['g/x.md'])
+  })
+
+  /** Opens b.md in this vault, and gives another vault with a tab of its own. */
+  async function otherVault(): Promise<string> {
+    const other = await realpath(await folderWith(app, 'other', { 'o.md': '# O\n' }))
+    snapshots.set(other, { tabs: ['o.md'], active: 0, closed: [] })
+    await navigation.open('b.md')
+    return other
+  }
+
+  it('shows no link-update result once another vault shows while the refresh after the update is out', async () => {
+    const other = await otherVault()
+    const renaming = relocation.renameNote('a.md', 'a2')
+    await expect.poll(() => questions.length).toBe(1)
+    net.hold(onPath('/api/workspace'))
+    questions[0]?.answer(true)
+    await expect.poll(() => net.held.length).toBe(1)
+    net.hold(null)
+    await navigation.switchVault(async () => (await api.openVault(other)).workspace)
+    net.held[0]?.release()
+    await renaming
+    expect(notices).toEqual([])
+    expect(await readFile(path.join(vault, 'linker.md'), 'utf8')).toBe(
+      '# Linker\n\n[a](./a2.md) [c](./c.md) [m](./meeting.md)\n',
+    )
+  })
+
+  it('shows no link-update failure once another vault shows while the update is out', async () => {
+    const other = await otherVault()
+    const renaming = relocation.renameNote('a.md', 'a2')
+    await expect.poll(() => questions.length).toBe(1)
+    net.hold(onPath('/api/links/apply'))
+    questions[0]?.answer(true)
+    await expect.poll(() => net.held.length).toBe(1)
+    net.hold(null)
+    await navigation.switchVault(async () => (await api.openVault(other)).workspace)
+    net.held[0]?.release('Disk full')
+    await renaming
+    expect(notices).toEqual([])
   })
 })
 
