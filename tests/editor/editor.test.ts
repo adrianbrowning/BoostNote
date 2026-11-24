@@ -267,6 +267,21 @@ describe('createLivePreviewEditor', () => {
     expect(editor.view.state.doc.toString()).toBe('zero\none\ntwo\nthree\nfour\n')
   })
 
+  it('setDoc with preserveSelection keeps undo to the typed text when the outside edit shifts lines by more than one line diff pass takes', () => {
+    const lines = (prefix: string, from: number, to: number) =>
+      Array.from({ length: to - from }, (_, i) => `${prefix} ${from + i}\n`).join('')
+    const typed = (prefix: string, line: string) =>
+      `${prefix}${lines('line', 0, 500)}${line}\n${lines('line', 501, 900)}`
+    const { editor } = mount(`${typed('', 'line 500')}${lines('line', 900, 2000)}`)
+    const at = `${lines('line', 0, 500)}line`.length
+    editor.view.dispatch({ changes: { from: at, insert: 'X' }, selection: { anchor: at + 1 }, userEvent: 'input.type' })
+    // Another editor added 1100 lines at the top and removed the last 1100: 2200 line edits shifting every line.
+    editor.setDoc(typed(lines('new', 0, 1100), 'lineX 500'), { preserveSelection: true })
+    expect(editor.view.state.selection.main.head).toBe(`${lines('new', 0, 1100)}${lines('line', 0, 500)}lineX`.length)
+    undo(editor.view)
+    expect(editor.view.state.doc.toString()).toBe(typed(lines('new', 0, 1100), 'line 500'))
+  })
+
   it('setDoc with preserveSelection takes a CRLF note’s text with the editor’s line breaks, adding no blank lines', () => {
     const { editor, onChange } = mount('a\r\n[b](./b.md)\r\nc')
     editor.view.dispatch({ selection: { anchor: 'a\n[b](./b.md)\nc'.length } })

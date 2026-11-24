@@ -47,34 +47,63 @@ function lineStarts(lines: string[]): number[] {
 
 /**
  * The runs of lines that differ between `from` and `to`, as `[fromStart, fromEnd, toStart, toEnd]` line indexes,
- * ascending: Myers' diff over whole lines. Each run follows the documents' start or a run of equal lines. Lines too
- * different for `MAX_EDITS` line inserts and deletes form one run, which the character diff then takes.
+ * ascending: Myers' diff over whole lines, one pass of at most `MAX_EDITS` line inserts and deletes at a time (as the
+ * character diff), so every unchanged line it finds maps straight through however many lines changed around it.
  */
 function lineHunks(from: string[], to: string[]): [number, number, number, number][] {
+  const hunks: [number, number, number, number][] = []
   let start = 0
-  while (start < from.length && start < to.length && from[start] === to[start]) start++
+  let toStart = 0
   let fromEnd = from.length
   let toEnd = to.length
-  while (fromEnd > start && toEnd > start && from[fromEnd - 1] === to[toEnd - 1]) {
+  while (fromEnd > 0 && toEnd > 0 && from[fromEnd - 1] === to[toEnd - 1]) {
     fromEnd--
     toEnd--
   }
-  const n = fromEnd - start
-  const m = toEnd - start
-  if (n === 0 && m === 0) return []
-  if (n === 0 || m === 0) return [[start, fromEnd, start, toEnd]]
+  for (;;) {
+    while (start < fromEnd && toStart < toEnd && from[start] === to[toStart]) {
+      start++
+      toStart++
+    }
+    const n = fromEnd - start
+    const m = toEnd - toStart
+    if (n === 0 && m === 0) return hunks
+    if (n === 0 || m === 0) {
+      addHunk(hunks, [start, fromEnd, toStart, toEnd])
+      return hunks
+    }
+    const [x, y] = linePass(from, to, start, toStart, n, m, hunks)
+    start += x
+    toStart += y
+  }
+}
+
+/**
+ * One pass of Myers' diff between `from`'s `n` lines at `start` and `to`'s `m` at `toStart`: adds the runs of
+ * changed lines of the shortest path to their ends, or of the path that got furthest within `MAX_EDITS`, and
+ * returns how far into each that path got.
+ */
+function linePass(
+  from: string[],
+  to: string[],
+  start: number,
+  toStart: number,
+  n: number,
+  m: number,
+  hunks: [number, number, number, number][],
+): [number, number] {
   const limit = Math.min(n + m, MAX_EDITS)
   const ends = new Int32Array(2 * limit + 3)
   const at = (k: number) => ends[k + limit + 1] ?? 0
   const rounds: Int32Array[] = []
-  let edits: number | undefined
-  let finished = 0
-  for (let d = 0; d <= limit && edits === undefined; d++) {
+  let edits = limit
+  let finished: number | undefined
+  for (let d = 0; d <= limit && finished === undefined; d++) {
     rounds.push(ends.slice())
     for (let k = -d; k <= d; k += 2) {
       let x = k === -d || (k !== d && at(k - 1) < at(k + 1)) ? at(k + 1) : at(k - 1) + 1
       let y = x - k
-      while (x < n && y < m && from[start + x] === to[start + y]) {
+      while (x < n && y < m && from[start + x] === to[toStart + y]) {
         x++
         y++
       }
@@ -86,11 +115,23 @@ function lineHunks(from: string[], to: string[]): [number, number, number, numbe
       }
     }
   }
-  if (edits === undefined) return [[start, fromEnd, start, toEnd]]
-  // Steps back from the end, collecting the runs of equal lines (as where they end and how long they are).
-  const equal: [number, number, number][] = []
-  let x = at(finished)
-  let y = x - finished
+  let last = finished ?? 0
+  if (finished === undefined) {
+    // Out of edits: the path of the last round that got furthest into both, of those that stayed within them.
+    let furthest = -1
+    for (let k = -limit; k <= limit; k += 2) {
+      const x = at(k)
+      if (x <= n && x - k <= m && x - k >= 0 && 2 * x - k > furthest) {
+        furthest = 2 * x - k
+        last = k
+      }
+    }
+  }
+  let x = at(last)
+  let y = x - last
+  const end: [number, number] = [x, y]
+  // Steps back from where it got, collecting the runs of equal lines (as where they end and how long they are).
+  const equal: [number, number, number][] = [[x, y, 0]]
   for (let d = edits; d > 0; d--) {
     const before = rounds[d]
     const ended = (k: number) => before?.[k + limit + 1] ?? 0
@@ -105,17 +146,27 @@ function lineHunks(from: string[], to: string[]): [number, number, number, numbe
     y = previousY
   }
   if (x > 0) equal.push([x, y, x])
-  const hunks: [number, number, number, number][] = []
   let fromAt = 0
   let toAt = 0
-  for (const [endX, endY, length] of [...equal.reverse(), [n, m, 0] as [number, number, number]]) {
+  for (const [endX, endY, length] of equal.reverse()) {
     if (endX - length > fromAt || endY - length > toAt) {
-      hunks.push([start + fromAt, start + endX - length, start + toAt, start + endY - length])
+      addHunk(hunks, [start + fromAt, start + endX - length, toStart + toAt, toStart + endY - length])
     }
     fromAt = endX
     toAt = endY
   }
-  return hunks
+  return end
+}
+
+/** Adds `hunk` to `hunks`, joined to the last one when they touch (a pass stopped inside a run of changed lines). */
+function addHunk(hunks: [number, number, number, number][], hunk: [number, number, number, number]): void {
+  const last = hunks.at(-1)
+  if (last && last[1] === hunk[0] && last[3] === hunk[2]) {
+    last[1] = hunk[1]
+    last[3] = hunk[3]
+  } else {
+    hunks.push(hunk)
+  }
 }
 
 /**

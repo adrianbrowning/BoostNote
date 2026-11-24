@@ -93,11 +93,17 @@ describe('docChanges', () => {
       seed = (seed * 1103515245 + 12345) % 2 ** 31
       return seed / 2 ** 31
     }
-    const text = () => Array.from({ length: 3000 }, () => 'abc'[Math.floor(random() * 3)]).join('')
-    for (let n = 0; n < 5; n++) {
-      const from = text()
-      const to = text()
+    const text = (alphabet: string) =>
+      Array.from({ length: 3000 }, () => alphabet[Math.floor(random() * alphabet.length)]).join('')
+    // With line breaks every few characters, more lines differ than one line diff pass takes.
+    for (const alphabet of ['abc', 'abc', 'ab\n', 'ab\n']) {
+      const from = text(alphabet)
+      const to = text(alphabet)
       expect(apply(from, docChanges(from, to))).toBe(to)
     }
+    const lines = (count: number) => Array.from({ length: count }, (_, i) => `line ${i}\n`).join('')
+    const from = lines(5000)
+    const to = `${lines(5000).replaceAll('5\n', '6\n')}tail`
+    expect(apply(from, docChanges(from, to))).toBe(to)
   })
 })
