@@ -1,6 +1,6 @@
 import { mkdir, readdir, readFile, realpath, writeFile } from 'node:fs/promises'
 import * as path from 'node:path'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { Client } from '../../src/app/actions/public/workspace/api.ts'
 import { Navigation, type TabStore } from '../../src/app/actions/public/workspace/navigation.ts'
 import { type DocEvent, NoteSession } from '../../src/app/actions/public/workspace/note-session.ts'
@@ -269,6 +269,90 @@ describe('Relocation: two reads of the open note at once', () => {
     expect(disk.body).toBe('# Linker\n\n[a](./a2.md) [c](./c.md) [m](./Meeting%20notes.md)\n')
     expect(session.body).toBe(disk.body)
     expect(session.note?.hash).toBe(disk.hash)
+  })
+
+  it('keeps an outside edit read after a link update’s read of the open note that returns after it', async () => {
+    await navigation.open('linker.md')
+    const renaming = relocation.renameNote('a.md', 'a2')
+    await expect.poll(() => questions.length).toBe(1)
+    let first = true
+    net.hold(
+      (url) => {
+        if (url.pathname !== '/api/notes/read' || url.searchParams.get('id') !== 'linker.md' || !first) return undefined
+        first = false
+        return 'read'
+      },
+      { answered: true },
+    )
+    questions[0]?.answer(true)
+    await expect.poll(() => net.held.length).toBe(1)
+    // An agent edits the note while the update's read is out: the live reload reads it again and returns first.
+    await writeFile(path.join(vault, 'linker.md'), '# Linker, edited\n\n[a](./a2.md)\n')
+    await session.externalChange()
+    net.held[0]?.release()
+    await renaming
+    const disk = await api.readNote('linker.md')
+    expect(disk.body).toBe('# Linker, edited\n\n[a](./a2.md)\n')
+    expect(session.body).toBe(disk.body)
+    expect(session.note?.hash).toBe(disk.hash)
+  })
+
+  it('keeps a link update’s read of the open note when an outside edit’s older read returns after it', async () => {
+    await navigation.open('linker.md')
+    await writeFile(path.join(vault, 'linker.md'), '# Linker, edited\n\n[a](./a.md)\n')
+    net.hold(
+      (url) => (url.pathname === '/api/notes/read' && url.searchParams.get('id') === 'linker.md' ? 'read' : undefined),
+      { answered: true },
+    )
+    // The live reload's read of the outside edit is out while a rename's link update rewrites the note again.
+    const reloading = session.externalChange()
+    await expect.poll(() => net.held.length).toBe(1)
+    const reload = net.held[0]
+    net.hold(null)
+    const renaming = relocation.renameNote('a.md', 'a2')
+    await expect.poll(() => questions.length).toBe(1)
+    questions[0]?.answer(true)
+    await renaming
+    reload?.release()
+    await reloading
+    const disk = await api.readNote('linker.md')
+    expect(disk.body).toBe('# Linker, edited\n\n[a](./a2.md)\n')
+    expect(session.body).toBe(disk.body)
+    expect(session.note?.hash).toBe(disk.hash)
+  })
+})
+
+describe('Relocation: an image saved while the open note moves', () => {
+  it('links the image into the new place when the vault refused it after the rename ran but before the app took its answer', async () => {
+    await navigation.open('a.md')
+    const statuses: number[] = []
+    const fetch = app.fetch
+    vi.spyOn(app, 'fetch').mockImplementation(async (href, init) => {
+      const response = await fetch(href, init)
+      if (href.startsWith('/api/assets')) statuses.push(response.status)
+      return response
+    })
+    net.hold(onPath('/api/assets'))
+    const saving = session.saveAsset(new File([new Uint8Array([1, 2, 3])], 'p.png', { type: 'image/png' }))
+    await expect.poll(() => net.held.length).toBe(1)
+    const upload = net.held[0]
+    // The vault runs the rename at once; its answer waits.
+    net.hold(onPath('/api/notes/rename'), { answered: true })
+    const renaming = relocation.renameNote('a.md', 'a2')
+    await expect.poll(() => net.held.length).toBe(1)
+    const rename = net.held[0]
+    net.hold(null)
+    upload?.release()
+    // The upload for a.md is refused (a.md is gone) before the app takes the rename's answer.
+    await expect.poll(() => statuses).toEqual([404])
+    rename?.release()
+    const href = await saving
+    expect(href).toMatch(/^\.\/a2\.assets\/[0-9a-f]+\.png$/)
+    expect(await readFile(path.join(vault, href))).toEqual(Buffer.from([1, 2, 3]))
+    expect(await readdir(vault)).not.toContain('a.assets')
+    await expect.poll(() => questions.length).toBe(1)
+    questions[0]?.answer(false)
+    await renaming
   })
 })
 

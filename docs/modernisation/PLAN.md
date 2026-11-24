@@ -158,7 +158,8 @@ returns `{ view, setDoc(doc, { preserveSelection }), setReadOnly, setTheme, focu
   by character; `src/editor/doc-changes.ts`), so the selection and undo history map through all
   unchanged text; it isn't undoable and doesn't call `onChange`. One call runs at most `DIFF_ROUNDS`
   diff rounds (line and character passes together): a very different or many-line outside edit then
-  replaces the rest left to diff as one span, so it cannot freeze the renderer.
+  replaces each run still left to diff as one span (the lines not yet matched form one run), so it
+  cannot freeze the renderer.
 - The workspace (phase 4) hosts the editor; the phase-3 `/dev/editor` harness is gone. `pnpm build`
   compiles the workspace entry's whole graph, including every lazily loaded language.
 

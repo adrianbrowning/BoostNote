@@ -82,6 +82,11 @@ export class NoteSession extends TypedEventTarget<{ change: Event; doc: DocEvent
    * theirs); a relocation keeps the count (`saveAsset`).
    */
   #opened = 0
+  /**
+   * Counts the reads of the open note taken out (`readTicket`) and the documents it took (`relocated`, `#reset`):
+   * a read's result applies only while no later one was taken out or taken.
+   */
+  #generation = 0
 
   /** `api`: the page's `client`, or one over the router in tests (`createClient`). */
   constructor(api: NoteApi) {
@@ -94,10 +99,11 @@ export class NoteSession extends TypedEventTarget<{ change: Event; doc: DocEvent
    * relative to the note. When the note was renamed or moved while the image was saved (`relocated`), it is saved
    * again for the note's new place (assets are stored by content hash, so that is the same file) until the note
    * stays put, and the last link is the one returned; an upload that reached the vault once the note had left its
-   * old place is refused there (`404`, nothing written) and saved again the same way. Rejects with "No note is open"
-   * when no note is open, or the note closed meanwhile. When another note replaced it meanwhile, it resolves with
-   * the link for the note it was saved for (the editor drops that insert). The editor also checks the place right
-   * before the insert (`EditorHost.assetPlace`), for a relocation that lands after this resolved.
+   * old place is refused there (`404`, nothing written) and saved again the same way, also when the app has not yet
+   * taken the relocation's answer (it waits until no transition holds the note, `locked`). Rejects with "No note is
+   * open" when no note is open, or the note closed meanwhile. When another note replaced it meanwhile, it resolves
+   * with the link for the note it was saved for (the editor drops that insert). The editor also checks the place
+   * right before the insert (`EditorHost.assetPlace`), for a relocation that lands after this resolved.
    */
   async saveAsset(file: File): Promise<string> {
     const opened = this.#opened
@@ -108,9 +114,11 @@ export class NoteSession extends TypedEventTarget<{ change: Event; doc: DocEvent
       try {
         href = (await this.#api.uploadAsset(id, file)).href
       } catch (error) {
+        if (!(error instanceof ApiError && error.status === 404)) throw error
+        // A rename or move the vault ran may still be on its way back: the note moves once it lands.
+        await this.#unlocked()
         const now = this.note?.id
-        const left = this.#opened === opened && now !== undefined && now !== id
-        if (!(error instanceof ApiError && error.status === 404 && left)) throw error
+        if (this.#opened !== opened || now === undefined || now === id) throw error
         id = now
         continue
       }
@@ -118,6 +126,15 @@ export class NoteSession extends TypedEventTarget<{ change: Event; doc: DocEvent
       if (now === undefined) throw new Error('No note is open')
       if (this.#opened !== opened || now === id) return href
       id = now
+    }
+  }
+
+  /** Resolves once no transition holds the note (`locked`). */
+  async #unlocked(): Promise<void> {
+    while (this.locked) {
+      const { promise, resolve } = Promise.withResolvers<void>()
+      this.addEventListener('change', () => resolve(), { once: true })
+      await promise
     }
   }
 
@@ -140,6 +157,7 @@ export class NoteSession extends TypedEventTarget<{ change: Event; doc: DocEvent
    */
   relocated(note: NoteDocument): void {
     if (!this.note) return
+    this.#generation++
     this.note = note
     if (this.state === 'saved' && note.body !== this.body) {
       this.body = note.body
@@ -147,6 +165,16 @@ export class NoteSession extends TypedEventTarget<{ change: Event; doc: DocEvent
     }
     this.dispatchEvent(new SavedEvent(note))
     this.#changed()
+  }
+
+  /**
+   * Takes out a read of the open note: the handle answers `true` while no later read was taken out and the note took
+   * no document since (`relocated`, opening, closing, Load theirs). A read that returns once it answers `false` is
+   * older than what the note shows, and is dropped.
+   */
+  readTicket(): () => boolean {
+    const at = ++this.#generation
+    return () => at === this.#generation
   }
 
   /**
@@ -202,14 +230,15 @@ export class NoteSession extends TypedEventTarget<{ change: Event; doc: DocEvent
     const note = this.note
     if (!note) return
     if (this.#inflight) await this.#inflight
+    const fresh = this.readTicket()
     let theirs: NoteDocument
     try {
       theirs = await this.#api.readNote(note.id)
     } catch (error) {
-      if (error instanceof ApiError && error.status === 404) this.externalRemoval()
+      if (fresh() && error instanceof ApiError && error.status === 404) this.externalRemoval()
       return
     }
-    if (this.note?.id !== note.id || theirs.hash === this.note.hash) return
+    if (!fresh() || this.note?.id !== note.id || theirs.hash === this.note.hash) return
     if (this.state === 'saved') {
       this.note = theirs
       this.body = theirs.body
@@ -288,6 +317,7 @@ export class NoteSession extends TypedEventTarget<{ change: Event; doc: DocEvent
   #reset(note: NoteDocument | null): void {
     clearTimeout(this.#timer)
     this.#opened++
+    this.#generation++
     this.note = note
     this.body = note?.body ?? ''
     this.state = 'saved'

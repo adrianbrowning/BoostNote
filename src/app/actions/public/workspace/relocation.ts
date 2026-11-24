@@ -95,8 +95,6 @@ export class Relocation {
   readonly #host: RelocationHost
   /** The link question asked last (or waiting to be): the next one is asked once it is answered and done. */
   #questions: Promise<void> = Promise.resolve()
-  /** Counts the documents the open note took or was read for (`#reread`, `#follow`): only the latest one's shows. */
-  #takes = 0
 
   constructor({ session, navigation, api, host }: RelocationOptions) {
     this.#session = session
@@ -274,7 +272,6 @@ export class Relocation {
     if (openId !== null && affects(openId)) {
       const to = map(openId)
       if (returned?.id === to) {
-        this.#takes++
         this.#session.relocated(returned)
       } else {
         if (to !== openId) this.#session.retarget(to)
@@ -291,12 +288,13 @@ export class Relocation {
    * message when it failed: the note then keeps the hash and text it had, so its next save conflicts (instead of
    * overwriting) when the vault changed its text meanwhile. Nothing is taken, nor a failure reported, once the note
    * is no longer open there (another note opened, another relocation moved it again, or another vault shows), or a
-   * later read (or a relocation's returned document) took its place: this read may be older than that one's.
+   * later read of the note (a live reload's too) or a document it took replaced it (`NoteSession.readTicket`): this
+   * read may be older than that one.
    */
   async #reread(id: string): Promise<string | undefined> {
     const current = this.#navigation.token()
     const sameVault = this.#navigation.vaultToken()
-    const at = ++this.#takes
+    const fresh = this.#session.readTicket()
     let note: NoteDocument | undefined
     let failed: string | undefined
     try {
@@ -304,7 +302,7 @@ export class Relocation {
     } catch (error) {
       failed = message(error)
     }
-    if (!current() || !sameVault() || this.#session.note?.id !== id || at !== this.#takes) return undefined
+    if (!current() || !sameVault() || this.#session.note?.id !== id || !fresh()) return undefined
     if (note) this.#session.relocated(note)
     return failed
   }

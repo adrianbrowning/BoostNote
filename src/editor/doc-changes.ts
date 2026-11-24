@@ -15,7 +15,8 @@ const MAX_EDITS = 1024
 /**
  * Most diff rounds (one line or character inserted or deleted each) one `docChanges` call runs, its line and
  * character passes together, so adopting a very different or many-line outside edit costs at most about this times
- * `MAX_EDITS` steps. Once they are spent, what is left to diff becomes one replaced span.
+ * `MAX_EDITS` steps. Once they are spent, the lines not yet diffed become one run, and each run not yet diffed
+ * character by character becomes one change (without its common start and end).
  */
 export const DIFF_ROUNDS = 4 * MAX_EDITS
 
