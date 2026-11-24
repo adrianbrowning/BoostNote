@@ -10,7 +10,7 @@ import { folderChain } from './paths.ts'
 import { linksUpdatedNotice, linkUpdateFailedNotice, relocateNotice } from './relocate.ts'
 import type { ReaderTab, Tabs } from './tabs.ts'
 import type {
-  FolderRelocationResult,
+  FolderRelocation,
   FolderSummary,
   ImportFilesReport,
   JsonValue,
@@ -933,7 +933,7 @@ export class WorkspaceModel extends TypedEventTarget<{
     await this.#relocateFolder(id, () => this.#api.moveFolder(id, parent))
   }
 
-  async #relocateFolder(id: string, relocate: () => Promise<FolderRelocationResult>): Promise<void> {
+  async #relocateFolder(id: string, relocate: () => Promise<FolderRelocation>): Promise<void> {
     const affectsOpen = typeof this.openId === 'string' && isUnder(this.openId, id)
     await this.attempt(async () => {
       const relocated = await this.navigation.hold(

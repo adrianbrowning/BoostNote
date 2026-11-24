@@ -2,7 +2,7 @@ import { routes } from '../../../routes.ts'
 import type {
   AssetsLeftBehind,
   ExportResult,
-  FolderRelocationResult,
+  FolderRelocation,
   ImportCandidate,
   ImportFilesReport,
   ImportSummary,
@@ -143,8 +143,8 @@ export function createClient(transport: Transport) {
     applyLinkUpdates: (moves: LinkMove[]) => post<LinkUpdateReport>(api.linksApply.href(), { moves }),
 
     createFolder: (parent: string, name: string) => post<{ id: string }>(api.folderCreate.href(), { parent, name }),
-    renameFolder: (id: string, name: string) => post<FolderRelocationResult>(api.folderRename.href(), { id, name }),
-    moveFolder: (id: string, parent: string) => post<FolderRelocationResult>(api.folderMove.href(), { id, parent }),
+    renameFolder: (id: string, name: string) => post<FolderRelocation>(api.folderRename.href(), { id, name }),
+    moveFolder: (id: string, parent: string) => post<FolderRelocation>(api.folderMove.href(), { id, parent }),
     deleteFolder: (id: string) => post<unknown>(api.folderDelete.href(), { id }),
     setFolderColor: (id: string, color: string | null) => post<unknown>(api.folderColor.href(), { id, color }),
 

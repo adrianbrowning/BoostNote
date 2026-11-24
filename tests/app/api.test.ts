@@ -3,7 +3,7 @@ import * as path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { MAX_IMPORT_PATHS } from '../../src/app/actions/api/controller.ts'
 import type {
-  FolderRelocationResult,
+  FolderRelocation,
   ImportFilesReport,
   ImportSummary,
   LinkUpdateReport,
@@ -229,13 +229,13 @@ describe('notes', () => {
     expect((await app.post(api.folderColor.href(), { id: 'A', color: '#12345' })).status).toBe(400)
     expect((await app.post(api.folderColor.href(), { id: 'A', color: '#1234567' })).status).toBe(400)
     expect(
-      await readJson<FolderRelocationResult>(await app.post(api.folderRename.href(), { id: 'A', name: 'Alpha' })),
+      await readJson<FolderRelocation>(await app.post(api.folderRename.href(), { id: 'A', name: 'Alpha' })),
     ).toEqual({
       folder: 'Alpha',
       moves: [{ from: 'A', to: 'Alpha', kind: 'folder' }],
     })
     expect(
-      await readJson<FolderRelocationResult>(await app.post(api.folderMove.href(), { id: 'Alpha', parent: 'B' })),
+      await readJson<FolderRelocation>(await app.post(api.folderMove.href(), { id: 'Alpha', parent: 'B' })),
     ).toEqual({
       folder: 'B/Alpha',
       moves: [{ from: 'Alpha', to: 'B/Alpha', kind: 'folder' }],

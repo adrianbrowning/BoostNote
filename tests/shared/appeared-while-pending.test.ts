@@ -1,6 +1,7 @@
 import { mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import * as path from 'node:path'
+import { setImmediate } from 'node:timers/promises'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 
 import { appearedWhilePending } from './appeared-while-pending.ts'
@@ -20,6 +21,12 @@ describe('appearedWhilePending', () => {
     const file = path.join(dir, 'c.md')
     const { promise: pending, resolve: finish } = Promise.withResolvers<void>()
     const waiting = appearedWhilePending(file, pending)
+    let done = false
+    void waiting.then(() => {
+      done = true
+    })
+    for (let i = 0; i < 5; i++) await setImmediate()
+    expect(done).toBe(false)
     await writeFile(file, 'C\n')
     await expect(waiting).resolves.toBeUndefined()
     finish()

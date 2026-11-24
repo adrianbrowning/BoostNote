@@ -29,6 +29,7 @@ import type {
 
 export type {
   AssetsLeftBehind,
+  FolderRelocation,
   ImportFilesReport,
   LinkMove,
   LinkUpdate,
@@ -79,12 +80,6 @@ export interface NoteRelocationResult extends AssetsLeftBehind {
   note: NoteDocument
   moves: LinkMove[]
 }
-
-/**
- * `POST /api/folders/rename` and `/move`: the folder's new id and the moves to offer to `/api/links/*`.
- * The vault's own `FolderRelocation`, which those routes send as is.
- */
-export type FolderRelocationResult = FolderRelocation
 
 /**
  * `GET /api/reader/:ticket`: an outside `.md` shown read-only in a reader tab; `name` is its base

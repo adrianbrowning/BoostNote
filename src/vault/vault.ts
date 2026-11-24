@@ -190,7 +190,10 @@ export interface NoteRelocation extends AssetsLeftBehind {
   links?: LinkUpdateReport
 }
 
-/** A renamed or moved folder: its new id and the moves to pass to `planLinkUpdates`/`applyLinkUpdates`. */
+/**
+ * A renamed or moved folder: its new id and the moves to pass to `planLinkUpdates`/`applyLinkUpdates`.
+ * `POST /api/folders/rename` and `/move` send it as is.
+ */
 export interface FolderRelocation {
   folder: string
   moves: LinkMove[]
