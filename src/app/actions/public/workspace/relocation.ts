@@ -75,8 +75,9 @@ const message = (error: unknown) => (error instanceof Error ? error.message : St
 
 /**
  * Every rename and move the app makes of notes and folders, and the title renames, through one sequence: the
- * leave-note gate (when the relocation can replace the open note, `Navigation.replaces`: it moves it, or the active
- * tab does not show it and loads its note; the open note is saved first, and nothing runs when that fails), the vault
+ * leave-note gate (renames and moves: when the relocation can replace the open note,
+ * `Navigation.relocationReplaces`: it moves it, or the active tab shows another note that moves and so loads over it;
+ * title renames: always; the open note is saved first, and nothing runs when that fails), the vault
  * operation, the open note taking the vault's document at its new place (its relocated links included, keeping the
  * editor's cursor, selection and undo), tabs and the view following, the list refresh, the notice, then the
  * "Update links?" question and, on "Update links", the rewrite (gated the same way). The open note is held
