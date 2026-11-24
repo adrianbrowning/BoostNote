@@ -37,6 +37,7 @@ per finding: id, location, title, problem and suggested fix. Later factory runs 
 - Problem: #renameFile (641-643) and moveNote (676-678) each run the same three lines: call linkMovesAfterRelocate, `if (outcome.notice) this.notify('info', outcome.notice, [], outcome.sticky)`, then `for (const move of outcome.moves) void this.#offerLinkUpdates(move, outcome.warning)`. deleteNote and restore repeat the notice half by hand again. relocate.ts was added so the model has one place for this rule, yet the model rebuilds how an outcome is applied in four places. If one of them changes (for example how the warning reaches the link-update notice), the others can be missed.
 - Suggested fix: Add one private WorkspaceModel method, for example `#showRelocateOutcome(outcome: RelocateOutcome)`, that shows the notice (sticky when set) and offers each link move with the warning. Call it from #renameFile, moveNote, deleteNote and restore.
 - **Status:** run issue-17-18 slice 03: the outcome (`RelocateNotice`) no longer has moves, and `#showRelocateOutcome(outcome: RelocateOutcome)` would no longer fit. Still open: the notice half is repeated in #renameFile, moveNote, deleteNote and restore, and `#offerLinkUpdates(x.moves, outcome.warning)` in #renameFile and moveNote.
+- **Status:** run issue-17-18 slice 04: renames and moves of notes and folders now run in `Relocation` (`relocation.ts`), which shows their notice (`#report`) and offers the link update in one place each; the model no longer has those copies. Still open: deleteNote and restore in model.ts each show their `relocateNotice` by hand.
 
 ### react-ts-relocate-result-id-forced-for-trash
 
@@ -335,3 +336,12 @@ Run: issue-22
 Retro finding (repo, coding-standards, low)
 
 The CommonMark `<...>` destination unwrap is written four times: src/editor/render/inline.ts linkDestination, src/editor/links.ts:14, src/editor/live-preview/markers.ts:91 and src/vault/links.ts:92. The reviewers had to find this by hand (01-r3, deferred). Fix: move linkDestination into src/shared/vault-ids.ts beside linkPath and isRelativeLink, use it in all four places, and add one line to CODING_STANDARDS.md: link-destination and link-path rules live in src/shared/vault-ids.ts only.
+
+## issue-17-18 (slice 04)
+
+### bug-title-rename-both-twins-numbered-plain-name-unused
+
+- Location: `src/vault/vault.ts:495` (`planTitleRenames`)
+- Title: When both extension-case twins are title-renamed, neither gets the plain name ("Hello 2" and "Hello 3", no "Hello")
+- Problem: Take `work/hello.md` and `work/hello.MD` on a case-sensitive disk, both titled `Hello`, so both are slug-named. Each finds a name-key count of 2, so `own` is undefined for both. The first planned gets `Hello 2.MD` (the plain `Hello` is taken by both existing entries), and the second gets `Hello 3.md`. Once the first rename is applied, the second note's case-only rename to `Hello.md` would be free, so the plan numbers both notes and leaves the plain name unused. The apply succeeds, so nothing breaks, but the user ends up with `Hello 2` and `Hello 3` and no `Hello`. Raised in review 04-r3 of issue-22-md-case (deferred there); the user put it out of scope for issue #17.
+- Suggested fix: In `planTitleRenames`, count the earlier picks of the same plan: once a twin has been planned away from the shared name key, the next twin may take the plain name. Add a `pnpm test:case-sensitive` test with two twins titled the same.

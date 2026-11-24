@@ -265,6 +265,25 @@ describe('Navigation', () => {
     await expect(access(path.join(folder, 'b.md'))).rejects.toThrow()
   })
 
+  it('leaves the tabs and open note of the vault switched to while a folder delete was out', async () => {
+    const other = await folderWith(app, 'other', { 'f/n.md': '# Other N\n' })
+    await navigation.open('a.md')
+    net.hold((url) => (url.pathname === '/api/folders/delete' ? 'delete folder' : undefined))
+    const deleted = navigation.deleteFolder('f')
+    await expect.poll(() => net.held.length).toBe(1)
+    const switched = navigation.switchVault(
+      async () => (await api.openVault(other)).workspace,
+      (tabs) => tabs.openNew('f/n.md'),
+    )
+    expect(await switched).toBe(true)
+    net.held[0]?.release()
+    expect(await deleted).toBe(true)
+    expect(session.note).toMatchObject({ id: 'f/n.md', body: '# Other N\n' })
+    expect(navigation.tabs.tabs).toMatchObject([{ kind: 'note', path: 'f/n.md' }])
+    expect(saved()).toEqual({ tabs: ['f/n.md'], active: 0, closed: [] })
+    await expect(access(path.join(folder, 'f/n.md'))).rejects.toThrow()
+  })
+
   it('saves a background tab closed while a held delete is out, even when that delete fails', async () => {
     await navigation.open('a.md')
     await navigation.open('b.md', { newTab: true })
@@ -297,7 +316,7 @@ describe('Navigation', () => {
     expect(store.saved.get(first)).toEqual({ tabs: ['b.md'], active: 0, closed: [{ path: 'a.md', index: 0 }] })
   })
 
-  it('finishes a vault switch, then rejects, when the tabs changed in the vault left cannot be saved', async () => {
+  it('finishes a vault switch and reports, without rejecting, that the tabs changed in the vault left cannot be saved', async () => {
     const other = await folderWith(app, 'other', { 'x.md': '# X\n' })
     await navigation.open('a.md')
     await navigation.open('b.md', { newTab: true })
@@ -326,8 +345,9 @@ describe('Navigation', () => {
     full = true
     await navigation.close(navigation.tabs.tabs[0]?.key)
     release()
-    await expect(switched).rejects.toThrow('QuotaExceededError')
-    // Main is on the other vault: so is the page, unlocked.
+    // Main is on the other vault, so the switch happened: the store error is reported, and the page shows that vault, unlocked.
+    expect(await switched).toBe(true)
+    expect(notices).toEqual(['QuotaExceededError'])
     expect(data.vault?.root).not.toBe(first)
     expect(session.note?.id).toBe('x.md')
     expect(session.locked).toBe(false)

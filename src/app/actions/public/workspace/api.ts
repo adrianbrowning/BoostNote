@@ -80,10 +80,12 @@ export interface NoteSaveInput {
   frontmatter?: Record<string, JsonValue>
 }
 
-/** A client's note read and save calls (all `NoteSession` uses); `createClient` types its own with these. */
+/** A client's note calls (all `NoteSession` uses: reads, saves, image uploads); `createClient` types its own with these. */
 export interface NoteApi {
   readNote: (id: string) => Promise<NoteDocument>
   saveNote: (input: NoteSaveInput) => Promise<NoteDocument>
+  /** Stores an image next to note `noteId`; `href` is the link to it, relative to the note. */
+  uploadAsset: (noteId: string, file: File) => Promise<{ href: string }>
 }
 
 function withQuery(href: string, params: Record<string, string>): string {

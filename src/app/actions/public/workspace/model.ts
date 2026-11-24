@@ -1,20 +1,19 @@
 import { TypedEventTarget } from 'remix/component'
 
-import { isAtOrUnder, isUnder, lastSegment, movedId, noteStem, parentOf, toMeta } from '../../../../shared/vault-ids.ts'
+import { isAtOrUnder, lastSegment, noteStem, parentOf, toMeta } from '../../../../shared/vault-ids.ts'
 import { ApiError, type Client, setPageVault } from './api.ts'
 import type { DropTicket } from './drop-import.ts'
 import { Navigation, type TabStore } from './navigation.ts'
 import { NoteSaving } from './note-saving.ts'
 import { NoteSession } from './note-session.ts'
 import { folderChain } from './paths.ts'
-import { linksUpdatedNotice, linkUpdateFailedNotice, relocateNotice } from './relocate.ts'
+import { relocateNotice } from './relocate.ts'
+import { Relocation } from './relocation.ts'
 import type { ReaderTab, Tabs } from './tabs.ts'
 import type {
-  FolderRelocation,
   FolderSummary,
   ImportFilesReport,
   JsonValue,
-  LinkMove,
   LinkUpdate,
   NoteDocument,
   NoteSummary,
@@ -161,6 +160,8 @@ export class WorkspaceModel extends TypedEventTarget<{
   /** Every note transition (tabs, new and deleted notes, vault switches), each through the one leave-note gate. */
   readonly navigation: Navigation
   readonly #saving: NoteSaving
+  /** Every rename and move of notes and folders, and the title renames (one relocation sequence). */
+  readonly #relocation: Relocation
   readonly #api: Client
   preferences: UiPreferences
   hotkeyRegistered: boolean
@@ -177,6 +178,8 @@ export class WorkspaceModel extends TypedEventTarget<{
    * queue behind it, so vault switches, imports and the tabs they open never interleave.
    */
   #openRequests: Promise<void> = Promise.resolve()
+  /** An "Update links?" question waiting for the dialog over it to close (`#showDialog`). */
+  #parked: Dialog | null = null
 
   constructor(initial: WorkspaceData, preferences: PreferencesState, { api, store }: WorkspaceOptions) {
     super()
@@ -197,6 +200,28 @@ export class WorkspaceModel extends TypedEventTarget<{
       },
     })
     this.#saving = new NoteSaving(this.session, (text) => this.notify('error', text))
+    this.#relocation = new Relocation({
+      session: this.session,
+      navigation: this.navigation,
+      api,
+      host: {
+        folderName: (id) => this.folderName(id),
+        folderMoved: (map) => {
+          if (this.selection.kind === 'folder') this.selection = { kind: 'folder', id: map(this.selection.id) }
+          for (const folder of [...this.expanded]) {
+            this.expanded.delete(folder)
+            this.expanded.add(map(folder))
+          }
+        },
+        refresh: () => this.refresh(),
+        notify: (kind, text, sticky) => this.notify(kind, text, [], sticky),
+        askLinks: (question) => {
+          const { promise, resolve } = Promise.withResolvers<boolean>()
+          this.#showDialog({ kind: 'links', ...question, resolve: this.#closing(resolve) })
+          return promise
+        },
+      },
+    })
     setPageVault(initial.vault?.root ?? null)
     this.preferences = preferences.ui
     this.hotkeyRegistered = preferences.hotkeyRegistered
@@ -512,7 +537,7 @@ export class WorkspaceModel extends TypedEventTarget<{
     const stem = noteStem(id)
     const name = await this.prompt({ title: 'Rename note', label: 'File name', value: stem, confirm: 'Rename' })
     if (name === null || name.trim() === '' || name.trim() === stem) return
-    await this.attempt(() => this.#renameFile(id, name.trim()))
+    await this.attempt(() => this.#relocation.renameNote(id, name.trim()))
   }
 
   /**
@@ -533,7 +558,7 @@ export class WorkspaceModel extends TypedEventTarget<{
       }
       if (next === '') return 'A note needs a name'
       if (next === noteStem(note.id)) return null
-      await this.#renameFile(note.id, next)
+      await this.#relocation.renameNote(note.id, next)
       return null
     } catch (error) {
       if (error instanceof ApiError && error.code === 'EXISTS') return `A note named “${next}” already exists here`
@@ -542,119 +567,20 @@ export class WorkspaceModel extends TypedEventTarget<{
     }
   }
 
-  async #renameFile(id: string, name: string): Promise<void> {
-    const renamed = await this.navigation.hold(
-      async () => {
-        const sameVault = this.navigation.vaultToken()
-        const renamed = await this.#api.renameNote(id, name)
-        if (!sameVault()) return renamed
-        this.navigation.rebase((path) => (path === id ? renamed.note.id : path))
-        if (this.openId === id) this.session.relocated(renamed.note)
-        return renamed
-      },
-      { gate: this.openId === id },
-    )
-    if (!renamed) return
-    await this.refresh()
-    const outcome = relocateNotice({ assetsLeftBehind: renamed.assetsLeftBehind })
-    if (outcome.notice) this.notify('info', outcome.notice, [], outcome.sticky)
-    void this.#offerLinkUpdates(renamed.moves, outcome.warning)
-  }
-
   setTitleRenamesOpen(open: boolean): void {
     this.titleRenamesOpen = open
     this.closeMenu()
     this.changed()
   }
 
-  /**
-   * File › Rename Files From Titles…, after the user confirmed the plan: saves the open note, runs
-   * the renames, then tabs follow their notes and the open note is reloaded (its links may have
-   * been rewritten); it takes no edits until then (`Navigation.hold`). `null` when the open note
-   * could not be saved first.
-   */
-  async applyTitleRenames(renames: TitleRename[]): Promise<TitleRenameReport | null> {
-    const report = await this.navigation.hold(async () => {
-      const sameVault = this.navigation.vaultToken()
-      const report = await this.#api.applyTitleRenames(renames)
-      if (!sameVault()) return report
-      const moved = new Map(report.renamed.map((rename) => [rename.from, rename.to]))
-      const openId = this.openId
-      this.navigation.rebase((path) => moved.get(path) ?? path)
-      if (openId !== null) {
-        // Another note opened while this is read (the hold locks edits, not navigation) keeps its own document.
-        const current = this.navigation.token()
-        const note = await this.#api.readNote(moved.get(openId) ?? openId)
-        if (current()) this.session.open(note)
-      }
-      return report
-    })
-    if (report) await this.refresh()
-    return report
+  /** File › Rename Files From Titles…, after the user confirmed the plan (`Relocation.applyTitleRenames`). */
+  applyTitleRenames(renames: TitleRename[]): Promise<TitleRenameReport | null> {
+    return this.#relocation.applyTitleRenames(renames)
   }
 
   async moveNote(id: string, folder: string): Promise<void> {
     if (parentOf(id) === folder) return
-    await this.attempt(async () => {
-      const moved = await this.navigation.hold(
-        async () => {
-          const sameVault = this.navigation.vaultToken()
-          const moved = await this.#api.moveNote(id, folder)
-          if (!sameVault()) return moved
-          this.navigation.rebase((path) => (path === id ? moved.note.id : path))
-          if (this.openId === id) this.session.relocated(moved.note)
-          return moved
-        },
-        { gate: this.openId === id },
-      )
-      if (!moved) return
-      await this.refresh()
-      const outcome = relocateNotice({
-        assetsLeftBehind: moved.assetsLeftBehind,
-        done: `Moved to ${this.folderName(folder)}`,
-      })
-      if (outcome.notice) this.notify('info', outcome.notice, [], outcome.sticky)
-      void this.#offerLinkUpdates(moved.moves, outcome.warning)
-    })
-  }
-
-  /**
-   * After the app renamed/moved a note or folder (`moves`, as the server returned them): when other
-   * notes still link to its old place, asks whether to update those links, and rewrites them on
-   * "Update links" (the open note's pending edits are saved first; if it was rewritten it reloads
-   * like any outside change).
-   */
-  async #offerLinkUpdates(moves: LinkMove[], warning?: string): Promise<void> {
-    const [move] = moves
-    if (!move) return
-    try {
-      const plan = await this.#api.planLinkUpdates(moves)
-      if (plan.total === 0) return
-      const name = noteStem(move.from)
-      const links = plan.total === 1 ? '1 link' : `${plan.total} links`
-      const notes = plan.notes.length === 1 ? '1 note' : `${plan.notes.length} notes`
-      const { promise, resolve } = Promise.withResolvers<boolean>()
-      this.#showDialog({
-        kind: 'links',
-        title: 'Update links?',
-        message: `${links} in ${notes} ${plan.total === 1 ? 'points' : 'point'} to “${name}”.`,
-        notes: plan.notes,
-        confirm: 'Update links',
-        cancel: 'Don’t update',
-        resolve: this.#closing(resolve),
-      })
-      if (!(await promise)) return
-      await this.session.flush()
-      const report = await this.#api.applyLinkUpdates(moves)
-      const openId = this.openId
-      if (openId !== null && report.notes.some((note) => note.id === openId)) await this.session.externalChange()
-      await this.refresh()
-      const notice = linksUpdatedNotice(report.total, warning)
-      this.notify('info', notice.text, [], notice.sticky)
-    } catch (error) {
-      const notice = linkUpdateFailedNotice(error instanceof Error ? error.message : String(error), warning)
-      this.notify('error', notice.text, [], notice.sticky)
-    }
+    await this.attempt(() => this.#relocation.moveNote(id, folder))
   }
 
   async chooseMoveTarget(id: string): Promise<void> {
@@ -925,44 +851,12 @@ export class WorkspaceModel extends TypedEventTarget<{
     const current = this.folderName(id)
     const name = await this.prompt({ title: 'Rename folder', label: 'Folder name', value: current, confirm: 'Rename' })
     if (name === null || name.trim() === '' || name.trim() === current) return
-    await this.#relocateFolder(id, () => this.#api.renameFolder(id, name.trim()))
+    await this.attempt(() => this.#relocation.renameFolder(id, name.trim()))
   }
 
   async moveFolder(id: string, parent: string): Promise<void> {
     if (parentOf(id) === parent || isAtOrUnder(parent, id)) return
-    await this.#relocateFolder(id, () => this.#api.moveFolder(id, parent))
-  }
-
-  async #relocateFolder(id: string, relocate: () => Promise<FolderRelocation>): Promise<void> {
-    const affectsOpen = typeof this.openId === 'string' && isUnder(this.openId, id)
-    await this.attempt(async () => {
-      const relocated = await this.navigation.hold(
-        async () => {
-          const sameVault = this.navigation.vaultToken()
-          const relocated = await relocate()
-          if (!sameVault()) return relocated
-          const rebase = (value: string) => movedId(value, id, relocated.folder) ?? value
-          if (this.selection.kind === 'folder') this.selection = { kind: 'folder', id: rebase(this.selection.id) }
-          for (const folder of [...this.expanded]) {
-            this.expanded.delete(folder)
-            this.expanded.add(rebase(folder))
-          }
-          this.navigation.rebase(rebase)
-          const openId = this.openId
-          if (affectsOpen && openId) {
-            // Another note opened while this is read keeps its own document.
-            const current = this.navigation.token()
-            const note = await this.#api.readNote(rebase(openId))
-            if (current()) this.session.relocated(note)
-          }
-          return relocated
-        },
-        { gate: affectsOpen },
-      )
-      if (relocated === null) return
-      await this.refresh()
-      void this.#offerLinkUpdates(relocated.moves)
-    })
+    await this.attempt(() => this.#relocation.moveFolder(id, parent))
   }
 
   async deleteFolder(id: string): Promise<void> {
@@ -1178,20 +1072,36 @@ export class WorkspaceModel extends TypedEventTarget<{
     return promise
   }
 
-  /** Shows `dialog`, cancelling the one already open. */
+  /**
+   * Shows `dialog`, cancelling the one already open. An "Update links?" question is never cancelled: a dialog
+   * opened over it parks it, and one that comes while another dialog is open waits parked; it shows once that
+   * dialog closes (`Relocation` asks one question at a time, so at most one is parked).
+   */
   #showDialog(dialog: Dialog): void {
     this.closeMenu()
     const previous = this.dialog
-    if (previous?.kind === 'confirm' || previous?.kind === 'links') previous.resolve(false)
-    else previous?.resolve(null)
+    if (previous && dialog.kind === 'links') {
+      this.#parked = dialog
+      return
+    }
+    if (previous?.kind === 'links') this.#parked = previous
+    else if (previous) {
+      // Closing the cancelled dialog must not bring the parked question back under `dialog`.
+      const parked = this.#parked
+      this.#parked = null
+      if (previous.kind === 'confirm') previous.resolve(false)
+      else previous.resolve(null)
+      this.#parked = parked
+    }
     this.dialog = dialog
     this.changed()
   }
 
-  /** Wraps a dialog's resolver so answering it also closes it. */
+  /** Wraps a dialog's resolver so answering it also closes it (a parked question then shows again). */
   #closing<T>(resolve: (value: T) => void): (value: T) => void {
     return (value) => {
-      this.dialog = null
+      this.dialog = this.#parked
+      this.#parked = null
       this.changed()
       resolve(value)
     }

@@ -269,11 +269,14 @@ a refused delete trashes nothing), change the tabs, save them to the tab store, 
 note from disk. From the gate until it is done the transition holds the open note (`Navigation.hold`):
 the session takes no edits and the editor is read-only while its requests are out, so nothing typed
 meanwhile is dropped when the note is replaced or closed. Operations that change the open note after
-a request (rename, move, folder rename/move, title renames) run through the same `hold`; export only
-needs it saved first and calls the gate. Background tabs therefore never hold unsaved text.
+a request (rename, move, folder rename/move, title renames) run through the relocation module
+(`relocation.ts`, see "Link updates"), which gates and holds them the same way. Three operations only
+need the open note saved first and still call the gate themselves (`Navigation.leave`): export note,
+export folder and a reader tab's "Add to vault…". Background tabs therefore never hold unsaved text.
 `WorkspaceModel` keeps its tab actions and calls through; `tests/app/navigation.test.ts` drives
 `Navigation` over the in-process router with a memory tab store. Vault switches await the tab
-restore, so a restore that fails reaches the model's error notice.
+restore, so a restore that fails reaches the model's error notice; when only saving the tabs of the
+vault left fails, the other vault still shows (the switch counts) and the store error is the notice.
 
 - Click in the note list (or a relative `.md` link, or ↑/↓ in the list) navigates the active tab,
   pushing onto its back trail; ⌘/Ctrl+click, middle-click or "Open in New Tab" open a new tab after
@@ -626,14 +629,32 @@ style).
   note's relative links on its new folder, and links to itself or its assets follow; a folder
   rename/move does the same for every note inside it, so links out of the folder gain/lose `../` and
   links between notes inside it stay valid.
-- **Workspace:** after a successful inline rename, Rename…, Move to…, drag onto a folder, or a folder
-  rename/move, the model calls `POST /api/links/plan` with the `moves` the rename/move route returned
-  (the app asks first, so plan and apply stay two steps); with `total > 0` it shows "Update links? N links
-  in M notes point to “old name”." with the notes listed (scrolls past eight). **Update links**
-  (focused, Enter) flushes the open note's pending save, calls `POST /api/links/apply`, reloads the open
-  note through the live-reload path if it was rewritten (`setDoc` with `preserveSelection` when clean,
-  the conflict bar when dirty), refreshes the lists and shows "Updated N links". **Don’t update** (Esc)
-  writes nothing. With nothing to update no dialog appears.
+- **Workspace** (`Relocation`, `src/app/actions/public/workspace/relocation.ts`; unit tests in
+  `tests/app/relocation.test.ts`, e2e in `tests/e2e/relocation.spec.ts`): every inline rename, Rename…,
+  Move to…, drag onto a folder, folder rename/move and title-rename apply runs one sequence:
+  1. **Gate:** when the operation affects the open note (title renames: always), the open note is saved
+     first (`Navigation.leave`); when that fails nothing runs and the unsaved-changes notice shows.
+  2. **Vault operation**, the open note held (`Navigation.hold`: no edits while it is out).
+  3. **The open note follows**, decided when the response arrives (a note opened meanwhile counts): it
+     takes the vault's document at its new place (the rename/move route returns it; folder moves and
+     title renames read it again), its rebased links included, and the editor keeps cursor, selection
+     and undo (`NoteSession.relocated`, `setDoc` with `preserveSelection`). Then tabs, trails and the
+     view (selected and expanded folders) follow; an active tab whose read was out as the move landed
+     loads at its new place.
+  4. **Refresh** of the lists, then the notice as before (twin-assets warning, "Moved to X"). When the
+     vault succeeded but the refresh or the read of step 3 failed, it still counts: the title-rename
+     dialog keeps its report, and the notice adds "Could not refresh: …".
+  5. **Ask:** `POST /api/links/plan` with the `moves` the route returned (the app asks first, so plan and
+     apply stay two steps); with `total > 0` "Update links? N links in M notes point to “old name”." with
+     the notes listed (scrolls past eight). Questions queue: one at a time, in the order the relocations
+     landed, none dropped (another dialog opened over one parks it until that dialog closes).
+  6. **Apply** on **Update links** (focused, Enter): the gate again (nothing is rewritten when the open
+     note cannot be saved), `POST /api/links/apply` with the open note held, the open note takes its
+     rewritten text like step 3, the lists refresh and "Updated N links" shows (plus "Could not refresh"
+     as in step 4). **Don’t update** (Esc) writes nothing. With nothing to update no dialog appears.
+  A relocation that returns after a vault switch does nothing more: no rebase, refresh, notice or question
+  (they would reach the other vault). An image whose save was out while the open note moved is saved again
+  for its new place, so its link fits (`NoteSession.saveAsset`).
 
 ## CLI and MCP (phase 11)
 

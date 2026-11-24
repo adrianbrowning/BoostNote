@@ -76,11 +76,32 @@ export class NoteSession extends TypedEventTarget<{ change: Event; doc: DocEvent
   #inflight: Promise<SaveOutcome> | undefined
   #frontmatter: Record<string, JsonValue> | undefined
   readonly #api: NoteApi
+  /** Counts the notes opened (or closed) in the session; a relocation keeps the count (`saveAsset`). */
+  #opened = 0
 
   /** `api`: the page's `client`, or one over the router in tests (`createClient`). */
   constructor(api: NoteApi) {
     super()
     this.#api = api
+  }
+
+  /**
+   * Saves an image pasted or dropped into the open note (`POST /api/assets`) and resolves with the link to insert,
+   * relative to the note. When the note was renamed or moved while the image was saved (`relocated`), it is saved
+   * again for the note's new place (assets are stored by content hash, so that is the same file) until the note
+   * stays put, so the link fits where the note is now. When another note replaced it meanwhile, it resolves with
+   * the link for the note it was saved for (the editor drops that insert).
+   */
+  async saveAsset(file: File): Promise<string> {
+    const opened = this.#opened
+    let id = this.note?.id
+    if (id === undefined) throw new Error('No note is open')
+    for (;;) {
+      const { href } = await this.#api.uploadAsset(id, file)
+      const now = this.note?.id
+      if (this.#opened !== opened || now === undefined || now === id) return href
+      id = now
+    }
   }
 
   open(note: NoteDocument): void {
@@ -95,10 +116,18 @@ export class NoteSession extends TypedEventTarget<{ change: Event; doc: DocEvent
     this.#changed()
   }
 
-  /** The note was renamed/moved/restored by the app: same content, new id and hash. */
+  /**
+   * The app renamed or moved the open note, or rewrote its links: it takes the vault's `note` (its new id, hash
+   * and text), and the editor keeps its cursor, selection and undo history. Callers save the note first and hold
+   * it (`Navigation.hold`); text not yet saved is kept as it is, to be saved over the new hash.
+   */
   relocated(note: NoteDocument): void {
     if (!this.note) return
     this.note = note
+    if (this.state === 'saved' && note.body !== this.body) {
+      this.body = note.body
+      this.dispatchEvent(new DocEvent(note.body, true))
+    }
     this.dispatchEvent(new SavedEvent(note))
     this.#changed()
   }
@@ -229,6 +258,7 @@ export class NoteSession extends TypedEventTarget<{ change: Event; doc: DocEvent
 
   #reset(note: NoteDocument | null): void {
     clearTimeout(this.#timer)
+    this.#opened++
     this.note = note
     this.body = note?.body ?? ''
     this.state = 'saved'

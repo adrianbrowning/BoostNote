@@ -1,4 +1,5 @@
-import { realpath } from 'node:fs/promises'
+import { readFile, realpath } from 'node:fs/promises'
+import * as path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import type { Client } from '../../src/app/actions/public/workspace/api.ts'
 import { WorkspaceModel } from '../../src/app/actions/public/workspace/model.ts'
@@ -196,5 +197,100 @@ describe('WorkspaceModel operations that change the open note after a request', 
     await created
     expect(workspace.session.note?.id).toBe('in first.md')
     expect(workspace.data.notes).toHaveLength(before + 1)
+  })
+})
+
+describe('WorkspaceModel relocations that return after a vault switch', () => {
+  let workspace: WorkspaceModel
+  let saved: Map<string, TabsSnapshot>
+
+  beforeEach(async () => {
+    saved = new Map()
+    workspace = new WorkspaceModel(
+      await api.workspace(),
+      { ui: DEFAULT_UI, hotkeyRegistered: false, update: null },
+      {
+        api,
+        store: {
+          load: (root) => saved.get(root) ?? null,
+          save: (root, snapshot) => {
+            saved.set(root, structuredClone(snapshot))
+          },
+        },
+      },
+    )
+  })
+
+  afterEach(() => {
+    workspace.session.close()
+  })
+
+  it.each([
+    {
+      what: 'rename',
+      open: 'in first.md',
+      request: '/api/notes/rename',
+      run: () => workspace.renameOpenNote('renamed'),
+    },
+    {
+      what: 'move',
+      open: 'in first.md',
+      request: '/api/notes/move',
+      run: () => workspace.moveNote('in first.md', 'g'),
+    },
+    { what: 'folder move', open: 'f/n.md', request: '/api/folders/move', run: () => workspace.moveFolder('f', 'g') },
+  ])(
+    'leaves the tabs, stored tabs and open note of the vault switched to while a $what was out',
+    async ({ open, request, run }) => {
+      const other = await realpath(await folderWith(app, 'other', { [open]: '# Other\n' }))
+      saved.set(other, { tabs: [open], active: 0, closed: [] })
+      await workspace.openNote(open)
+      net.hold(onPath(request))
+      const done = run()
+      await expect.poll(() => net.held.length).toBe(1)
+      await workspace.openVault(other)
+      expect(workspace.session.note?.id).toBe(open)
+      net.held[0]?.release()
+      await done
+      expect(workspace.session.note).toMatchObject({ id: open, body: '# Other\n' })
+      expect(workspace.tabs.tabs).toMatchObject([{ kind: 'note', path: open }])
+      expect(saved.get(other)).toEqual({ tabs: [open], active: 0, closed: [] })
+      expect(workspace.notice).toBeNull()
+    },
+  )
+})
+
+describe('WorkspaceModel link questions', () => {
+  let workspace: WorkspaceModel
+
+  beforeEach(async () => {
+    await folderWith(app, 'links', { 'a.md': '# A\n', 'g/x.md': '# X\n', 'linker.md': '# L\n\n[a](./a.md)\n' })
+    await app.openVault('links')
+    workspace = new WorkspaceModel(
+      await api.workspace(),
+      { ui: DEFAULT_UI, hotkeyRegistered: false, update: null },
+      { api, store: { load: () => null, save: () => {} } },
+    )
+  })
+
+  afterEach(() => {
+    workspace.session.close()
+  })
+
+  it('keeps an Update links? question that another dialog opened over, and asks it again once that one closes', async () => {
+    const moving = workspace.moveNote('a.md', 'g')
+    await expect.poll(() => workspace.dialog?.kind).toBe('links')
+    // A menu command (File › New Folder…) opens its prompt while the question is open.
+    const naming = workspace.prompt({ title: 'New folder', label: 'Folder name', value: '', confirm: 'Create' })
+    const prompt = workspace.dialog
+    expect(prompt?.kind).toBe('prompt')
+    if (prompt?.kind === 'prompt') prompt.resolve(null)
+    expect(await naming).toBeNull()
+    const question = workspace.dialog
+    expect(question).toMatchObject({ kind: 'links', message: '1 link in 1 note points to “a”.' })
+    if (question?.kind === 'links') question.resolve(true)
+    await moving
+    expect(workspace.dialog).toBeNull()
+    expect(await readFile(path.join(app.dir, 'links', 'linker.md'), 'utf8')).toBe('# L\n\n[a](./g/a.md)\n')
   })
 })

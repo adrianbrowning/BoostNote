@@ -326,9 +326,11 @@ export class Navigation {
    * Shows another vault (or none) after the gate. `load` asks main for it (`undefined`: no switch, such as a
    * cancelled folder picker); the host shows its lists, then its tabs are restored from the tab store,
    * `change` edits them (and they are saved) and the active one loads. `false` when the gate refused. A failing
-   * restore rejects, so the caller's error handling sees it; so does a failing save of the tabs changed in the
-   * vault left while `load` ran, once the other vault shows. Main may already be on the other vault while
-   * `load` runs, so edits made then could not be saved: the switch holds the open note (`hold`).
+   * restore rejects, so the caller's error handling sees it. A failing save of the tabs changed in the vault left
+   * while `load` ran does not: the other vault shows by then, so the switch happened (callers that go on after it,
+   * such as the open-request drain, still run) and the store error is reported through the host (`fail`). Main
+   * may already be on the other vault while `load` runs, so edits made then could not be saved: the switch holds
+   * the open note (`hold`).
    */
   async switchVault(
     load: () => Promise<WorkspaceData | undefined>,
@@ -345,20 +347,30 @@ export class Navigation {
       try {
         this.#persist()
       } catch (error) {
-        // Main is on the other vault already: it shows first, then the switch rejects with this error.
+        // Main is on the other vault already: it shows first, then this error is reported.
         unsaved = { error }
       }
       this.#host.showVault(data)
       await this.restore(change)
-      if (unsaved) throw unsaved.error
+      if (unsaved) this.#host.fail(unsaved.error)
       return true
     })
     return switched ?? false
   }
 
-  /** App renames/moves of notes or folders (`map` gives each path's new path): tabs, trails and closed tabs follow. */
-  rebase(map: (path: string) => string): void {
+  /**
+   * App renames/moves of notes or folders (`map` gives each path's new path): tabs, trails and closed tabs follow.
+   * Run inside the relocation's `hold`, after the open note took its new place (`NoteSession.relocated`). When the
+   * active tab's note moved and the session does not hold it (its read was out as the relocation landed, and is
+   * dropped as a stale transition), it loads at its new place.
+   */
+  async rebase(map: (path: string) => string): Promise<void> {
+    const before = this.tabs.active
+    const from = before?.kind === 'note' ? before.path : undefined
     this.#edit((tabs) => tabs.rebase(map))
+    const active = this.tabs.active
+    if (active?.kind !== 'note' || active.path === from || active.path === this.#session.note?.id) return
+    await this.#loadActive()
   }
 
   /**
