@@ -399,12 +399,37 @@ describe('Relocation when the vault succeeded but the app could not catch up', (
     )
     const moving = relocation.moveNote('c.md', 'g')
     await expect.poll(() => net.held.length).toBe(1)
-    const opening = navigation.open('c.md')
+    const opening = navigation.open('c.md', { newTab: true })
     await expect.poll(() => net.held.length).toBe(2)
     net.gone.add('g/c.md')
     net.held[0]?.release()
     await expect.poll(() => questions.length).toBe(1)
-    expect(navigation.tabs.active).toBeUndefined()
+    expect(navigation.tabs.active).toMatchObject({ kind: 'note', path: 'a.md' })
+    expect(session.note?.id).toBe('a.md')
+    expect(notices).toEqual([{ kind: 'error', text: 'Moved to g. Could not refresh: Note not found: g/c.md' }])
+    questions[0]?.answer(false)
+    await moving
+    net.held[1]?.release()
+    await opening
+  })
+
+  it('shows only the move with the first could-not-refresh notice when the tab loaded next is gone too', async () => {
+    await navigation.open('a.md')
+    await navigation.open('b.md', { newTab: true })
+    await navigation.select(0)
+    net.hold((url) =>
+      url.pathname === '/api/notes/move' || url.searchParams.get('id') === 'c.md' ? url.pathname : undefined,
+    )
+    const moving = relocation.moveNote('c.md', 'g')
+    await expect.poll(() => net.held.length).toBe(1)
+    const opening = navigation.open('c.md', { newTab: true })
+    await expect.poll(() => net.held.length).toBe(2)
+    net.gone.add('g/c.md')
+    net.gone.add('b.md')
+    net.held[0]?.release()
+    await expect.poll(() => questions.length).toBe(1)
+    expect(navigation.tabs.active).toMatchObject({ kind: 'note', path: 'a.md' })
+    expect(session.note?.id).toBe('a.md')
     expect(notices).toEqual([{ kind: 'error', text: 'Moved to g. Could not refresh: Note not found: g/c.md' }])
     questions[0]?.answer(false)
     await moving
