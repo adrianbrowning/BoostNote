@@ -241,6 +241,17 @@ describe('WorkspaceModel operations that change the open note after a request', 
       'g/x.md',
     ])
   })
+
+  it('keeps the selected folder and the expanded folders, at their new place, when a folder moves', async () => {
+    await api.createFolder('f', 's')
+    await workspace.refresh()
+    workspace.select({ kind: 'folder', id: 'f' })
+    workspace.expanded.add('f')
+    workspace.expanded.add('f/s')
+    await workspace.moveFolder('f', 'g')
+    expect(workspace.selection).toEqual({ kind: 'folder', id: 'g/f' })
+    expect([...workspace.expanded].sort()).toEqual(['g/f', 'g/f/s'])
+  })
 })
 
 describe('WorkspaceModel relocations that return after a vault switch', () => {
@@ -333,6 +344,59 @@ describe('WorkspaceModel link questions', () => {
 
   afterEach(() => {
     workspace.session.close()
+  })
+
+  const folderPrompt = () =>
+    workspace.prompt({ title: 'New folder', label: 'Folder name', value: '', confirm: 'Create' })
+
+  /** Answers the dialog showing: a prompt with `value`, a links question with `ok`. */
+  function answer(value: string | null, ok = false): void {
+    const dialog = workspace.dialog
+    if (dialog?.kind === 'prompt') dialog.resolve(value)
+    else if (dialog?.kind === 'links') dialog.resolve(ok)
+    else throw new Error(`No prompt or question shows: ${dialog?.kind}`)
+  }
+
+  it('parks an Update links? question that comes while another dialog is open, and asks it once that one closes', async () => {
+    const naming = folderPrompt()
+    let named = false
+    void naming.then(() => {
+      named = true
+    })
+    // A context menu open over the prompt: a dialog that comes (the question) closes it.
+    workspace.openMenu(0, 0, [])
+    const moving = workspace.moveNote('a.md', 'g')
+    await expect.poll(() => workspace.menu).toBeNull()
+    expect(workspace.dialog?.kind).toBe('prompt')
+    expect(named).toBe(false)
+    answer('x')
+    expect(await naming).toBe('x')
+    expect(workspace.dialog).toMatchObject({ kind: 'links', message: '1 link in 1 note points to “a”.' })
+    answer(null, true)
+    await moving
+    expect(workspace.dialog).toBeNull()
+    expect(await readFile(path.join(app.dir, 'links', 'linker.md'), 'utf8')).toBe('# L\n\n[a](./g/a.md)\n')
+  })
+
+  it('asks an Update links? question again once two dialogs opened over it, one after the other, closed', async () => {
+    const moving = workspace.moveNote('a.md', 'g')
+    await expect.poll(() => workspace.dialog?.kind).toBe('links')
+    const first = folderPrompt()
+    const second = folderPrompt()
+    // The second prompt cancels the first; the question stays parked under it.
+    expect(await first).toBeNull()
+    expect(workspace.dialog?.kind).toBe('prompt')
+    answer(null)
+    expect(await second).toBeNull()
+    expect(workspace.dialog).toMatchObject({ kind: 'links', message: '1 link in 1 note points to “a”.' })
+    answer(null, true)
+    await moving
+    expect(await readFile(path.join(app.dir, 'links', 'linker.md'), 'utf8')).toBe('# L\n\n[a](./g/a.md)\n')
+    // The questions after it are still asked.
+    const back = workspace.moveNote('g/a.md', '')
+    await expect.poll(() => workspace.dialog?.kind).toBe('links')
+    answer(null, false)
+    await back
   })
 
   it('keeps an Update links? question that another dialog opened over, and asks it again once that one closes', async () => {
