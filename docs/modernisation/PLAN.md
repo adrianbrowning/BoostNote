@@ -118,8 +118,8 @@ Chromium 140+ migrate the Electron 4 profile in place. A `--user-data-dir=<dir>`
 
 `src/editor` is the live-preview editor: one CodeMirror 6 view whose document is the markdown source,
 browser-only and framework-agnostic. Public API (`src/editor/index.ts`):
-`createLivePreviewEditor({ parent, doc, theme, onChange, resolveAssetUrl, saveAsset, onOpenLink })`
-returns `{ view, setDoc(doc, { preserveSelection }), setTheme, focus, destroy }`.
+`createLivePreviewEditor({ parent, doc, theme, onChange, resolveAssetUrl, saveAsset, assetPlace, onOpenLink })`
+returns `{ view, setDoc(doc, { preserveSelection }), setReadOnly, setTheme, focus, destroy }`.
 
 - **Live preview.** `live-preview/markers.ts` (view plugin, visible ranges only) styles headings,
   quotes, lists, code and links and hides `#`, `*`/`_`, `` ` ``, `~~`, link brackets/URLs, `>`, escapes
@@ -146,7 +146,8 @@ returns `{ view, setDoc(doc, { preserveSelection }), setTheme, focus, destroy }`
   Mod-B/I/E/Shift-X toggle `**`/`*`/`` ` ``/`~~`, Mod-K links, Enter continues lists/tasks/quotes and
   ends the list on an empty item, Tab/Shift-Tab nest list items by the sibling's marker width,
   `( [ { "` auto-close, `` ` * _ ~ `` wrap a selection, Mod-F search. Pasted/dropped images go
-  through `saveAsset`; a pasted lone `http(s)` URL becomes `![](url)` with the cursor in the alt
+  through `saveAsset`; `assetPlace` names where images are stored now, and a pending image whose place
+  changed before its insert is saved again; a pasted lone `http(s)` URL becomes `![](url)` with the cursor in the alt
   text (a selection becomes the alt text; code, links and images keep the URL as typed); pasted HTML
   becomes GFM markdown (turndown + turndown-plugin-gfm).
 - **Themes.** Colours are CSS variables scoped to `.cm-editor` (values match `base.css`); hosts tune
@@ -580,8 +581,10 @@ The file name **is** the note's name (as in Obsidian/Hubble); the first `# H1` i
   and own links follow, as `renameNote`), removes a frontmatter `title` equal to the new stem
   (in-place YAML edit), then rewrites incoming links with the shared pass of Link updates (phase 10),
   without asking (the plan dialog is the confirmation). Renames that no longer apply are reported as
-  skipped. The workspace saves the open note first, rebases tabs old id → new id and reloads the open
-  note. `slugify` survives only for this recognition.
+  skipped. The workspace runs the apply through the relocation sequence (`Relocation`, see phase 10
+  'Link updates'): the open note is saved first, then tabs rebase old id → new id, and the open note
+  takes its text at the new place while the editor keeps cursor, selection and undo. `slugify` survives
+  only for this recognition.
 
 ## Update notice (phase 8)
 
@@ -634,7 +637,8 @@ style).
 - **Workspace** (`Relocation`, `src/app/actions/public/workspace/relocation.ts`; unit tests in
   `tests/app/relocation.test.ts`, e2e in `tests/e2e/relocation.spec.ts`): every inline rename, Rename…,
   Move to…, drag onto a folder, folder rename/move and title-rename apply runs one sequence:
-  1. **Gate:** when the operation affects the open note (title renames: always), the open note is saved
+  1. **Gate:** when the operation moves the open note, or moves the note of an active tab that does not
+     show it, which then loads over it (`Navigation.relocationReplaces`; title renames: always), the open note is saved
      first (`Navigation.leave`); when that fails nothing runs and the unsaved-changes notice shows.
   2. **Vault operation**, the open note held (`Navigation.hold`: no edits while it is out).
   3. **The open note follows**, decided when the response arrives (a note opened meanwhile counts): it
@@ -643,10 +647,10 @@ style).
      `preserveSelection`). Folder moves and title renames have no document to return: the note follows
      to its new place at once (`NoteSession.retarget`) and is read again there after the tabs followed,
      so a relocation that lands meanwhile maps it on from there (each in the order the vault answered).
-     Tabs, trails and the view (selected and expanded folders) follow; an active tab whose read was out
-     as the move landed loads at its new place.
+     Tabs, trails and the view (selected and expanded folders) follow; an active tab that does not show
+     its note (its read was out as the move landed, or failed) loads at its new place.
   4. **Refresh** of the lists, then the notice as before (twin-assets warning, "Moved to X"). When the
-     vault succeeded but the refresh or the read of step 3 failed, it still counts: the title-rename
+     vault succeeded but the refresh, the read of step 3 or saving the tabs failed, it still counts: the title-rename
      dialog keeps its report, and the notice adds "Could not refresh: …".
   5. **Ask:** `POST /api/links/plan` with the `moves` the route returned (the app asks first, so plan and
      apply stay two steps); with `total > 0` "Update links? N links in M notes point to “old name”." with

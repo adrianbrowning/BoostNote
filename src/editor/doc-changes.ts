@@ -26,8 +26,8 @@ export function docChanges(from: string, to: string): DocChange[] {
   const fromStarts = lineStarts(fromLines)
   const toStarts = lineStarts(toLines)
   for (const [fromLine, fromEndLine, toLine, toEndLine] of lineHunks(fromLines, toLines)) {
-    // A run that reaches the end of a document takes the line break before it, so lines added or removed at the
-    // end bring their break with them.
+    // A run past the last line of one document (lines only added or only removed at the end) starts at the line
+    // break before it: the last line has no break after it to take.
     const back = fromLine === fromLines.length || toLine === toLines.length ? 1 : 0
     const start = (fromStarts[fromLine] ?? 0) - back
     const toStart = (toStarts[toLine] ?? 0) - back
@@ -171,8 +171,9 @@ function addHunk(hunks: [number, number, number, number][], hunk: [number, numbe
 
 /**
  * Adds to `changes` the changes that turn `from` into `to` (at `offset` in the document): their common start and
- * end are kept, and between them the fewest characters are inserted and deleted (Myers' diff), one pass of at most
- * `MAX_EDITS` at a time.
+ * end are kept, and between them Myers' diff inserts and deletes the fewest characters within one pass of at most
+ * `MAX_EDITS` edits; a longer middle is diffed pass after pass from where the furthest path of the last one got,
+ * which keeps unchanged text out of replaced spans but may change more than the fewest characters overall.
  */
 function characterChanges(from: string, to: string, offset: number, changes: DocChange[]): void {
   let start = 0

@@ -77,7 +77,10 @@ export class NoteSession extends TypedEventTarget<{ change: Event; doc: DocEvent
   #inflight: Promise<SaveOutcome> | undefined
   #frontmatter: Record<string, JsonValue> | undefined
   readonly #api: NoteApi
-  /** Counts the notes opened (or closed) in the session; a relocation keeps the count (`saveAsset`). */
+  /**
+   * Counts the times the session took a document from scratch (`#reset`: opening or closing a note, and Load
+   * theirs); a relocation keeps the count (`saveAsset`).
+   */
   #opened = 0
 
   /** `api`: the page's `client`, or one over the router in tests (`createClient`). */

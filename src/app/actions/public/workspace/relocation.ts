@@ -53,7 +53,10 @@ interface Done<R> {
   result: R
   /** Whether the vault on screen is still the one relocated in (`Navigation.vaultToken`). */
   sameVault: () => boolean
-  /** Why the app could not catch up (the open note's read, or the list refresh, failed); `undefined` when it did. */
+  /**
+   * Why the app could not catch up (the open note's read, the list refresh, or saving the tabs to the store failed);
+   * `undefined` when it did.
+   */
   failed: string | undefined
   /**
    * Asks the link question (with the relocation's assets `warning`) in its place in the question order; resolves
@@ -82,7 +85,8 @@ const message = (error: unknown) => (error instanceof Error ? error.message : St
  * editor's cursor, selection and undo), tabs and the view following, the list refresh, the notice, then the
  * "Update links?" question and, on "Update links", the rewrite (gated the same way). The open note is held
  * (`Navigation.hold`) while requests that move or rewrite it are out. When the vault did its part but the app
- * cannot catch up (a read or the refresh fails), the result still counts, with a could-not-refresh notice.
+ * cannot catch up (a read, the refresh or saving the tabs fails), the result still counts, with a could-not-refresh
+ * notice.
  */
 export class Relocation {
   readonly #session: NoteSession
@@ -156,7 +160,8 @@ export class Relocation {
    * File › Rename Files From Titles…, after the user confirmed the plan: saves the open note, runs the renames (the
    * vault rewrites the links to them too), then the open note takes its text at its new place and tabs follow
    * their notes; it takes no edits until then. The report also when the app could not catch up afterwards (with
-   * the could-not-refresh notice) or another vault shows by then; `null` when the open note could not be saved first.
+   * the could-not-refresh notice) or another vault shows by then; `null` when nothing was renamed: the open note
+   * could not be saved first (the unsaved-changes notice shows), or another vault shows by the time it was saved.
    */
   async applyTitleRenames(renames: TitleRename[]): Promise<TitleRenameReport | null> {
     const done = await this.#run(

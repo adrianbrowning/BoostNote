@@ -303,7 +303,7 @@ export class Navigation {
 
   /**
    * Moves note `id` to the trash, its latest edits included; its tabs close and the session follows the
-   * active tab. When that can replace the open note (`replaces`) the gate runs first: `null`, and nothing
+   * active tab. When that can replace the open note (`#replaces`) the gate runs first: `null`, and nothing
    * is trashed, when it refused.
    */
   async deleteNote(id: string): Promise<AssetsLeftBehind | null> {
@@ -315,13 +315,13 @@ export class Navigation {
         if (sameVault()) await this.#forget(gone)
         return trashed
       },
-      { gate: this.replaces(gone) },
+      { gate: this.#replaces(gone) },
     )
   }
 
   /**
    * Moves folder `id` and everything in it to the trash; the tabs of its notes close. When that can replace
-   * the open note (`replaces`: a note inside it is open) the gate runs first: `false`, and nothing is
+   * the open note (`#replaces`: a note inside it is open) the gate runs first: `false`, and nothing is
    * trashed, when it refused.
    */
   async deleteFolder(id: string): Promise<boolean> {
@@ -333,7 +333,7 @@ export class Navigation {
         if (sameVault()) await this.#forget(inside)
         return true
       },
-      { gate: this.replaces(inside) },
+      { gate: this.#replaces(inside) },
     )
     return deleted ?? false
   }
@@ -378,9 +378,10 @@ export class Navigation {
    * App renames/moves of notes or folders (`map` gives each path's new path): tabs, trails and closed tabs follow.
    * Run inside the relocation's `hold`, after the open note took its new place (`NoteSession.relocated`, or
    * `retarget` while it is read there again). When the active tab's note moved and the session does not hold it (its
-   * read was out as the relocation landed, and is dropped as a stale transition), it loads at its new place. Resolves
-   * with that load's error when it failed (a `404` still closes the tab, and the next active tab loads; the first
-   * failure of those loads is returned): the relocation reports it with its own notice, so it is not reported here.
+   * read was out as the relocation landed and is dropped as a stale transition, or it failed earlier), it loads at
+   * its new place. Resolves with that load's error when it failed (a `404` still closes the tab, and the next active
+   * tab loads; the first failure of those loads is returned): the relocation reports it with its own notice, so it is
+   * not reported here.
    */
   async rebase(map: (path: string) => string): Promise<{ error: unknown } | undefined> {
     const before = this.tabs.active
@@ -501,7 +502,7 @@ export class Navigation {
    * tab does not show it (its load is out, or failed), and closing always loads the active tab's note (the
    * leave-note gate of deletes decides from this).
    */
-  replaces(gone: (path: string) => boolean): boolean {
+  #replaces(gone: (path: string) => boolean): boolean {
     const open = this.#session.note?.id
     if (open === undefined) return false
     const active = this.tabs.active
