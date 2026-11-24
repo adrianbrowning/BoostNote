@@ -268,12 +268,15 @@ describe('NoteSession', () => {
   })
 
   describe('an outside edit’s read that returns late', () => {
-    /** Opens "start", writes "theirs" outside, and starts the live reload whose read the vault answered and is held. */
-    async function heldReload() {
+    /**
+     * Opens "start", writes `outside` over it (unless `null`: an SSE event that changed nothing new), and starts the
+     * live reload whose read the vault answered and is held.
+     */
+    async function heldReload(outside: string | null = 'theirs\n') {
       const net = heldClient(app)
       session = new NoteSession(net.client)
       const note = await openNote('start\n')
-      await writeFile(path.join(vault.root, note.id), 'theirs\n')
+      if (outside !== null) await writeFile(path.join(vault.root, note.id), outside)
       net.hold((url) => (url.pathname === '/api/notes/read' ? 'read' : undefined), { answered: true })
       const reload = session.externalChange()
       await vi.waitFor(() => expect(net.held).toHaveLength(1))
@@ -283,6 +286,18 @@ describe('NoteSession', () => {
       }
       return { note, release }
     }
+
+    it('keeps the text and hash of a save that worked, with no conflict, while it was out', async () => {
+      const { note, release } = await heldReload(null)
+      session.edit('mine\n')
+      expect(await session.flush()).toBe(true)
+
+      await release()
+      const saved = await api.readNote(note.id)
+      expect(session.body).toBe('mine\n')
+      expect(session.note?.hash).toBe(saved.hash)
+      expect(session.state).toBe('saved')
+    })
 
     it('keeps the text and hash of a Keep mine save that worked while it was out', async () => {
       const { note, release } = await heldReload()
