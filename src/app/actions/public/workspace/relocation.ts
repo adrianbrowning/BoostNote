@@ -217,10 +217,12 @@ export class Relocation {
         async () => {
           if (!sameVault()) return null
           const result = await request()
+          // Recorded at once: the vault did its part, whatever happens while the app catches up.
+          landed = { result, sameVault, failed: undefined }
           if (sameVault()) {
             if (moves) slot = this.#reserve(moves(result), sameVault)
-            landed = { result, sameVault, failed: await follow(result) }
-          } else landed = { result, sameVault, failed: undefined }
+            landed.failed = await follow(result)
+          }
           return landed
         },
         { gate },
