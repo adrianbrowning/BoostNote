@@ -105,7 +105,7 @@ export class Relocation {
   /** Renames note `id` to file name `name` (no extension). Rejects when the vault refused (`EXISTS`, …). */
   async renameNote(id: string, name: string): Promise<void> {
     const done = await this.#run(
-      this.#navigation.replaces((path) => path === id),
+      this.#navigation.relocationReplaces((path) => path === id),
       () => this.#api.renameNote(id, name),
       (renamed) =>
         this.#follow(
@@ -124,7 +124,7 @@ export class Relocation {
   /** Moves note `id` into `folder`. */
   async moveNote(id: string, folder: string): Promise<void> {
     const done = await this.#run(
-      this.#navigation.replaces((path) => path === id),
+      this.#navigation.relocationReplaces((path) => path === id),
       () => this.#api.moveNote(id, folder),
       (moved) =>
         this.#follow(
@@ -178,7 +178,7 @@ export class Relocation {
   async #relocateFolder(id: string, relocate: () => Promise<FolderRelocation>): Promise<void> {
     const inside = (path: string) => isUnder(path, id)
     const done = await this.#run(
-      this.#navigation.replaces(inside),
+      this.#navigation.relocationReplaces(inside),
       relocate,
       (relocated) => {
         const rebase = (value: string) => movedId(value, id, relocated.folder) ?? value

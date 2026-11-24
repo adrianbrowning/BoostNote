@@ -497,15 +497,27 @@ export class Navigation {
   }
 
   /**
-   * Whether closing or relocating the notes `gone` matches can replace or close the open note: it is one of
-   * them, or the active tab does not show it (its load is out, or failed), so the active tab's note loads (the
-   * leave-note gate decides from this for deletes, and for renames and moves in `Relocation`).
+   * Whether closing the notes `gone` matches can replace or close the open note: it is one of them, or the active
+   * tab does not show it (its load is out, or failed), and closing always loads the active tab's note (the
+   * leave-note gate of deletes decides from this).
    */
   replaces(gone: (path: string) => boolean): boolean {
     const open = this.#session.note?.id
     if (open === undefined) return false
     const active = this.tabs.active
     return gone(open) || active?.kind !== 'note' || active.path !== open
+  }
+
+  /**
+   * Whether renaming or moving the notes `moved` matches can replace the open note: it is one of them, or the
+   * active tab is a note tab that does not show it and its own note moves, so `rebase` loads that note over it
+   * (the leave-note gate of renames and moves in `Relocation` decides from this).
+   */
+  relocationReplaces(moved: (path: string) => boolean): boolean {
+    const open = this.#session.note?.id
+    if (open === undefined) return false
+    const active = this.tabs.active
+    return moved(open) || (active?.kind === 'note' && active.path !== open && moved(active.path))
   }
 
   /**

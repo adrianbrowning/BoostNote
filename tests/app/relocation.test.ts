@@ -372,6 +372,45 @@ describe('Relocation: the leave-note gate when the move loads the active tab ove
     expect(session.body).toBe('# A\n\nMine.\n')
     expect(await readFile(path.join(vault, 'g/x.md'), 'utf8')).toBe('# X\n\n[b](../b.md)\n')
   })
+
+  it('saves the open note before the moved active tab loads over it', async () => {
+    await editWhileActiveTabFailed()
+    const moving = relocation.moveNote('c.md', 'h')
+    // linker.md links to c.md: the move asks about it.
+    await expect.poll(() => questions.length).toBe(1)
+    questions[0]?.answer(false)
+    await moving
+    expect((await api.readNote('a.md')).body).toBe('# A\n\nMine.\n')
+    expect(session.note).toMatchObject({ id: 'h/c.md', body: '# C\n' })
+  })
+
+  it('moves nothing, with the leave-note notice, when the open note cannot be saved first: it keeps its edits', async () => {
+    await editWhileActiveTabFailed()
+    net.fail = (url) => url.pathname === '/api/notes/save'
+    await relocation.moveNote('c.md', 'h')
+    net.fail = null
+    expect(notices).toEqual([{ kind: 'error', text: UNSAVED }])
+    expect(session.note?.id).toBe('a.md')
+    expect(session.body).toBe('# A\n\nMine.\n')
+    expect(navigation.tabs.active).toMatchObject({ kind: 'note', path: 'c.md' })
+    expect(await readFile(path.join(vault, 'c.md'), 'utf8')).toBe('# C\n')
+  })
+
+  it('renames a note that neither the open note nor the active tab shows, though the open note cannot be saved', async () => {
+    await editWhileActiveTabFailed()
+    net.fail = (url) => url.pathname === '/api/notes/save'
+    const renaming = relocation.renameNote('meeting.md', 'meeting2')
+    // linker.md links to meeting.md: the rename asks about it.
+    await expect.poll(() => questions.length).toBe(1)
+    questions[0]?.answer(false)
+    await renaming
+    net.fail = null
+    expect(notices).toEqual([])
+    expect(session.note?.id).toBe('a.md')
+    expect(session.body).toBe('# A\n\nMine.\n')
+    expect(navigation.tabs.active).toMatchObject({ kind: 'note', path: 'c.md' })
+    expect(await readFile(path.join(vault, 'meeting2.md'), 'utf8')).toBe('# Meeting notes\n')
+  })
 })
 
 describe('Relocation when the vault succeeded but the app could not catch up', () => {
