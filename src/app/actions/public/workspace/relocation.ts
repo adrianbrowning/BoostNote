@@ -252,7 +252,8 @@ export class Relocation {
    * vault's document at its new place (`returned`), or follows there at once (`NoteSession.retarget`) and is read
    * again; tabs follow before that read. So relocations map the open note and the tabs in the order the vault made
    * them, also when another one lands while the read is out. Runs inside the relocation's `hold`, in the vault
-   * relocated in. Resolves with the read's error message when it failed.
+   * relocated in. Resolves with the read's error message when it failed: the open note's, or the active tab's when
+   * its note moved and loads there (`Navigation.rebase`).
    */
   async #follow(
     map: (path: string) => string,
@@ -269,8 +270,9 @@ export class Relocation {
         read = to
       }
     }
-    await this.#navigation.rebase(map)
-    return read === undefined ? undefined : this.#reread(read)
+    const reload = await this.#navigation.rebase(map)
+    const failed = read === undefined ? undefined : await this.#reread(read)
+    return reload ? message(reload.error) : failed
   }
 
   /**

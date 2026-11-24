@@ -372,6 +372,26 @@ describe('Relocation when the vault succeeded but the app could not catch up', (
     await moving
   })
 
+  it('shows the move with a could-not-refresh notice when the note opened while it was out cannot be read at its new place', async () => {
+    await navigation.open('a.md')
+    net.hold((url) =>
+      url.pathname === '/api/notes/move' || url.searchParams.get('id') === 'c.md' ? url.pathname : undefined,
+    )
+    const moving = relocation.moveNote('c.md', 'g')
+    await expect.poll(() => net.held.length).toBe(1)
+    const opening = navigation.open('c.md')
+    await expect.poll(() => net.held.length).toBe(2)
+    net.fail = (url) => url.searchParams.get('id') === 'g/c.md'
+    net.held[0]?.release()
+    await expect.poll(() => questions.length).toBe(1)
+    expect(navigation.tabs.active).toMatchObject({ kind: 'note', path: 'g/c.md' })
+    expect(notices).toEqual([{ kind: 'error', text: 'Moved to g. Could not refresh: Disk full' }])
+    questions[0]?.answer(false)
+    await moving
+    net.held[1]?.release()
+    await opening
+  })
+
   it('shows a could-not-refresh notice when the open note cannot be read again after its folder moved, and its next save cannot overwrite the moved note', async () => {
     await navigation.open('g/x.md')
     net.fail = (url) => url.pathname === '/api/notes/read'

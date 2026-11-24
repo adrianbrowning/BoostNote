@@ -362,15 +362,21 @@ export class Navigation {
    * App renames/moves of notes or folders (`map` gives each path's new path): tabs, trails and closed tabs follow.
    * Run inside the relocation's `hold`, after the open note took its new place (`NoteSession.relocated`, or
    * `retarget` while it is read there again). When the active tab's note moved and the session does not hold it (its
-   * read was out as the relocation landed, and is dropped as a stale transition), it loads at its new place.
+   * read was out as the relocation landed, and is dropped as a stale transition), it loads at its new place. Resolves
+   * with that load's error when it failed (other than a `404`, which closes the tab): the relocation reports it with
+   * its own notice, so it is not reported here (`fail`).
    */
-  async rebase(map: (path: string) => string): Promise<void> {
+  async rebase(map: (path: string) => string): Promise<{ error: unknown } | undefined> {
     const before = this.tabs.active
     const from = before?.kind === 'note' ? before.path : undefined
     this.#edit((tabs) => tabs.rebase(map))
     const active = this.tabs.active
-    if (active?.kind !== 'note' || active.path === from || active.path === this.#session.note?.id) return
-    await this.#loadActive()
+    if (active?.kind !== 'note' || active.path === from || active.path === this.#session.note?.id) return undefined
+    let failed: { error: unknown } | undefined
+    await this.#loadActive((error) => {
+      failed = { error }
+    })
+    return failed
   }
 
   /**
@@ -428,13 +434,14 @@ export class Navigation {
 
   /**
    * Makes the session show the active tab's note, or reads the active reader tab's file (nothing without tabs).
-   * Runs inside a `hold`: the open note it replaces or closes takes no edits meanwhile.
+   * Runs inside a `hold`: the open note it replaces or closes takes no edits meanwhile. A failed read (other than a
+   * `404`) goes to `fail` (by default the host's).
    */
-  async #loadActive(): Promise<void> {
+  async #loadActive(fail: (error: unknown) => void = (error) => this.#host.fail(error)): Promise<void> {
     const tab = this.tabs.active
     if (tab?.kind === 'reader') {
       if (this.#session.note) this.#session.close()
-      await this.#loadReader(tab)
+      await this.#loadReader(tab, fail)
       return
     }
     this.reader = null
@@ -457,12 +464,12 @@ export class Navigation {
     } catch (error) {
       if (!current()) return
       if (!(error instanceof ApiError && error.status === 404)) {
-        this.#host.fail(error)
+        fail(error)
         return
       }
       this.#host.notify('error', `Note not found: ${id}`)
       this.#edit((tabs) => tabs.forget((path) => path === id))
-      await this.#loadActive()
+      await this.#loadActive(fail)
       return
     }
     if (current()) this.#session.open(note)
@@ -481,9 +488,9 @@ export class Navigation {
 
   /**
    * Reads the reader tab's file again. A `404` (ticket revoked, or the file is gone) closes the tab;
-   * closing still revokes the ticket, so a file that went away does not keep a live grant.
+   * closing still revokes the ticket, so a file that went away does not keep a live grant. Another failure goes to `fail`.
    */
-  async #loadReader(tab: ReaderTab): Promise<void> {
+  async #loadReader(tab: ReaderTab, fail: (error: unknown) => void): Promise<void> {
     // Another reader's content never shows under this tab while it loads (or after it failed).
     if (this.reader?.ticket !== tab.ticket) {
       this.reader = null
@@ -499,7 +506,7 @@ export class Navigation {
       // A later transition left this tab: its failure is dropped too (the tab reads again when it is active).
       if (!current()) return
       if (!(error instanceof ApiError && error.status === 404)) {
-        this.#host.fail(error)
+        fail(error)
         return
       }
       this.#host.notify('error', error.message)
