@@ -318,6 +318,62 @@ describe('Relocation: title renames', () => {
   })
 })
 
+/**
+ * The active tab's read failed (not a `404`): the session still shows `a.md`, which the user edits; then `c.md`,
+ * the active tab's note, is renamed, so the tab's note loads at its new place over `a.md`.
+ */
+async function editWhileActiveTabFailed(): Promise<void> {
+  await navigation.open('a.md')
+  net.fail = (url) => url.searchParams.get('id') === 'c.md'
+  await navigation.open('c.md', { newTab: true })
+  net.fail = null
+  notices.length = 0
+  expect(navigation.tabs.active).toMatchObject({ kind: 'note', path: 'c.md' })
+  expect(session.note?.id).toBe('a.md')
+  session.edit('# A\n\nMine.\n')
+}
+
+describe('Relocation: the leave-note gate when the move loads the active tab over the open note', () => {
+  it('saves the open note before the renamed active tab loads over it', async () => {
+    await editWhileActiveTabFailed()
+    const renaming = relocation.renameNote('c.md', 'c2')
+    // linker.md links to c.md: the rename asks about it.
+    await expect.poll(() => questions.length).toBe(1)
+    questions[0]?.answer(false)
+    await renaming
+    expect((await api.readNote('a.md')).body).toBe('# A\n\nMine.\n')
+    expect(session.note).toMatchObject({ id: 'c2.md', body: '# C\n' })
+    expect(notices).toEqual([])
+  })
+
+  it('renames nothing, with the leave-note notice, when the open note cannot be saved first: it keeps its edits', async () => {
+    await editWhileActiveTabFailed()
+    net.fail = (url) => url.pathname === '/api/notes/save'
+    await relocation.renameNote('c.md', 'c2')
+    net.fail = null
+    expect(notices).toEqual([{ kind: 'error', text: UNSAVED }])
+    expect(session.note?.id).toBe('a.md')
+    expect(session.body).toBe('# A\n\nMine.\n')
+    expect(navigation.tabs.active).toMatchObject({ kind: 'note', path: 'c.md' })
+    expect(await readFile(path.join(vault, 'c.md'), 'utf8')).toBe('# C\n')
+  })
+
+  it('moves no folder, with the leave-note notice, when it holds the active tab and the open note cannot be saved', async () => {
+    await navigation.open('a.md')
+    net.fail = (url) => url.searchParams.get('id') === 'g/x.md'
+    await navigation.open('g/x.md', { newTab: true })
+    session.edit('# A\n\nMine.\n')
+    notices.length = 0
+    net.fail = (url) => url.pathname === '/api/notes/save'
+    await relocation.moveFolder('g', 'h')
+    net.fail = null
+    expect(notices).toEqual([{ kind: 'error', text: UNSAVED }])
+    expect(session.note?.id).toBe('a.md')
+    expect(session.body).toBe('# A\n\nMine.\n')
+    expect(await readFile(path.join(vault, 'g/x.md'), 'utf8')).toBe('# X\n\n[b](../b.md)\n')
+  })
+})
+
 describe('Relocation when the vault succeeded but the app could not catch up', () => {
   it('still asks about the links of a rename whose tabs cannot be saved afterwards, with a notice', async () => {
     await navigation.open('b.md')

@@ -75,7 +75,8 @@ const message = (error: unknown) => (error instanceof Error ? error.message : St
 
 /**
  * Every rename and move the app makes of notes and folders, and the title renames, through one sequence: the
- * leave-note gate (when the open note is affected: it is saved first, and nothing runs when that fails), the vault
+ * leave-note gate (when the relocation can replace the open note, `Navigation.replaces`: it moves it, or the active
+ * tab does not show it and loads its note; the open note is saved first, and nothing runs when that fails), the vault
  * operation, the open note taking the vault's document at its new place (its relocated links included, keeping the
  * editor's cursor, selection and undo), tabs and the view following, the list refresh, the notice, then the
  * "Update links?" question and, on "Update links", the rewrite (gated the same way). The open note is held
@@ -104,7 +105,7 @@ export class Relocation {
   /** Renames note `id` to file name `name` (no extension). Rejects when the vault refused (`EXISTS`, …). */
   async renameNote(id: string, name: string): Promise<void> {
     const done = await this.#run(
-      this.#openId === id,
+      this.#navigation.replaces((path) => path === id),
       () => this.#api.renameNote(id, name),
       (renamed) =>
         this.#follow(
@@ -123,7 +124,7 @@ export class Relocation {
   /** Moves note `id` into `folder`. */
   async moveNote(id: string, folder: string): Promise<void> {
     const done = await this.#run(
-      this.#openId === id,
+      this.#navigation.replaces((path) => path === id),
       () => this.#api.moveNote(id, folder),
       (moved) =>
         this.#follow(
@@ -177,7 +178,7 @@ export class Relocation {
   async #relocateFolder(id: string, relocate: () => Promise<FolderRelocation>): Promise<void> {
     const inside = (path: string) => isUnder(path, id)
     const done = await this.#run(
-      this.#openId !== null && inside(this.#openId),
+      this.#navigation.replaces(inside),
       relocate,
       (relocated) => {
         const rebase = (value: string) => movedId(value, id, relocated.folder) ?? value

@@ -303,7 +303,7 @@ export class Navigation {
 
   /**
    * Moves note `id` to the trash, its latest edits included; its tabs close and the session follows the
-   * active tab. When that can replace the open note (`#replaces`) the gate runs first: `null`, and nothing
+   * active tab. When that can replace the open note (`replaces`) the gate runs first: `null`, and nothing
    * is trashed, when it refused.
    */
   async deleteNote(id: string): Promise<AssetsLeftBehind | null> {
@@ -315,13 +315,13 @@ export class Navigation {
         if (sameVault()) await this.#forget(gone)
         return trashed
       },
-      { gate: this.#replaces(gone) },
+      { gate: this.replaces(gone) },
     )
   }
 
   /**
    * Moves folder `id` and everything in it to the trash; the tabs of its notes close. When that can replace
-   * the open note (`#replaces`: a note inside it is open) the gate runs first: `false`, and nothing is
+   * the open note (`replaces`: a note inside it is open) the gate runs first: `false`, and nothing is
    * trashed, when it refused.
    */
   async deleteFolder(id: string): Promise<boolean> {
@@ -333,7 +333,7 @@ export class Navigation {
         if (sameVault()) await this.#forget(inside)
         return true
       },
-      { gate: this.#replaces(inside) },
+      { gate: this.replaces(inside) },
     )
     return deleted ?? false
   }
@@ -497,10 +497,11 @@ export class Navigation {
   }
 
   /**
-   * Whether closing the tabs of the notes `gone` matches can replace or close the open note: it is one of
-   * them, or the active tab does not show it (its load is out, or failed), so the active tab's note loads.
+   * Whether closing or relocating the notes `gone` matches can replace or close the open note: it is one of
+   * them, or the active tab does not show it (its load is out, or failed), so the active tab's note loads (the
+   * leave-note gate decides from this for deletes, and for renames and moves in `Relocation`).
    */
-  #replaces(gone: (path: string) => boolean): boolean {
+  replaces(gone: (path: string) => boolean): boolean {
     const open = this.#session.note?.id
     if (open === undefined) return false
     const active = this.tabs.active
