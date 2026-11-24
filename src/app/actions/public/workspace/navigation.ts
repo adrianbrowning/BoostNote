@@ -54,6 +54,12 @@ export interface NavigationOptions {
   host: NavigationHost
 }
 
+/** Where a tab load's failures go: a failed read (`fail`), and the notice for a note or reader file that is gone (`missing`). */
+interface LoadReport {
+  fail(error: unknown): void
+  missing(text: string): void
+}
+
 /**
  * Every note transition of the workspace: opening notes, selecting, closing and reopening tabs, the
  * back/forward trail, new and deleted notes, and vault switches. Each one that leaves the open note
@@ -80,6 +86,11 @@ export class Navigation {
   #transitions = 0
   /** Counts vault switches: `vaultToken` compares against it. */
   #vaults = 0
+  /** Reports load failures to the host (every load but `rebase`'s). */
+  readonly #hostReport: LoadReport = {
+    fail: (error) => this.#host.fail(error),
+    missing: (text) => this.#host.notify('error', text),
+  }
   /** The tabs changed since they were last saved to the tab store. */
   #unsaved = false
 
@@ -199,6 +210,11 @@ export class Navigation {
    * folder as the vault is left to that action.
    */
   async close(key = this.tabs.activeKey, options: { discard?: boolean } = {}): Promise<void> {
+    await this.#close(key, options, this.#hostReport)
+  }
+
+  /** `close`, reporting failures to `report`. */
+  async #close(key: number | null, options: { discard?: boolean }, report: LoadReport): Promise<void> {
     if (key === null) return
     const tab = this.tabs.tabs.find((item) => item.key === key)
     if (tab?.kind === 'reader') {
@@ -208,7 +224,7 @@ export class Navigation {
         await this.#api.closeReader(tab.ticket)
       } catch (error) {
         if (!(error instanceof ApiError && error.status === 404)) {
-          this.#host.fail(error)
+          report.fail(error)
           return
         }
       } finally {
@@ -221,7 +237,7 @@ export class Navigation {
       return
     }
     if (options.discard) this.#session.close()
-    await this.#switch((tabs) => tabs.close(key))
+    await this.#switch((tabs) => tabs.close(key), report)
   }
 
   /** Cmd+Shift+T: reopens the most recently closed tab whose note still exists. */
@@ -363,8 +379,8 @@ export class Navigation {
    * Run inside the relocation's `hold`, after the open note took its new place (`NoteSession.relocated`, or
    * `retarget` while it is read there again). When the active tab's note moved and the session does not hold it (its
    * read was out as the relocation landed, and is dropped as a stale transition), it loads at its new place. Resolves
-   * with that load's error when it failed (other than a `404`, which closes the tab): the relocation reports it with
-   * its own notice, so it is not reported here (`fail`).
+   * with that load's error when it failed (a `404` still closes the tab, and the next active tab loads; the first
+   * failure of those loads is returned): the relocation reports it with its own notice, so it is not reported here.
    */
   async rebase(map: (path: string) => string): Promise<{ error: unknown } | undefined> {
     const before = this.tabs.active
@@ -373,8 +389,13 @@ export class Navigation {
     const active = this.tabs.active
     if (active?.kind !== 'note' || active.path === from || active.path === this.#session.note?.id) return undefined
     let failed: { error: unknown } | undefined
-    await this.#loadActive((error) => {
-      failed = { error }
+    await this.#loadActive({
+      fail: (error) => {
+        failed ??= { error }
+      },
+      missing: (text) => {
+        failed ??= { error: new Error(text) }
+      },
     })
     return failed
   }
@@ -397,10 +418,10 @@ export class Navigation {
   }
 
   /** Runs the gate, applies `change` to the tabs and loads the (new) active tab, holding the open note (`hold`). */
-  async #switch(change: (tabs: Tabs) => unknown): Promise<void> {
+  async #switch(change: (tabs: Tabs) => unknown, report = this.#hostReport): Promise<void> {
     await this.hold(async () => {
       this.#edit(change)
-      await this.#loadActive()
+      await this.#loadActive(report)
     })
   }
 
@@ -434,14 +455,14 @@ export class Navigation {
 
   /**
    * Makes the session show the active tab's note, or reads the active reader tab's file (nothing without tabs).
-   * Runs inside a `hold`: the open note it replaces or closes takes no edits meanwhile. A failed read (other than a
-   * `404`) goes to `fail` (by default the host's).
+   * Runs inside a `hold`: the open note it replaces or closes takes no edits meanwhile. Failures go to `report` (by
+   * default the host's): a failed read to `fail`; a `404` to `missing`, and that tab closes.
    */
-  async #loadActive(fail: (error: unknown) => void = (error) => this.#host.fail(error)): Promise<void> {
+  async #loadActive(report = this.#hostReport): Promise<void> {
     const tab = this.tabs.active
     if (tab?.kind === 'reader') {
       if (this.#session.note) this.#session.close()
-      await this.#loadReader(tab, fail)
+      await this.#loadReader(tab, report)
       return
     }
     this.reader = null
@@ -464,12 +485,12 @@ export class Navigation {
     } catch (error) {
       if (!current()) return
       if (!(error instanceof ApiError && error.status === 404)) {
-        fail(error)
+        report.fail(error)
         return
       }
-      this.#host.notify('error', `Note not found: ${id}`)
+      report.missing(`Note not found: ${id}`)
       this.#edit((tabs) => tabs.forget((path) => path === id))
-      await this.#loadActive(fail)
+      await this.#loadActive(report)
       return
     }
     if (current()) this.#session.open(note)
@@ -488,9 +509,9 @@ export class Navigation {
 
   /**
    * Reads the reader tab's file again. A `404` (ticket revoked, or the file is gone) closes the tab;
-   * closing still revokes the ticket, so a file that went away does not keep a live grant. Another failure goes to `fail`.
+   * closing still revokes the ticket, so a file that went away does not keep a live grant. Failures go to `report`.
    */
-  async #loadReader(tab: ReaderTab, fail: (error: unknown) => void): Promise<void> {
+  async #loadReader(tab: ReaderTab, report: LoadReport): Promise<void> {
     // Another reader's content never shows under this tab while it loads (or after it failed).
     if (this.reader?.ticket !== tab.ticket) {
       this.reader = null
@@ -506,11 +527,11 @@ export class Navigation {
       // A later transition left this tab: its failure is dropped too (the tab reads again when it is active).
       if (!current()) return
       if (!(error instanceof ApiError && error.status === 404)) {
-        fail(error)
+        report.fail(error)
         return
       }
-      this.#host.notify('error', error.message)
-      await this.close(tab.key)
+      report.missing(error.message)
+      await this.#close(tab.key, {}, report)
     }
   }
 
