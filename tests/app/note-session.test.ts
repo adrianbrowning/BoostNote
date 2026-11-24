@@ -266,6 +266,70 @@ describe('NoteSession', () => {
     // A save that threw before it was sent leaves no save in flight: this flush settles instead of waiting forever.
     expect(await session.flush()).toBe(false)
   })
+
+  describe('an outside edit’s read that returns late', () => {
+    /** Opens "start", writes "theirs" outside, and starts the live reload whose read the vault answered and is held. */
+    async function heldReload() {
+      const net = heldClient(app)
+      session = new NoteSession(net.client)
+      const note = await openNote('start\n')
+      await writeFile(path.join(vault.root, note.id), 'theirs\n')
+      net.hold((url) => (url.pathname === '/api/notes/read' ? 'read' : undefined), { answered: true })
+      const reload = session.externalChange()
+      await vi.waitFor(() => expect(net.held).toHaveLength(1))
+      const release = async () => {
+        net.held[0]?.release()
+        await reload
+      }
+      return { note, release }
+    }
+
+    it('keeps the text and hash of a Keep mine save that worked while it was out', async () => {
+      const { note, release } = await heldReload()
+      session.edit('mine\n')
+      await session.flush()
+      expect(session.state).toBe('conflict')
+      expect(await session.keepMine()).toEqual({ state: 'saved' })
+
+      await release()
+      const saved = await api.readNote(note.id)
+      expect(saved.body).toBe('mine\n')
+      expect(session.body).toBe('mine\n')
+      expect(session.note?.hash).toBe(saved.hash)
+      expect(session.state).toBe('saved')
+    })
+
+    it('keeps the newer disk version a conflicting save brought while it was out', async () => {
+      const { note, release } = await heldReload()
+      await writeFile(path.join(vault.root, note.id), 'newer\n')
+      session.edit('mine\n')
+      await session.flush()
+      expect(session.theirs?.body).toBe('newer\n')
+
+      await release()
+      expect(session.state).toBe('conflict')
+      expect(session.theirs?.body).toBe('newer\n')
+    })
+
+    it('keeps the note removed when the SSE note-removed event came while it was out', async () => {
+      const { release } = await heldReload()
+      session.externalRemoval()
+
+      await release()
+      expect(session.state).toBe('removed')
+    })
+
+    it('keeps the note removed when a save found it gone while it was out', async () => {
+      const { note, release } = await heldReload()
+      await api.renameNote(note.id, 'Elsewhere')
+      session.edit('mine\n')
+      await session.flush()
+      expect(session.state).toBe('removed')
+
+      await release()
+      expect(session.state).toBe('removed')
+    })
+  })
 })
 
 describe('NoteSession.saveAsset', () => {

@@ -83,8 +83,9 @@ export class NoteSession extends TypedEventTarget<{ change: Event; doc: DocEvent
    */
   #opened = 0
   /**
-   * Counts the reads of the open note taken out (`readTicket`) and the documents it took (`relocated`, `#reset`):
-   * a read's result applies only while no later one was taken out or taken.
+   * Counts the reads of the open note taken out (`readTicket`) and the documents and states it took from elsewhere
+   * (`relocated`, `#reset`, a save that worked, a save's conflict or removal, `externalRemoval`): a read's result
+   * applies only while no later one was taken out or taken.
    */
   #generation = 0
 
@@ -169,8 +170,9 @@ export class NoteSession extends TypedEventTarget<{ change: Event; doc: DocEvent
 
   /**
    * Takes out a read of the open note: the handle answers `true` while no later read was taken out and the note took
-   * no document since (`relocated`, opening, closing, Load theirs). A read that returns once it answers `false` is
-   * older than what the note shows, and is dropped.
+   * no document or state since (`relocated`, opening, closing, Load theirs, a save that worked, a save's conflict or
+   * removal, `externalRemoval`). A read that returns once it answers `false` is older than what the note shows, and
+   * is dropped.
    */
   readTicket(): () => boolean {
     const at = ++this.#generation
@@ -261,6 +263,7 @@ export class NoteSession extends TypedEventTarget<{ change: Event; doc: DocEvent
   /** The SSE `note-removed` event for the open note. */
   externalRemoval(): void {
     if (!this.note) return
+    this.#generation++
     clearTimeout(this.#timer)
     this.state = 'removed'
     this.theirs = null
@@ -350,6 +353,7 @@ export class NoteSession extends TypedEventTarget<{ change: Event; doc: DocEvent
           ...(frontmatter ? { frontmatter } : {}),
         })
         if (this.note?.id !== note.id) return { state: 'saved' }
+        this.#generation++
         this.note = saved
         this.error = ''
         if (this.#frontmatter === frontmatter) this.#frontmatter = undefined
@@ -365,6 +369,8 @@ export class NoteSession extends TypedEventTarget<{ change: Event; doc: DocEvent
             ? { state: 'removed' }
             : { state: 'error', error: error instanceof Error ? error.message : String(error) }
         if (this.note?.id !== note.id) return outcome
+        // A read taken out before this save is older than the disk version or the removal it found.
+        if (outcome.state !== 'error') this.#generation++
         if (conflict) this.theirs = conflict
         if (outcome.state === 'error') this.error = outcome.error
         this.state = outcome.state
