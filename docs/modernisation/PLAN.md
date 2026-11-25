@@ -539,7 +539,8 @@ CodeMirror as an input change), and ⌘Z / Ctrl+Z restores the word; a right-cli
 opens the renderer's note menu and pops up no native menu (`tests/e2e/layout.spec.ts`).
 Chromium marks words only with a spellcheck dictionary: where it marks none (Windows or Linux
 without one) the spelling test skips with a reason naming the platform, and the replacement is
-checked by hand there: `pnpm smoke --vault-copy tests/fixtures/sample-vault`, type a misspelled word
+checked by hand there: `pnpm build`, then `pnpm dev` (it stays open until you quit), open a
+scratch copy of `tests/fixtures/sample-vault` as the vault, type a misspelled word
 followed by a space in a note, right-click it, choose a suggestion, check the note file on disk
 holds it, press Ctrl+Z and check the word is back. On macOS the test always runs. `pnpm test` stays unit-only
 (Vitest excludes `tests/e2e`). A Biome Grit plugin (`tests/e2e/rules.grit`, loaded by a `biome.json`

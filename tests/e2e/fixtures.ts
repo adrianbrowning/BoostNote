@@ -281,7 +281,11 @@ type MenuCapture = { poppedMenus?: Menu[] }
 export interface CapturedMenus {
   /** The item labels of each menu popped up since the capture began, `---` for a separator. */
   labels(): Promise<string[][]>
-  /** Clicks the item labelled `label` in the last menu popped up, as choosing it in the menu does. */
+  /**
+   * Calls the `click` handler of the item labelled `label` in the last menu popped up. Role items
+   * (Cut, Copy, Paste, Select All) do nothing here: Electron runs a role only with the focused
+   * window and webContents a real menu passes.
+   */
   click(label: string): Promise<void>
 }
 
