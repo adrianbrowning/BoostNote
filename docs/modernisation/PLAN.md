@@ -893,8 +893,9 @@ styles and CSP, the asset server, controlled inputs, testing) are in
   `lastSegment`, `isNoteFileName`, `noteStem`, `joinId`, `noteDisplayName`, `safeDecode`, `linkPath`,
   `isRelativeLink`, `normalizeLinkPath`, `resolveLinkPath`, `relativeId`, `resolveNoteLink`) live in `src/shared/vault-ids.ts`, beside `src/vault`. It has
   no `node:` imports (a Biome `noNodejsModules` override on `src/shared/**` enforces it) and
-  `remix.json` `allowFiles` serves it to the page. A note file ends in `.md` in any letter case and has
-  a stem: `noteStem('B.MD')` is `B`, and a link to `B.MD` opens the note `B.MD` (exact id, no case
+  `remix.json` `allowFiles` serves it to the page. A note file ends in `.md` in any letter case or in
+  lowercase `.mdx` and has a stem: `noteStem('B.MD')` is `B`, `noteStem('doc.mdx')` is `doc` (`.MDX`
+  files are not notes), and a link to `B.MD` opens the note `B.MD` (exact id, no case
   folding). New notes are written with a lowercase `.md`. The `NoteMeta` list shape and
   its `toMeta` projection live there too: the vault index, the `/api` note lists and the client's
   `NoteSummary` (an alias of `NoteMeta`) all use them.

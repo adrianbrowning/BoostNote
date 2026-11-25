@@ -230,7 +230,8 @@ export async function renderMarkdown(markdown: string, options: RenderOptions = 
  * by the shared `resolveNoteLink` rule: a link that leaves the vault gives `undefined`. With
  * `pages`, the page is `pages`' entry for the exact resolved note id, and a link to an id `pages`
  * lacks gives `undefined` (left as written: no extension-case folding onto another note's page);
- * without `pages`, it is that id with its `.md` (any case) swapped for `.html`. The link is that
+ * without `pages`, it is that id with its note extension (`.md` in any case, or `.mdx`) swapped for
+ * `.html` (`doc.mdx` → `doc.html`). The link is that
  * page relative to `fromId`'s folder (`sub//../ch3.md` → `ch3.html`, `other.md/#x` →
  * `other.html#x`, `Plan.MD` → `Plan.html`), each segment percent-encoded, plus the raw query and
  * fragment. Anything else: `undefined`.

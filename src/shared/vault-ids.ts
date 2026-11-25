@@ -3,8 +3,9 @@
  * (Biome enforces it for `src/shared/**`), served to the page through `remix.json` `allowFiles`.
  *
  * A vault id is a POSIX path relative to the vault root: `work/todo.md` (note), `work` (folder),
- * `''` (the root). A note file name ends in `.md` in any letter case (`.md`, `.MD`, `.Md`, `.mD`) and
- * has a stem; new notes are written with a lowercase `.md`. Two notes that differ only in extension
+ * `''` (the root). A note file name ends in `.md` in any letter case (`.md`, `.MD`, `.Md`, `.mD`) or
+ * in lowercase `.mdx` (`.MDX`, `.Mdx` are not notes) and has a stem; new notes are written with a
+ * lowercase `.md`. Two notes that differ only in extension
  * case (`a.md` and `a.MD`, possible on case-sensitive filesystems) share the asset folder `a.assets`;
  * this is an accepted limit (trashing, renaming or moving one leaves the folder for the other). The
  * check only sees twins present now: once one twin has been renamed, moved or trashed away from the
