@@ -136,7 +136,7 @@ describe('vault notes', () => {
     await mkdir(path.join(root, 'archive/2026'), { recursive: true })
     vault = await openVault(root)
 
-    const renamed = await vault.renameNote('work/todo.md', 'Done list')
+    const { note: renamed } = await vault.renameNote('work/todo.md', 'Done list')
     expect(renamed.id).toBe('work/Done list.md')
     expect(await read('work/Done list.assets/a.png')).toBe('A')
     expect(renamed.body).toContain('![shot](./Done%20list.assets/a.png)')
@@ -146,7 +146,7 @@ describe('vault notes', () => {
     expect(renamed.body).toContain('```\n![code](./todo.assets/a.png)\n```')
     expect(await vault.hasNote('work/todo.md')).toBe(false)
 
-    const moved = await vault.moveNote(renamed.id, 'archive/2026')
+    const { note: moved } = await vault.moveNote(renamed.id, 'archive/2026')
     expect(moved.id).toBe('archive/2026/Done list.md')
     expect(moved.body).toContain('![shot](./Done%20list.assets/a.png)')
     expect(moved.body).toContain('[sibling](../../work/other.md)')
@@ -164,12 +164,12 @@ describe('vault notes', () => {
     vault = await openVault(root)
 
     const renamed = await vault.renameNote('work/Plan.MD', 'Roadmap')
-    expect(renamed.id).toBe('work/Roadmap.MD')
+    expect(renamed.note.id).toBe('work/Roadmap.MD')
     expect((await readdir(path.join(root, 'work'))).sort()).toEqual(['Roadmap.MD', 'Roadmap.assets'])
     expect((await vault.readNote('work/Roadmap.MD')).body).toBe('![a](./Roadmap.assets/a.png)\n')
     expect(await read('work/Roadmap.assets/a.png')).toBe('A')
 
-    const links = await vault.applyLinkUpdates([{ from: 'work/Plan.MD', to: renamed.id, kind: 'note' }])
+    const links = await vault.applyLinkUpdates(renamed.moves)
     expect(links.total).toBe(2)
     expect(await read('index.md')).toBe('[plan](work/Roadmap.MD)\n![a](work/Roadmap.assets/a.png)\n')
   })
@@ -181,7 +181,7 @@ describe('vault notes', () => {
     await mkdir(path.join(root, 'archive'))
     vault = await openVault(root)
 
-    const moved = await vault.moveNote('work/Plan.MD', 'archive')
+    const { note: moved } = await vault.moveNote('work/Plan.MD', 'archive')
     expect(moved.id).toBe('archive/Plan.MD')
     expect((await readdir(path.join(root, 'archive'))).sort()).toEqual(['Plan.MD', 'Plan.assets'])
     expect(await readdir(path.join(root, 'work'))).toEqual([])
@@ -198,7 +198,7 @@ describe('vault notes', () => {
     vault = await openVault(root)
     await expect(vault.renameNote('work/a.md', 'Taken')).rejects.toMatchObject({ code: 'EXISTS' })
     await expect(vault.renameNote('work/Plan.MD', 'other')).rejects.toMatchObject({ code: 'EXISTS' })
-    expect((await vault.moveNote('work/a.md', 'archive')).id).toBe('archive/a 2.md')
+    expect((await vault.moveNote('work/a.md', 'archive')).note.id).toBe('archive/a 2.md')
     expect((await readdir(path.join(root, 'work'))).sort()).toEqual(['Plan.MD', 'Taken.MD', 'other.md'])
     expect(await read('archive/a.MD')).toBe('archived')
   })
@@ -207,7 +207,7 @@ describe('vault notes', () => {
     await put('a/note.md', 'one')
     await put('b/note.md', 'two')
     vault = await openVault(root)
-    expect((await vault.moveNote('a/note.md', 'b')).id).toBe('b/note 2.md')
+    expect((await vault.moveNote('a/note.md', 'b')).note.id).toBe('b/note 2.md')
   })
 
   it.each([
@@ -219,10 +219,10 @@ describe('vault notes', () => {
     await put('index.md', `[p](${from})\n![a](work/plan.assets/a.png)\n`)
     vault = await openVault(root)
     const renamed = await vault.renameNote(from, 'Plan')
-    expect(renamed.id).toBe(to)
+    expect(renamed.note.id).toBe(to)
     expect((await readdir(path.join(root, 'work'))).sort()).toEqual(['Plan.assets', path.basename(to)].sort())
-    expect(renamed.body).toBe('![a](./Plan.assets/a.png)\n')
-    await vault.applyLinkUpdates([{ from, to, kind: 'note' }])
+    expect(renamed.note.body).toBe('![a](./Plan.assets/a.png)\n')
+    await vault.applyLinkUpdates(renamed.moves)
     expect(await read('index.md')).toBe(`[p](${to})\n![a](work/Plan.assets/a.png)\n`)
   })
 
@@ -292,13 +292,13 @@ describe('extension-case twins (a.md beside a.MD)', () => {
     await put('index.md', '![x](work/a.assets/x.png)\n')
     vault = await openVault(root)
     const renamed = await vault.renameNote('work/a.md', 'b')
-    expect(renamed).toMatchObject({ id: 'work/b.md', assetsLeftBehind: 'work/a.assets' })
-    expect(renamed.body).toBe('lower ![x](./a.assets/x.png)\n')
+    expect(renamed).toMatchObject({ note: { id: 'work/b.md' }, assetsLeftBehind: 'work/a.assets' })
+    expect(renamed.note.body).toBe('lower ![x](./a.assets/x.png)\n')
     expect((await readdir(path.join(root, 'work'))).sort()).toEqual(['a.MD', 'a.assets', 'b.md'])
     expect(await read('work/a.assets/x.png')).toBe('X')
     expect(await read('work/a.MD')).toBe('upper ![x](./a.assets/x.png)\n')
 
-    await vault.applyLinkUpdates([{ from: 'work/a.md', to: renamed.id, kind: 'note' }])
+    await vault.applyLinkUpdates([{ from: 'work/a.md', to: renamed.note.id, kind: 'note' }])
     expect(await read('work/a.MD')).toBe('upper ![x](./a.assets/x.png)\n')
     expect(await read('index.md')).toBe('![x](work/a.assets/x.png)\n')
   })
@@ -351,15 +351,15 @@ describe('extension-case twins (a.md beside a.MD)', () => {
     await mkdir(path.join(root, 'archive'))
     vault = await openVault(root)
     const moved = await vault.moveNote('work/a.MD', 'archive')
-    expect(moved).toMatchObject({ id: 'archive/a.MD', assetsLeftBehind: 'work/a.assets' })
-    expect(moved.body).toBe('upper ![x](../work/a.assets/x.png)\n')
+    expect(moved).toMatchObject({ note: { id: 'archive/a.MD' }, assetsLeftBehind: 'work/a.assets' })
+    expect(moved.note.body).toBe('upper ![x](../work/a.assets/x.png)\n')
     expect(await readdir(path.join(root, 'archive'))).toEqual(['a.MD'])
     expect((await readdir(path.join(root, 'work'))).sort()).toEqual(['a.assets', 'a.md'])
     expect(await read('work/a.assets/x.png')).toBe('X')
 
     await put('index.md', '[a](work/a.MD) ![x](work/a.assets/x.png)\n')
     await vault.refresh()
-    await vault.applyLinkUpdates([{ from: 'work/a.MD', to: moved.id, kind: 'note' }])
+    await vault.applyLinkUpdates(moved.moves)
     expect(await read('index.md')).toBe('[a](archive/a.MD) ![x](work/a.assets/x.png)\n')
     expect(await read('work/a.md')).toBe('lower ![x](./a.assets/x.png)\n')
   })
@@ -428,7 +428,7 @@ describe('extension-case twins (a.md beside a.MD)', () => {
     )
     vault = await openVault(root)
     const moved = await vault.moveNote('archive/Caf\u00e9.md', 'work')
-    expect(moved.id).toBe('work/Caf\u00e9 2.md')
+    expect(moved.note.id).toBe('work/Caf\u00e9 2.md')
     expect(await read('work/Cafe\u0301.md')).toBe('nfd\n')
   })
 
@@ -572,14 +572,14 @@ describe('vault folders', () => {
       ['Ideas - Drafts', undefined],
     ])
 
-    expect(await vault.renameFolder('work', 'Job')).toBe('Job')
+    expect((await vault.renameFolder('work', 'Job')).folder).toBe('Job')
     expect(await vault.hasNote('Job/sub/n.md')).toBe(true)
     expect(vault.config.folders).toEqual({ Job: { color: '#ff0000' }, 'Job/sub': { color: '#00ff00' } })
     expect(vault.config.folderOrder).toEqual(['Job', 'Ideas - Drafts'])
     const config = JSON.parse(await read('.boostnote/config.json'))
     expect(config.folders.Job.color).toBe('#ff0000')
 
-    expect(await vault.moveFolder('Job/sub', 'Ideas - Drafts')).toBe('Ideas - Drafts/sub')
+    expect((await vault.moveFolder('Job/sub', 'Ideas - Drafts')).folder).toBe('Ideas - Drafts/sub')
     await expect(vault.moveFolder('Ideas - Drafts', 'Ideas - Drafts/sub')).rejects.toMatchObject({
       code: 'INVALID_PATH',
     })

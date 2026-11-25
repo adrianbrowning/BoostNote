@@ -75,6 +75,24 @@ export function joinId(folder: string, name: string): string {
   return folder === '' ? name : `${folder}/${name}`
 }
 
+/** Whether vault id `id` is the folder `folder` itself or anything under it (`workshop` is not in `work`). */
+export function isAtOrUnder(id: string, folder: string): boolean {
+  return id === folder || isUnder(id, folder)
+}
+
+/** Whether vault id `id` is strictly under the folder `folder` (not `folder` itself, not `workshop` for `work`). */
+export function isUnder(id: string, folder: string): boolean {
+  return id.startsWith(`${folder}/`)
+}
+
+/**
+ * Where vault id `id` is after the note or folder `from` moved to `to`: `from` itself and anything
+ * under it follow (`work/a.md`, `work` → `job`: `job/a.md`); `undefined` when the move does not touch `id`.
+ */
+export function movedId(id: string, from: string, to: string): string | undefined {
+  return isAtOrUnder(id, from) ? to + id.slice(from.length) : undefined
+}
+
 /** A note's displayed name: its frontmatter `title` (a non-empty string, trimmed), else its file name stem. */
 export function noteDisplayName(id: string, frontmatter: { readonly title?: unknown }): string {
   const title = typeof frontmatter.title === 'string' ? frontmatter.title.trim() : ''

@@ -20,6 +20,7 @@ per finding: id, location, title, problem and suggested fix. Later factory runs 
 - Problem: The fact that the shared assets folder stayed behind now reaches link updates in two ways. (1) Each caller passes `LinkMove.assets`, and each does it differently: CLI `relocated` (src/cli/commands.ts) and applyTitleRenames always set `assets: assetsLeftBehind === undefined` (true or false), while the app's linkMovesAfterRelocate (relocate.ts) sets only `assets: false` and leaves the field out otherwise. (2) The vault's new `#withAssetsState` works the flag out again from the disk (the old `<stem>.assets` still exists and is not the target) whenever the field is missing. For the app's ordinary renames the server decides, for its twin renames the client decides, and for the CLI the result object decides. All three agree today. But the rule lives in three places with two conventions, and a later change to one (for example, the case-only-rename inode check in #withAssetsState) can quietly disagree with the flag a caller sends, because an explicit flag skips the disk check.
 - Suggested fix: Pick one owner. Either let the vault always decide (drop the explicit flag from `relocated`, applyTitleRenames' moves and linkMovesAfterRelocate, and keep #withAssetsState), or require the flag on note moves and remove #withAssetsState. If both stay, at least use one convention: always send `assets` explicitly, or never send `true`.
 - **Status:** fixed in slice 04 (one convention): the app's `linkMovesAfterRelocate` now always sends `assets` (`true` when the folder moved, `false` for a twin), as the CLI and `applyTitleRenames` do. `Vault.#withAssetsState` stays only for callers that leave the field out.
+- **Status:** run issue-17-18 slice 03: the vault now owns the flag for every app and CLI relocation: `renameNote`/`moveNote` build each move with an explicit `assets` and return it, and the app and CLI pass the returned moves as they are. `#withAssetsState` serves only moves built by hand outside the vault.
 
 ### react-ts-relocate-input-restates-assets-left-behind-shape
 
@@ -27,6 +28,7 @@ per finding: id, location, title, problem and suggested fix. Later factory runs 
 - Title: linkMovesAfterRelocate types its input with a hand-written `{ id; assetsLeftBehind? }` instead of the exported AssetsLeftBehind type
 - Problem: relocate.ts declares `result: { id: string; assetsLeftBehind?: string }` even though `AssetsLeftBehind` is exported from types.ts (and already used by api.ts for `client.restore` and `client.deleteNote`). Because the field is optional and the callers pass non-literal objects (NoteDocument, the restore and delete responses), the structural match is only checked loosely. If `AssetsLeftBehind`'s field is renamed or reshaped, `renamed`, `moved` and `restored` still compile against this hand-written shape: `assetsLeftBehind` would just be missing, so the sticky warning and the `assets: false` link move would stop happening without any type error. `assetsStayedText` in src/cli/main.ts (`{ assetsLeftBehind }: { assetsLeftBehind?: string }`) has the same issue for the CLI text.
 - Suggested fix: Type the input as `{ id: string } & AssetsLeftBehind` (imported from ./types.ts), and type assetsStayedText's parameter as `AssetsLeftBehind`. Then a change to the shared field fails to compile at these sites.
+- **Status:** run issue-17-18 slice 03: `linkMovesAfterRelocate` is gone; the hand-written `{ assetsLeftBehind?; done? }` input shape is now on `relocateNotice` (relocate.ts), and `assetsStayedText` is unchanged. Still open under the new name.
 
 ### react-ts-relocate-outcome-handling-repeated-in-model
 
@@ -34,6 +36,7 @@ per finding: id, location, title, problem and suggested fix. Later factory runs 
 - Title: WorkspaceModel repeats the same 'show relocate outcome' steps after rename, move, trash and restore
 - Problem: #renameFile (641-643) and moveNote (676-678) each run the same three lines: call linkMovesAfterRelocate, `if (outcome.notice) this.notify('info', outcome.notice, [], outcome.sticky)`, then `for (const move of outcome.moves) void this.#offerLinkUpdates(move, outcome.warning)`. deleteNote and restore repeat the notice half by hand again. relocate.ts was added so the model has one place for this rule, yet the model rebuilds how an outcome is applied in four places. If one of them changes (for example how the warning reaches the link-update notice), the others can be missed.
 - Suggested fix: Add one private WorkspaceModel method, for example `#showRelocateOutcome(outcome: RelocateOutcome)`, that shows the notice (sticky when set) and offers each link move with the warning. Call it from #renameFile, moveNote, deleteNote and restore.
+- **Status:** run issue-17-18 slice 03: the outcome (`RelocateNotice`) no longer has moves, and `#showRelocateOutcome(outcome: RelocateOutcome)` would no longer fit. Still open: the notice half is repeated in #renameFile, moveNote, deleteNote and restore, and `#offerLinkUpdates(x.moves, outcome.warning)` in #renameFile and moveNote.
 
 ### react-ts-relocate-result-id-forced-for-trash
 
@@ -41,7 +44,7 @@ per finding: id, location, title, problem and suggested fix. Later factory runs 
 - Title: linkMovesAfterRelocate makes trash and restore pass an id it never reads, so deleteNote builds a fake one
 - Problem: `linkMovesAfterRelocate` requires `result.id`, but it reads it only when `from` is set (rename and move). WorkspaceModel's delete path has no note result, so it builds `{ id, ...trashed }`. The real `noteDelete` response is the whole TrashEntry (controller.ts:214 returns `vault.deleteNote(...)`), and its own `id` (the trash id) comes after the note id in the spread and replaces it. This only works because `client.deleteNote` is typed `post<AssetsLeftBehind>`, which is narrower than the actual payload, and because the id is never read. Today this is harmless, but the type does not describe what callers must supply, and the object it builds has the wrong id.
 - Suggested fix: Make the input type say what is used: e.g. `{ move?: { from: string; to: string }; assetsLeftBehind?: string; done?: string }`, or keep `result` only on the rename/move branch. Then deleteNote passes `trashed.assetsLeftBehind` directly with no fake id. Mention trash in the docs.
-- Status: partly fixed in slice 04: the relocate.ts docs now name trash. The type half (the forced `id`) remains.
+- Status: partly fixed in slice 04: the relocate.ts docs now name trash. Fixed in run issue-17-18 slice 03: `linkMovesAfterRelocate` is gone; `relocateNotice({ assetsLeftBehind, done })` takes only what it uses, and deleteNote passes `trashed.assetsLeftBehind` with no fake id.
 
 ### thermo-assets-left-behind-conditional-spread-repeated
 
@@ -49,6 +52,7 @@ per finding: id, location, title, problem and suggested fix. Later factory runs 
 - Title: 'Assets stayed' is re-derived and spread in by hand in four places
 - Problem: deleteNote, restore, #relocateNote and applyTitleRenames each repeat `...(assetsLeftBehind ? { assetsLeftBehind } : {})` (or the ternary push), and each turns the same optional string into `assets: assetsLeftBehind === undefined` / `assetsMove`. Each new operation must copy all three steps.
 - Suggested fix: Have one small helper (for example `withAssetsLeftBehind(result, path)`) build the result shape and the matching LinkMove, or return a single typed relocation result from #relocateNote that holds both.
+- **Status:** partly fixed in run issue-17-18 slice 03: `#relocateNote` now returns one `NoteRelocation` holding the move and `assetsLeftBehind`. The conditional spread is still written out in deleteNote, restore and applyTitleRenames.
 
 ### thermo-extension-swap-composed-inline-at-each-call-site
 
@@ -84,6 +88,7 @@ per finding: id, location, title, problem and suggested fix. Later factory runs 
 - Title: An operation result (`assetsLeftBehind`) is merged into the Note/NoteDocument entity types
 - Problem: NoteDocument now extends AssetsLeftBehind, and Vault.renameNote, moveNote and #relocateNote return `Note & AssetsLeftBehind`. The field only means something right after a rename or move, but it now sits on the type that readNote, save and the editor session use. Every consumer of NoteDocument sees an optional field it can never get, and the result travels into `session.relocated(renamed)` as part of the note. toNoteDocument has to spread it in conditionally. This is an optional field used in place of a real result shape.
 - Suggested fix: Return the operation result separately, e.g. `{ note: Note; assetsLeftBehind?: string }` from renameNote and moveNote (and a `{ note: NoteDocument, assetsLeftBehind? }` response from the rename and move routes), so NoteDocument and Note keep describing only a note.
+- **Status:** fixed in run issue-17-18 slice 03: `renameNote`/`moveNote` return `{ note, moves, assetsLeftBehind? }`, the routes send `{ note: NoteDocument, moves, assetsLeftBehind? }`, and NoteDocument no longer extends AssetsLeftBehind.
 
 ### thermo-rebase-note-links-self-move-restated
 
@@ -98,6 +103,7 @@ per finding: id, location, title, problem and suggested fix. Later factory runs 
 - Title: `sticky` is stored next to `warning` but is always just `warning !== undefined`
 - Problem: RelocateOutcome has both `warning` and `sticky`, and linksUpdatedNotice and linkUpdateFailedNotice also return `sticky: warning !== undefined`. The fields cannot disagree, so `sticky` is derived state stored as a second field and computed in three places. A reader has to check that they always agree, and a later change to one rule (for example, a sticky notice with no warning) would have to be made in every copy.
 - Suggested fix: Either drop `sticky` and let the one caller that shows a notice pass `warning !== undefined`, or keep `sticky` as the only output and compute it in one place (one small helper all three functions use).
+- **Status:** run issue-17-18 slice 03: `RelocateOutcome` is now `RelocateNotice` (from `relocateNotice`); the problem is otherwise unchanged.
 
 ### thermo-shared-assets-own-stem-key
 
@@ -121,6 +127,7 @@ per finding: id, location, title, problem and suggested fix. Later factory runs 
 - Problem: joinNotice returns `string | undefined` so that linkMovesAfterRelocate can return no notice. linksUpdatedNotice always passes a defined `done`, so joinNotice cannot return undefined there, and `?? done` is never used. It exists only to narrow the type. A reader has to work out that the fallback can never run.
 - Suggested fix: Build the text directly here (`warning === undefined ? done : `${done}. ${warning}``). Or give joinNotice an overload, or a required first part, that returns `string` when that part is defined.
 - Slice 04: `linkUpdateFailedNotice` in the same file adds a second dead fallback (`joinNotice(message, warning) ?? message`); the fix should cover it too.
+- **Status:** run issue-17-18 slice 03: `linkMovesAfterRelocate` is now `relocateNotice`, which is the caller that needs `joinNotice`'s `undefined`; the problem is otherwise unchanged.
 
 ### thermo-split-note-extension-redundant-check
 

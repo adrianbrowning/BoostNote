@@ -9,10 +9,11 @@ import {
   type AssetsLeftBehind,
   type FolderNode,
   type Frontmatter,
-  type LinkMove,
   type LinkUpdateReport,
   type Note,
+  type NoteRelocation,
   type ReadonlyNoteMeta,
+  type RelocateLinksOptions,
   type TagCount,
   type Vault,
   VaultError,
@@ -301,7 +302,7 @@ export async function renameNote(
 ): Promise<RelocateResult> {
   if (name.trim() === '') throw new CommandError('USAGE', 'Missing new name')
   const id = await resolveNoteId(vault, input)
-  return relocated(vault, id, await vault.renameNote(id, name.trim()), options)
+  return relocated(id, options, (links) => vault.renameNote(id, name.trim(), { links }))
 }
 
 /** Moves the note into `folder` (an existing folder id); other notes' links follow unless `updateLinks: false`. */
@@ -312,7 +313,7 @@ export async function moveNote(
   options: RelocateOptions = {},
 ): Promise<RelocateResult> {
   const id = await resolveNoteId(vault, input)
-  return relocated(vault, id, await vault.moveNote(id, normalizeFolder(folder)), options)
+  return relocated(id, options, (links) => vault.moveNote(id, normalizeFolder(folder), { links }))
 }
 
 /**
@@ -380,13 +381,19 @@ function conflictChecked(id: string, result: WriteNoteResult): Note {
   throw conflict(id, result.current?.hash ?? null)
 }
 
+/**
+ * Runs `relocate` with the vault's link pass in the same locked step: other notes' links are
+ * rewritten, or with `updateLinks: false` only counted.
+ */
 async function relocated(
-  vault: Vault,
   fromId: string,
-  note: Note & AssetsLeftBehind,
   options: RelocateOptions,
+  relocate: (
+    links: NonNullable<RelocateLinksOptions['links']>,
+  ) => Promise<NoteRelocation & { links: LinkUpdateReport }>,
 ): Promise<RelocateResult> {
-  const { assetsLeftBehind } = note
+  const update = options.updateLinks !== false
+  const { note, assetsLeftBehind, links } = await relocate(update ? 'apply' : 'plan')
   const result: RelocateResult = {
     ...written(note),
     previousId: fromId,
@@ -395,14 +402,12 @@ async function relocated(
     ...(assetsLeftBehind ? { assetsLeftBehind } : {}),
   }
   if (note.id === fromId) return result
-  const moves: LinkMove[] = [{ from: fromId, to: note.id, kind: 'note', assets: assetsLeftBehind === undefined }]
-  if (options.updateLinks === false) {
-    result.linksNotUpdated = (await vault.planLinkUpdates(moves)).total
+  if (!update) {
+    result.linksNotUpdated = links.total
     return result
   }
-  const report: LinkUpdateReport = await vault.applyLinkUpdates(moves)
-  result.linksUpdated = report.total
-  result.notesUpdated = report.notes.length
+  result.linksUpdated = links.total
+  result.notesUpdated = links.notes.length
   return result
 }
 

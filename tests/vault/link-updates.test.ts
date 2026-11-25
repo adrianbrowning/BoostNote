@@ -4,6 +4,7 @@ import * as path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 
 import { type LinkMove, openVault, type Vault } from '../../src/vault/index.ts'
+import { appearedWhilePending } from '../shared/appeared-while-pending.ts'
 import { FROM, LINK_CASES } from '../shared/link-cases.ts'
 
 let root: string
@@ -73,13 +74,13 @@ describe('link updates after renaming a note', () => {
 
   it('plans without writing, then rewrites links in other notes only', async () => {
     const renamed = await vault.renameNote('notes/a.md', 'Alpha One')
-    expect(renamed.id).toBe('notes/Alpha One.md')
+    expect(renamed.note.id).toBe('notes/Alpha One.md')
     // Its own links were re-based by the rename, so it is not part of the plan.
     expect(await read('notes/Alpha One.md')).toBe(
       '# A\n[me](./Alpha%20One.md#top) ![p](./Alpha%20One.assets/p.png) [b](b.md)\n',
     )
 
-    const plan = await planThenApply([{ from: 'notes/a.md', to: 'notes/Alpha One.md', kind: 'note' }])
+    const plan = await planThenApply(renamed.moves)
     expect(plan).toEqual({
       notes: [
         { id: 'index.md', title: 'index', links: 4 },
@@ -111,8 +112,8 @@ describe('link updates after renaming a note', () => {
   it('follows `note.md/#anchor` links (as copied from GitHub), keeping their form; folder links stay', async () => {
     await put('book.md', '[curry](notes/a.md/#user-content-curry) [q](./notes/a.md/?x=1) [dir](notes/)\n')
     await vault.refresh()
-    await vault.renameNote('notes/a.md', 'Alpha One')
-    const plan = await planThenApply([{ from: 'notes/a.md', to: 'notes/Alpha One.md', kind: 'note' }])
+    const { moves } = await vault.renameNote('notes/a.md', 'Alpha One')
+    const plan = await planThenApply(moves)
     expect(plan.notes.find((note) => note.id === 'book.md')).toEqual({ id: 'book.md', title: 'book', links: 2 })
     expect(await read('book.md')).toBe(
       '[curry](notes/Alpha%20One.md/#user-content-curry) [q](./notes/Alpha%20One.md/?x=1) [dir](notes/)\n',
@@ -131,8 +132,8 @@ describe('link updates after moving a note to another folder', () => {
     vault = await openVault(root)
 
     const moved = await vault.moveNote('work/todo.md', 'archive/2026')
-    expect(moved.body).toBe('# Todo\n![s](./todo.assets/s.png)\n')
-    const plan = await planThenApply([{ from: 'work/todo.md', to: moved.id, kind: 'note' }])
+    expect(moved.note.body).toBe('# Todo\n![s](./todo.assets/s.png)\n')
+    const plan = await planThenApply(moved.moves)
     expect(plan.total).toBe(7)
     expect(plan.notes.map((note) => note.id)).toEqual(['archive/2026/y.md', 'r.md', 'work/sub/n.md', 'work/x.md'])
     expect(await read('work/x.md')).toBe(
@@ -149,7 +150,7 @@ describe('the shared link table, when the linking note moves', () => {
     await put(FROM, `[l](${href}) <img src="${href}">\n`)
     await mkdir(path.join(root, 'Archive'))
     vault = await openVault(root)
-    const note = await vault.moveNote(FROM, 'Archive')
+    const { note } = await vault.moveNote(FROM, 'Archive')
     expect(note.body).toBe(`[l](${moved}) <img src="${moved}">\n`)
   })
 })
@@ -159,7 +160,7 @@ describe('an upper-case `Note.MD/#anchor` link, when the linking note moves', ()
     await put(FROM, '[l](./Plan.MD/#x)\n')
     await mkdir(path.join(root, 'Archive'))
     vault = await openVault(root)
-    const note = await vault.moveNote(FROM, 'Archive')
+    const { note } = await vault.moveNote(FROM, 'Archive')
     expect(note.body).toBe('[l](../Guides/Plan.MD/#x)\n')
   })
 })
@@ -169,7 +170,7 @@ describe('links into a dot-folder, when the linking note moves', () => {
     await put('Guides/n.md', '![d](.attachments/d.png)\n')
     await mkdir(path.join(root, 'Archive'))
     vault = await openVault(root)
-    const note = await vault.moveNote('Guides/n.md', 'Archive')
+    const { note } = await vault.moveNote('Guides/n.md', 'Archive')
     expect(note.body).toBe('![d](../Guides/.attachments/d.png)\n')
   })
 })
@@ -188,7 +189,7 @@ describe('angle-bracket links to a note whose name has #, %, <, > or ?', () => {
     await put('Guides/n.md', `[x](<${enc}ideas.md>)\n`)
     await mkdir(path.join(root, 'Archive'))
     vault = await openVault(root)
-    const note = await vault.moveNote('Guides/n.md', 'Archive')
+    const { note } = await vault.moveNote('Guides/n.md', 'Archive')
     expect(note.body).toBe(`[x](<../Guides/${enc}ideas.md>)\n`)
   })
 
@@ -200,7 +201,7 @@ describe('angle-bracket links to a note whose name has #, %, <, > or ?', () => {
     await put('index.md', `[x](<Guides/${enc}ideas.md>)\n`)
     vault = await openVault(root)
     const renamed = await vault.renameNote(`Guides/${char}ideas.md`, `${char}plans`)
-    await planThenApply([{ from: `Guides/${char}ideas.md`, to: renamed.id, kind: 'note' }])
+    await planThenApply(renamed.moves)
     expect(await read('index.md')).toBe(`[x](<Guides/${enc}plans.md>)\n`)
   })
 
@@ -225,8 +226,8 @@ describe('backslashes in links to a renamed note', () => {
     await put('notes/a.md', 'A\n')
     await put('index.md', '[a](notes\\a.md#x) [b](\\notes\\a.md)\n')
     vault = await openVault(root)
-    await vault.renameNote('notes/a.md', 'Alpha')
-    await planThenApply([{ from: 'notes/a.md', to: 'notes/Alpha.md', kind: 'note' }])
+    const { moves } = await vault.renameNote('notes/a.md', 'Alpha')
+    await planThenApply(moves)
     expect(await read('index.md')).toBe('[a](notes/Alpha.md#x) [b](\\notes\\a.md)\n')
   })
 })
@@ -250,14 +251,15 @@ describe('link updates after renaming or moving a folder', () => {
   })
 
   it('renamed in place: links into it are planned and rewritten', async () => {
-    expect(await vault.renameFolder('work/projects', 'Projects 2026')).toBe('work/Projects 2026')
+    const renamed = await vault.renameFolder('work/projects', 'Projects 2026')
+    expect(renamed.folder).toBe('work/Projects 2026')
     // Inside, only the link that went out and back in through the old name changes (to `./plan.md`).
     expect(await read('work/Projects 2026/plan.md')).toBe(
       '[w](../w.md) ![a](./plan.assets/a.png) [z](./deep/z.md) [self](./plan.md) ![s](../../shared.assets/x.png)\n',
     )
     expect(await read('work/Projects 2026/deep/z.md')).toBe('[p](../plan.md) [h](../../../home.md)\n')
 
-    const plan = await planThenApply([{ from: 'work/projects', to: 'work/Projects 2026', kind: 'folder' }])
+    const plan = await planThenApply(renamed.moves)
     expect(plan).toEqual({
       notes: [
         { id: 'home.md', title: 'home', links: 3 },
@@ -276,14 +278,15 @@ describe('link updates after renaming or moving a folder', () => {
   it('moved under another parent: links out of it are re-based, links into it are planned and rewritten', async () => {
     await mkdir(path.join(root, 'archive'))
     await vault.refresh()
-    expect(await vault.moveFolder('work/projects', 'archive')).toBe('archive/projects')
+    const moved = await vault.moveFolder('work/projects', 'archive')
+    expect(moved.folder).toBe('archive/projects')
     expect(await read('archive/projects/plan.md')).toBe(
       '[w](../../work/w.md) ![a](./plan.assets/a.png) [z](./deep/z.md) [self](./plan.md) ![s](../../shared.assets/x.png)\n',
     )
     expect(await read('archive/projects/deep/z.md')).toBe('[p](../plan.md) [h](../../../home.md)\n')
     expect(await read('archive/projects/plan.assets/a.png')).toBe('A')
 
-    const plan = await planThenApply([{ from: 'work/projects', to: 'archive/projects', kind: 'folder' }])
+    const plan = await planThenApply(moved.moves)
     expect(plan.total).toBe(5)
     expect(await read('home.md')).toBe(
       '[p](archive/projects/plan.md) ![a](./archive/projects/plan.assets/a.png) [z](archive/projects/deep/z.md)\n',
@@ -296,7 +299,7 @@ describe('link updates after renaming or moving a folder', () => {
   it('moved one level deeper: links out of it gain a ../', async () => {
     await mkdir(path.join(root, 'work/old'))
     await vault.refresh()
-    expect(await vault.moveFolder('work/projects', 'work/old')).toBe('work/old/projects')
+    expect((await vault.moveFolder('work/projects', 'work/old')).folder).toBe('work/old/projects')
     expect(await read('work/old/projects/plan.md')).toBe(
       '[w](../../w.md) ![a](./plan.assets/a.png) [z](./deep/z.md) [self](./plan.md) ![s](../../../shared.assets/x.png)\n',
     )
@@ -327,5 +330,108 @@ describe('link update plans', () => {
     ] as const) {
       await expect(vault.planLinkUpdates([move])).rejects.toMatchObject({ code: 'INVALID_PATH' })
     }
+  })
+})
+
+describe('the moves a rename or move returns', () => {
+  it('a renamed note with assets: its move carries the assets, and planLinkUpdates takes it as is', async () => {
+    await put('notes/a.md', '![p](./a.assets/p.png)\n')
+    await put('notes/a.assets/p.png', 'P')
+    await put('index.md', '[a](notes/a.md) ![p](notes/a.assets/p.png)\n')
+    vault = await openVault(root)
+    const renamed = await vault.renameNote('notes/a.md', 'b')
+    expect(renamed.note.id).toBe('notes/b.md')
+    expect(renamed.assetsLeftBehind).toBeUndefined()
+    expect(renamed.moves).toEqual([{ from: 'notes/a.md', to: 'notes/b.md', kind: 'note', assets: true }])
+    expect((await planThenApply(renamed.moves)).total).toBe(2)
+    expect(await read('index.md')).toBe('[a](notes/b.md) ![p](notes/b.assets/p.png)\n')
+  })
+
+  it('a moved note with no assets folder: one note move', async () => {
+    await put('a.md', 'A\n')
+    await put('index.md', '[a](a.md)\n')
+    await mkdir(path.join(root, 'sub'))
+    vault = await openVault(root)
+    const moved = await vault.moveNote('a.md', 'sub')
+    expect(moved.note.id).toBe('sub/a.md')
+    expect(moved.moves).toEqual([{ from: 'a.md', to: 'sub/a.md', kind: 'note', assets: true }])
+    expect((await planThenApply(moved.moves)).total).toBe(1)
+    expect(await read('index.md')).toBe('[a](sub/a.md)\n')
+  })
+
+  it('a note that stays where it is: no moves', async () => {
+    await put('sub/a.md', 'A\n')
+    vault = await openVault(root)
+    expect((await vault.moveNote('sub/a.md', 'sub')).moves).toEqual([])
+    expect((await vault.renameNote('sub/a.md', 'a')).moves).toEqual([])
+  })
+
+  it('an extension-case twin: the assets folder stays, the move says so, and links into it are left', async (ctx) => {
+    await put('work/a.md', 'lower\n')
+    await put('work/a.MD', 'upper\n')
+    await put('work/a.assets/x.png', 'X')
+    await put('index.md', '[a](work/a.md) ![x](work/a.assets/x.png)\n')
+    if ((await readdir(path.join(root, 'work'))).length !== 3) ctx.skip()
+    vault = await openVault(root)
+    const renamed = await vault.renameNote('work/a.md', 'b')
+    expect(renamed.assetsLeftBehind).toBe('work/a.assets')
+    expect(renamed.moves).toEqual([{ from: 'work/a.md', to: 'work/b.md', kind: 'note', assets: false }])
+    expect((await planThenApply(renamed.moves)).total).toBe(1)
+    expect(await read('index.md')).toBe('[a](work/b.md) ![x](work/a.assets/x.png)\n')
+  })
+
+  it.each([
+    ['renamed', () => vault.renameFolder('work', 'Job'), 'Job'],
+    ['moved', () => vault.moveFolder('work', 'archive'), 'archive/work'],
+  ])('a %s folder: one folder move', async (_kind, relocate, to) => {
+    await put('work/a.md', 'A\n')
+    await put('archive/x.md', 'X\n')
+    await put('index.md', '[a](work/a.md)\n')
+    vault = await openVault(root)
+    const relocated = await relocate()
+    expect(relocated.folder).toBe(to)
+    expect(relocated.moves).toEqual([{ from: 'work', to, kind: 'folder' }])
+    expect((await planThenApply(relocated.moves)).total).toBe(1)
+    expect(await read('index.md')).toBe(`[a](${to}/a.md)\n`)
+  })
+})
+
+describe('a rename or move that updates links in the same step', () => {
+  beforeEach(async () => {
+    await put('a.md', 'A\n')
+    await put('index.md', '[a](a.md)\n')
+    await mkdir(path.join(root, 'sub'))
+    vault = await openVault(root)
+  })
+
+  it('with `links: "plan"` only counts the other notes’ links to the old place', async () => {
+    const moved = await vault.moveNote('a.md', 'sub', { links: 'plan' })
+    expect(moved.links).toEqual({ notes: [{ id: 'index.md', title: 'index', links: 1 }], total: 1 })
+    expect(await read('index.md')).toBe('[a](a.md)\n')
+  })
+
+  it('with `links: "apply"` rewrites them', async () => {
+    const renamed = await vault.renameNote('a.md', 'c', { links: 'apply' })
+    expect(renamed.links).toEqual({ notes: [{ id: 'index.md', title: 'index', links: 1 }], total: 1 })
+    expect(await read('index.md')).toBe('[a](c.md)\n')
+    expect(await vault.refresh()).toEqual([])
+  })
+
+  it.each([
+    ['move', () => vault.moveNote('a.md', '', { links: 'apply' })],
+    ['rename', () => vault.renameNote('a.md', 'a', { links: 'apply' })],
+  ])('a no-op %s still reports `links`: none rewritten', async (_kind, relocate) => {
+    const relocated = await relocate()
+    expect(relocated.links).toEqual({ notes: [], total: 0 })
+    expect(await read('index.md')).toBe('[a](a.md)\n')
+  })
+
+  it('lets no write land between the move and the link rewrite', async () => {
+    const index = await vault.readNote('index.md')
+    const renaming = vault.renameNote('a.md', 'c', { links: 'apply' })
+    await appearedWhilePending(path.join(root, 'c.md'), renaming)
+    const write = await vault.writeNote('index.md', { body: '[a](a.md) and more\n', baseHash: index.hash })
+    expect((await renaming).links.total).toBe(1)
+    expect(write).toMatchObject({ status: 'conflict', current: { body: '[a](c.md)\n' } })
   })
 })

@@ -1,8 +1,5 @@
-import type { LinkMove } from './types.ts'
-
-/** What the app does after a note was renamed, moved, trashed or restored: the link-update moves to offer and the notice to show. */
-export interface RelocateOutcome {
-  moves: LinkMove[]
+/** The notice the app shows after a note was renamed, moved, trashed or restored. */
+export interface RelocateNotice {
   notice: string | undefined
   /** The assets-left-behind warning, if any; later notices about this relocation carry it too. */
   warning: string | undefined
@@ -11,25 +8,16 @@ export interface RelocateOutcome {
 }
 
 /**
- * Turns a rename or move (`from` set), or a trash or restore (no `from`), result into the
- * link-update moves and the notice text. The move carries what the relocation did with the assets
- * folder (`assets: true` when it moved, `false` when an extension-case twin kept it), so the server
- * never has to work it out again from the disk; the notice then names the kept folder. `done` is
- * the notice's lead text ("Moved to …"); without it the notice is only the assets warning, if any.
+ * The notice after a rename, move, trash or restore: `done` is its lead text ("Moved to …"); when an
+ * extension-case twin kept the assets folder (`assetsLeftBehind`), the notice names it. Without
+ * either there is no notice.
  */
-export function linkMovesAfterRelocate(options: {
-  from?: string
-  result: { id: string; assetsLeftBehind?: string }
-  done?: string
-}): RelocateOutcome {
-  const { from, result, done } = options
-  const left = result.assetsLeftBehind
-  const moves: LinkMove[] =
-    from === undefined ? [] : [{ from, to: result.id, kind: 'note', assets: left === undefined }]
+export function relocateNotice(options: { assetsLeftBehind?: string | undefined; done?: string }): RelocateNotice {
+  const left = options.assetsLeftBehind
   const warning = left
     ? `The assets folder ${left} stayed in place for the note with the same name; this note's links into it may break.`
     : undefined
-  return { moves, notice: joinNotice(done, warning), warning, sticky: warning !== undefined }
+  return { notice: joinNotice(options.done, warning), warning, sticky: warning !== undefined }
 }
 
 /** The "Updated N links" notice, still carrying the relocation's assets warning so it is not lost; sticky when it does. */

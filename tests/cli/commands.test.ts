@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 
 import { moveNote, renameNote, resolveNoteId, restoreFromTrash, trashNote } from '../../src/cli/commands.ts'
 import { openVault, type Vault } from '../../src/vault/index.ts'
+import { appearedWhilePending } from '../shared/appeared-while-pending.ts'
 
 let root: string
 let vault: Vault
@@ -98,5 +99,24 @@ describe('extension-case twins (a.md beside a.MD)', () => {
       kind: 'note',
       assetsLeftBehind: 'work/a.assets',
     })
+  })
+})
+
+describe('a rename or move with link updates', () => {
+  it.each([
+    ['rename', () => renameNote(vault, 'a.md', 'c'), 'c.md'],
+    ['move', () => moveNote(vault, 'a.md', 'sub'), 'sub/a.md'],
+  ])('%s: a write that starts once the file has moved waits for the link rewrite too', async (_kind, relocate, to) => {
+    await mkdir(path.join(root, 'sub'))
+    await writeFile(path.join(root, 'a.md'), 'A\n')
+    await writeFile(path.join(root, 'index.md'), '[a](a.md)\n')
+    await vault.refresh()
+    const index = await vault.readNote('index.md')
+    const relocating = relocate()
+    await appearedWhilePending(path.join(root, to), relocating)
+    // Queued while the relocation is under way: it must not land between the move and the link rewrite.
+    const write = await vault.writeNote('index.md', { body: '[a](a.md) and more\n', baseHash: index.hash })
+    expect(await relocating).toMatchObject({ id: to, linksUpdated: 1, notesUpdated: 1 })
+    expect(write).toMatchObject({ status: 'conflict', current: { body: `[a](${to})\n` } })
   })
 })

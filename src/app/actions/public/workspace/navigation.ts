@@ -1,3 +1,4 @@
+import { isUnder } from '../../../../shared/vault-ids.ts'
 import { ApiError, type NavigationApi } from './api.ts'
 import type { NoteSession } from './note-session.ts'
 import { type ReaderTab, Tabs, type TabsSnapshot } from './tabs.ts'
@@ -308,7 +309,7 @@ export class Navigation {
    * trashed, when it refused.
    */
   async deleteFolder(id: string): Promise<boolean> {
-    const inside = (path: string) => path.startsWith(`${id}/`)
+    const inside = (path: string) => isUnder(path, id)
     const deleted = await this.hold(
       async () => {
         const sameVault = this.vaultToken()

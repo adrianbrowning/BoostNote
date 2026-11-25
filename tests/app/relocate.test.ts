@@ -1,64 +1,44 @@
 import { describe, expect, it } from 'vitest'
 
 import {
-  linkMovesAfterRelocate,
   linksUpdatedNotice,
   linkUpdateFailedNotice,
+  relocateNotice,
 } from '../../src/app/actions/public/workspace/relocate.ts'
 
-describe('linkMovesAfterRelocate', () => {
-  it('a twin rename leaves the shared assets out of the link move and names the folder', () => {
-    const outcome = linkMovesAfterRelocate({ from: 'a.md', result: { id: 'b.md', assetsLeftBehind: 'a.assets' } })
-    expect(outcome.moves).toEqual([{ from: 'a.md', to: 'b.md', kind: 'note', assets: false }])
-    expect(outcome.notice).toContain('a.assets')
+describe('relocateNotice', () => {
+  it('a twin rename names the shared folder', () => {
+    expect(relocateNotice({ assetsLeftBehind: 'a.assets' }).notice).toContain('a.assets')
   })
 
   it('a twin move keeps the done text and names the shared folder', () => {
-    const outcome = linkMovesAfterRelocate({
-      from: 'a.MD',
-      result: { id: 'sub/a.MD', assetsLeftBehind: 'a.assets' },
-      done: 'Moved to sub',
-    })
-    expect(outcome.moves).toEqual([{ from: 'a.MD', to: 'sub/a.MD', kind: 'note', assets: false }])
+    const outcome = relocateNotice({ assetsLeftBehind: 'a.assets', done: 'Moved to sub' })
     expect(outcome.notice).toMatch(/^Moved to sub\. .*a\.assets/)
   })
 
-  it('an ordinary rename moves the assets with the note and gives no notice', () => {
-    const outcome = linkMovesAfterRelocate({ from: 'a.md', result: { id: 'b.md' } })
-    expect(outcome.moves).toEqual([{ from: 'a.md', to: 'b.md', kind: 'note', assets: true }])
-    expect(outcome.notice).toBeUndefined()
+  it('an ordinary rename gives no notice', () => {
+    expect(relocateNotice({}).notice).toBeUndefined()
   })
 
   it('an ordinary move gives only the done text', () => {
-    const outcome = linkMovesAfterRelocate({ from: 'a.md', result: { id: 'sub/a.md' }, done: 'Moved to sub' })
-    expect(outcome.moves).toEqual([{ from: 'a.md', to: 'sub/a.md', kind: 'note', assets: true }])
-    expect(outcome.notice).toBe('Moved to sub')
+    expect(relocateNotice({ done: 'Moved to sub' }).notice).toBe('Moved to sub')
   })
 
-  it('a twin restore names the shared folder and offers no link moves', () => {
-    const outcome = linkMovesAfterRelocate({
-      result: { id: 'a.md', assetsLeftBehind: 'a.assets' },
-      done: 'Restored a.md',
-    })
-    expect(outcome.moves).toEqual([])
+  it('a twin restore names the shared folder', () => {
+    const outcome = relocateNotice({ assetsLeftBehind: 'a.assets', done: 'Restored a.md' })
     expect(outcome.notice).toMatch(/^Restored a\.md\. .*a\.assets/)
-  })
-
-  it('an ordinary restore has no warning', () => {
-    const outcome = linkMovesAfterRelocate({ result: { id: 'a.md' }, done: 'Restored a.md' })
-    expect(outcome.notice).toBe('Restored a.md')
   })
 })
 
 describe('sticky assets warning', () => {
   it('a notice carrying the assets warning stays until closed', () => {
-    const outcome = linkMovesAfterRelocate({ from: 'a.md', result: { id: 'b.md', assetsLeftBehind: 'a.assets' } })
+    const outcome = relocateNotice({ assetsLeftBehind: 'a.assets' })
     expect(outcome.sticky).toBe(true)
     expect(outcome.warning).toContain('a.assets')
   })
 
   it('an ordinary notice closes on its own', () => {
-    const outcome = linkMovesAfterRelocate({ from: 'a.md', result: { id: 'sub/a.md' }, done: 'Moved to sub' })
+    const outcome = relocateNotice({ done: 'Moved to sub' })
     expect(outcome.sticky).toBe(false)
     expect(outcome.warning).toBeUndefined()
   })

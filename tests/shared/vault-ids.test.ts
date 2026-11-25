@@ -1,10 +1,13 @@
 import { describe, expect, it } from 'vitest'
 
 import {
+  isAtOrUnder,
   isNoteFileName,
   isRelativeLink,
+  isUnder,
   joinId,
   lastSegment,
+  movedId,
   noteDisplayName,
   noteStem,
   parentOf,
@@ -104,6 +107,44 @@ describe('joinId', () => {
     ['work/projects', 'a', 'work/projects/a'],
   ])('%j + %j → %j', (folder, name, id) => {
     expect(joinId(folder, name)).toBe(id)
+  })
+})
+
+describe('movedId', () => {
+  it.each([
+    ['work', 'work', 'job', 'job'],
+    ['work/a.md', 'work', 'job', 'job/a.md'],
+    ['work/sub/b.md', 'work', 'archive/work', 'archive/work/sub/b.md'],
+    ['workshop/a.md', 'work', 'job', undefined],
+    ['other.md', 'work', 'job', undefined],
+    ['work', 'work/sub', 'x', undefined],
+  ])('%j after %j → %j is %j', (id, from, to, moved) => {
+    expect(movedId(id, from, to)).toBe(moved)
+  })
+})
+
+describe('isAtOrUnder', () => {
+  it.each([
+    ['work', 'work', true],
+    ['work/a.md', 'work', true],
+    ['work/sub/b.md', 'work', true],
+    ['workshop/a.md', 'work', false],
+    ['work', 'work/sub', false],
+    ['other.md', 'work', false],
+  ])('%j in %j → %j', (id, folder, inside) => {
+    expect(isAtOrUnder(id, folder)).toBe(inside)
+  })
+})
+
+describe('isUnder', () => {
+  it.each([
+    ['work', 'work', false],
+    ['work/a.md', 'work', true],
+    ['work/sub/b.md', 'work', true],
+    ['workshop/a.md', 'work', false],
+    ['work', 'work/sub', false],
+  ])('%j under %j → %j', (id, folder, inside) => {
+    expect(isUnder(id, folder)).toBe(inside)
   })
 })
 
