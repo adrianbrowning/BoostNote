@@ -16,6 +16,7 @@ const SAVE_FILTERS: Record<Exclude<NoteExportFormat, 'print'>, { name: string; e
   pdf: { name: 'PDF', extension: 'pdf' },
   markdown: { name: 'Markdown', extension: 'md' },
 }
+const MDX_FILTER = { name: 'MDX', extension: 'mdx' }
 
 /** `<dir>/<name>`, or `<name> 2`, `<name> 3`… when that already exists. */
 async function freePath(dir: string, name: string): Promise<string> {
@@ -39,7 +40,8 @@ export async function exportNote(services: AppServices, vault: Vault, request: R
     return json({ path: null } satisfies ExportResult)
   }
 
-  const filter = SAVE_FILTERS[format]
+  // An .mdx note exports as .mdx, so the copy stays the note's kind; .md notes keep .md.
+  const filter = format === 'markdown' && id.endsWith('.mdx') ? MDX_FILTER : SAVE_FILTERS[format]
   const stem = noteStem(id)
   const target = await services.exports.saveFile({
     title: `Export as ${filter.name}`,

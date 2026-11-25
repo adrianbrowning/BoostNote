@@ -17,7 +17,16 @@ import { FROM, LINK_CASES } from '../shared/link-cases.ts'
 const html = async (markdown: string, options?: Parameters<typeof renderMarkdown>[1]) =>
   (await renderMarkdown(markdown, options)).html
 
+const MDX_SOURCE = 'import X from \'y\'\nexport const a = 1\n\n<Callout type="x">inner</Callout>\n\n{1 + 1}\n'
+const MDX_HTML = "<p>import X from 'y'\nexport const a = 1</p>\n<p>inner</p>\n<p>{1 + 1}</p>\n"
+
 describe('renderMarkdown', () => {
+  it('renders MDX-only syntax as plain Markdown: component tags dropped, inner text kept, no script', async () => {
+    // Pins the current output (the renderer has no MDX support): import/export lines and {expressions}
+    // stay paragraph text, and the sanitizer drops the unknown <Callout> tag but keeps its inner text.
+    expect(await html(MDX_SOURCE)).toBe(MDX_HTML)
+  })
+
   it('strips frontmatter and renders GFM', async () => {
     const out = await html(
       '---\ntitle: x\ntags: [a]\n---\n| a | b |\n|:-|-:|\n| 1 | 2 |\n\n~~gone~~ and https://example.com\n',
@@ -404,5 +413,25 @@ describe('vault export', () => {
     await exportNoteMarkdown(vault, 'work/todo.md', target)
     expect(await readFile(target, 'utf8')).toContain('![shot](./Renamed.assets/a.png)')
     expect((await stat(path.join(out, 'Renamed.assets/a.png'))).size).toBe(4)
+  })
+
+  it('exports an .mdx note as HTML with MDX syntax handled as plain Markdown', async () => {
+    await put('doc.mdx', MDX_SOURCE)
+    await vault.refresh()
+    const page = await noteToHtml(vault, 'doc.mdx')
+    expect(page).toContain(MDX_HTML)
+    expect(page.toLowerCase()).not.toContain('<callout')
+    expect(page).not.toContain('<script')
+  })
+
+  it('exports an .mdx note as markdown with its assets, as for .md', async () => {
+    await put('doc.mdx', '<Callout>hi</Callout>\n\n![a](./doc.assets/a.png)\n')
+    await put('doc.assets/a.png', 'png')
+    await vault.refresh()
+    await exportNoteMarkdown(vault, 'doc.mdx', path.join(out, 'Copy.mdx'))
+    expect(await readFile(path.join(out, 'Copy.mdx'), 'utf8')).toBe(
+      '<Callout>hi</Callout>\n\n![a](./Copy.assets/a.png)\n',
+    )
+    expect(await readFile(path.join(out, 'Copy.assets/a.png'), 'utf8')).toBe('png')
   })
 })

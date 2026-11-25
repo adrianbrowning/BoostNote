@@ -65,6 +65,29 @@ describe('POST /api/export/note', () => {
     expect(await readdir(path.join(app.dir, 'copy.assets'))).toEqual(['s.png'])
   })
 
+  it('offers <stem>.mdx with an mdx filter for an .mdx note, and keeps .md for an .md note', async () => {
+    await writeFile(path.join(vault.root, 'work/doc.mdx'), '# Doc\n\n<Callout>hi</Callout>\n')
+    await writeFile(path.join(vault.root, 'work/doc.md'), '# Doc md\n')
+    await vault.refresh()
+    const target = path.join(app.dir, 'out.mdx')
+    app.saves.push(target)
+    const response = await app.post(api.exportNote.href(), { id: 'work/doc.mdx', format: 'markdown' })
+    expect(await response.json()).toEqual({ path: target })
+    expect(app.saveCalls[0]).toEqual({
+      title: 'Export as MDX',
+      defaultPath: 'doc.mdx',
+      filters: [{ name: 'MDX', extensions: ['mdx'] }],
+    })
+    expect(await readFile(target, 'utf8')).toBe('# Doc\n\n<Callout>hi</Callout>\n')
+
+    await app.post(api.exportNote.href(), { id: 'work/doc.md', format: 'markdown' })
+    expect(app.saveCalls[1]).toEqual({
+      title: 'Export as Markdown',
+      defaultPath: 'doc.md',
+      filters: [{ name: 'Markdown', extensions: ['md'] }],
+    })
+  })
+
   it('handles cancel, unknown formats and missing notes', async () => {
     expect(await exportNote('html')).toEqual({ path: null })
     expect((await app.post(api.exportNote.href(), { id: 'work/plan.md', format: 'docx' })).status).toBe(400)
