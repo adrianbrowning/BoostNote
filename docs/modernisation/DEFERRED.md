@@ -421,3 +421,69 @@ Run: issue-75
 Retro finding (factory, automated-checks, low)
 
 For a behavior that runs only on another platform (the off-macOS skip in the spelling e2e test), the implementer cannot see a test fail first, so fix rounds 02-f2 and slice 03 reported seenRed false with an Open note. The factory accepted it, but nothing marks such behaviors for a later run on that platform. Consider a report field for platform-bound behaviors that lists them in the PR body for a manual or CI check.
+
+## issue-75/02: [high] Manual spelling check command uses `$(mktemp -d)`, which PowerShell and cmd cannot run, though the doc sends Windows users to it
+
+Run: issue-75
+Slice: 02 "Editor spelling replacement saves and undoes (end-to-end)"
+Review: 02-r6
+Reviewed commit: 14268b59c4ffdf3931a84f49ec09c3ea9de0271d
+
+### [high] holistic-manual-spelling-check-command-fails-on-windows-shells
+
+- Location at filing time: docs/modernisation/PLAN.md:542
+- Title: Manual spelling check command uses `$(mktemp -d)`, which PowerShell and cmd cannot run, though the doc sends Windows users to it
+- Problem: PLAN.md says the manual check applies where Chromium marks no word, naming "Windows or Linux without one", and then gives `pnpm dev --user-data-dir="$(mktemp -d)"` as the command. `mktemp` is a POSIX tool. In PowerShell `$(mktemp -d)` fails with "mktemp is not recognized", and cmd does not expand `$(...)` at all, so it passes the literal text as the profile path. A Windows developer following the documented fallback either cannot start the app or gets a profile folder literally named `$(mktemp -d)` inside the repo instead of a fresh temp one. The repo treats Windows as a supported dev and CI platform: ci.yml runs windows-latest, and src/cli/install.ts `windowsCommands` gives separate PowerShell and cmd commands. The fallback this slice's acceptance criterion requires therefore cannot be followed as written on one of the two platforms it names.
+- Fix: Keep the POSIX command for macOS and Linux, and add a Windows form that makes a fresh temp profile, for example PowerShell: `pnpm dev --user-data-dir="$(New-Item -ItemType Directory -Path (Join-Path $env:TEMP ([guid]::NewGuid())))"`, or tell the reader to make an empty folder and pass its path.
+- Fix prompt: In docs/modernisation/PLAN.md, "End-to-end tests" section, the manual spelling check currently says `pnpm dev --user-data-dir="$(mktemp -d)"`. That command only works in a POSIX shell, but the paragraph sends Windows users to this check. Keep the POSIX command for macOS and Linux shells, and add the Windows PowerShell equivalent that creates a fresh empty temp folder and passes it as the profile, for example `pnpm dev --user-data-dir="$(New-Item -ItemType Directory -Path (Join-Path $env:TEMP ([guid]::NewGuid())))"`. Alternatively, tell the reader to create an empty temp folder and pass its path to `--user-data-dir`. Keep the rest of the manual steps unchanged: the fresh profile keeps your own settings and vaults out of it, open a scratch copy of tests/fixtures/sample-vault, type a misspelled word followed by a space, right-click it, choose a suggestion, check the file on disk, press Ctrl+Z.
+
+## issue-75/03: Skip branch reads main-process state in two sequential evaluate calls
+
+Run: issue-75
+Slice: 03 "Tighten context-menu install and spelling-skip tests"
+Review: 03-r4
+Reviewed commit: eb5f21164ea636cda8324e15fce97ceccc816645
+
+### [observation] thermo-skip-reads-main-state-in-two-round-trips
+
+- Symbol: a spelling suggestion from the native menu replaces the word, is saved and undoes
+- Location at filing time: tests/e2e/spelling.spec.ts:73
+- Title: Skip branch reads main-process state in two sequential evaluate calls
+- Problem: tests/e2e/spelling.spec.ts:72-73 | The catch block makes two independent electronApp.evaluate round trips in sequence (recorded misspelledWords, then isSpellCheckerEnabled) to feed one skip decision. Both read the same main-process state at the same moment; splitting them adds a round trip and spreads one decision's inputs over two calls.
+- Fix: Read both values in one evaluate that returns { reported, spellcheck }, then build the skip predicate from that object.
+- Fix prompt: In tests/e2e/spelling.spec.ts, in the catch block of 'a spelling suggestion from the native menu replaces the word, is saved and undoes', replace the two electronApp.evaluate calls with one: `const { reported, spellcheck } = await electronApp.evaluate(({ session }) => ({ reported: (globalThis as SpellingCapture).misspelledWords ?? [], spellcheck: session.defaultSession.isSpellCheckerEnabled() }))`. Keep the test.skip predicate and reason unchanged.
+
+## issue-75/retro: No local way to run the e2e suite off macOS
+
+Run: issue-75
+Retro finding (repo, information-access, high)
+
+The off-macOS skip and fail branches of tests/e2e/spelling.spec.ts never ran in this run: every implementer worked on macOS, and the repo has no way to run the Playwright e2e suite on Linux locally (`pnpm test:linux` runs only the Vitest paths). Review rounds 02-r1, 02-r3, 03-r1 and 03-r4 found or suspected bugs in that skip logic that no run could show. Add e2e support to scripts/test-linux.sh (Docker with Electron, xvfb and a hunspell dictionary), or name in AGENTS.md the CI job that runs e2e on Linux.
+
+## issue-75/retro: No safe, cross-platform command for an interactive app session
+
+Run: issue-75
+Retro finding (repo, navigation, high)
+
+Docs that tell a developer to run the app by hand (the manual spelling check in docs/modernisation/PLAN.md) first used `pnpm smoke`, which closes the app at once without `--steps` or `--shot`, then `pnpm dev` on the default profile, which reopens the developer's own vaults (src/main/vault-session.ts). Slice 02 was reopened for it, and the fix (`--user-data-dir="$(mktemp -d)"`) still fails in PowerShell and cmd (accepted unresolved in 02-r6). Add one cross-platform command for an interactive session on a temp profile with a vault copy (for example an `--interactive` flag on scripts/smoke.ts), and point AGENTS.md and the docs at it.
+
+## issue-75/retro: Validator gets advisor notes about scope fix-item verdicts
+
+Run: issue-75
+Retro finding (factory, no-ops, medium)
+
+In targeted reviews 02-r2, 02-r4 and 03-r2 the validator got an advisor note asking it to give verdicts on the fix items, which is the scope reviewer's job through factory_review_submit. Each validator spent a turn refusing the note. Address that note to the scope reviewer, not the validator.
+
+## issue-75/retro: Reviewers missed a doc step that breaks an AGENTS.md rule
+
+Run: issue-75
+Retro finding (factory, automated-checks, medium)
+
+No reviewer of slice 02 r1 to r5 saw that the manual check it documented would start the app on the user's real profile, against the repo rule in AGENTS.md (never point the app at the user's own vault). Only an outside review found it after hand-over. Give the bug or holistic reviewer the repo's AGENTS.md rules as a checklist for doc steps that run the app.
+
+## issue-75/retro: Platform-only behaviors get no follow-up after seenRed false
+
+Run: issue-75
+Retro finding (factory, automated-checks, low)
+
+For a behavior that runs only on another platform (the off-macOS skip in the spelling e2e test), the implementer cannot see a test fail first, so fix round 02-f2 and slice 03 reported seenRed false with an Open note. Nothing marks such behaviors for a later run on that platform. Consider a report field for platform-bound behaviors that lists them in the PR body for a manual or CI check.
