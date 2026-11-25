@@ -7,7 +7,7 @@ import { type DocEvent, NoteSession } from '../../src/app/actions/public/workspa
 import { type LinksQuestion, Relocation } from '../../src/app/actions/public/workspace/relocation.ts'
 import type { TabsSnapshot } from '../../src/app/actions/public/workspace/tabs.ts'
 import type { WorkspaceData } from '../../src/app/actions/public/workspace/types.ts'
-import { folderWith, type HeldClient, heldClient, TestApp } from './helpers.ts'
+import { exists, folderWith, type HeldClient, heldClient, TestApp } from './helpers.ts'
 
 /**
  * `Relocation` over the in-process router (`createClient` over `TestApp.fetch`, requests held by `heldClient`), a
@@ -233,12 +233,7 @@ describe('Relocation: link questions', () => {
 
   it('asks in the order the renames landed, even when the first one’s refresh is slower', async () => {
     await navigation.open('b.md')
-    let first = true
-    net.hold((url) => {
-      if (url.pathname !== '/api/workspace' || !first) return undefined
-      first = false
-      return 'refresh'
-    })
+    net.hold(onPath('/api/workspace'), { once: true })
     const one = relocation.renameNote('a.md', 'a2')
     await expect.poll(() => net.held.length).toBe(1)
     const two = relocation.renameNote('c.md', 'c2')
@@ -276,15 +271,13 @@ describe('Relocation: two reads of the open note at once', () => {
     await navigation.open('linker.md')
     const renaming = relocation.renameNote('a.md', 'a2')
     await expect.poll(() => questions.length).toBe(1)
-    let first = true
     // The update's read of the open note is answered at once and returns late.
     net.hold(
-      (url) => {
-        if (url.pathname !== '/api/notes/read' || url.searchParams.get('id') !== 'linker.md' || !first) return undefined
-        first = false
-        return 'read'
+      (url) => (url.pathname === '/api/notes/read' && url.searchParams.get('id') === 'linker.md' ? 'read' : undefined),
+      {
+        answered: true,
+        once: true,
       },
-      { answered: true },
     )
     questions[0]?.answer(true)
     await expect.poll(() => net.held.length).toBe(1)
@@ -302,14 +295,12 @@ describe('Relocation: two reads of the open note at once', () => {
     await navigation.open('linker.md')
     const renaming = relocation.renameNote('a.md', 'a2')
     await expect.poll(() => questions.length).toBe(1)
-    let first = true
     net.hold(
-      (url) => {
-        if (url.pathname !== '/api/notes/read' || url.searchParams.get('id') !== 'linker.md' || !first) return undefined
-        first = false
-        return 'read'
+      (url) => (url.pathname === '/api/notes/read' && url.searchParams.get('id') === 'linker.md' ? 'read' : undefined),
+      {
+        answered: true,
+        once: true,
       },
-      { answered: true },
     )
     questions[0]?.answer(true)
     await expect.poll(() => net.held.length).toBe(1)
@@ -434,12 +425,7 @@ describe('Relocation after a vault switch', () => {
     const other = await realpath(await folderWith(app, 'other', { 'x.md': '# X\n', 'l.md': '# L\n\n[x](./x.md)\n' }))
     snapshots.set(other, { tabs: ['l.md'], active: 0, closed: [] })
     await navigation.open('b.md')
-    let first = true
-    net.hold((url) => {
-      if (url.pathname !== '/api/workspace' || !first) return undefined
-      first = false
-      return 'refresh'
-    })
+    net.hold(onPath('/api/workspace'), { once: true })
     // The rename landed in this vault (its link question has its place in the order); its refresh is out.
     const renaming = relocation.renameNote('a.md', 'a2')
     await expect.poll(() => net.held.length).toBe(1)
@@ -639,13 +625,6 @@ describe('Relocation: the leave-note gate when the move loads the active tab ove
   })
 })
 
-/** Whether `id`'s file is in the vault on disk. */
-const onDisk = (id: string) =>
-  readFile(path.join(vault, id), 'utf8').then(
-    () => true,
-    () => false,
-  )
-
 describe('Relocation: the gate before the vault operation', () => {
   it('saves the open note’s edit before moving it: the moved note has the edit and the rebased link', async () => {
     await navigation.open('a.md')
@@ -677,8 +656,8 @@ describe('Relocation: the gate before the vault operation', () => {
       await run()
       net.fail = null
       expect(notices).toContainEqual({ kind: 'error', text: UNSAVED })
-      expect(await onDisk(open)).toBe(true)
-      expect(await onDisk(to)).toBe(false)
+      expect(await exists(vault, open)).toBe(true)
+      expect(await exists(vault, to)).toBe(false)
       expect(questions).toEqual([])
     },
   )

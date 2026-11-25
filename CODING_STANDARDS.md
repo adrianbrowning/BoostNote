@@ -40,7 +40,15 @@ Rules a reviewer checks on a diff. Mechanical rules live in Biome, `tsc` and the
   a temp `--user-data-dir`; a path to a real vault (`~/…`) in a test or script is a finding.
 - **E2e tests find elements by role, accessible name or a `data-*` hook.**
 - **E2e helpers come from `tests/e2e/fixtures.ts`.** A spec reuses `readSettings`, `openLooseFile`,
-  `cspViolations` and the other helpers there, and a new shared helper goes there too.
+  `cspViolations`, `failableSaves` and the other helpers there, and a new shared helper goes there too.
+- **App-test helpers come from `tests/app/helpers.ts`.** As e2e helpers go in `tests/e2e/fixtures.ts`, a
+  helper that two app tests (`tests/app/*.test.ts`) need goes in `tests/app/helpers.ts` (`TestApp`,
+  `folderWith`, `heldClient`, `exists`, …) instead of a copy in each test file. To hold only the first
+  request a match names, pass `once` to `HeldClient.hold`, not a `let first` closure.
+- **An `expect.poll` function never throws.** Playwright's `expect.poll` does not retry when its
+  function throws, so a throw fails the test at once (and often only under full-suite load). The
+  function returns a value for "not yet" instead: for example `undefined` for a file that does not
+  exist yet, not a bare `readFile` that rejects with `ENOENT`.
 - **E2e specs are split by concern.** A new test joins the spec for its concern or starts a new one;
   `pnpm run check` fails when `app.spec.ts` grows (`scripts/check-app-spec.ts`).
 

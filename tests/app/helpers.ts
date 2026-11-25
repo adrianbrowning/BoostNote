@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { access, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import * as os from 'node:os'
 import * as path from 'node:path'
 
@@ -159,6 +159,13 @@ export async function folderWith(app: TestApp, name: string, files: Record<strin
   return dir
 }
 
+/** Whether note `id`'s file is on disk under vault folder `root`. */
+export const exists = (root: string, id: string): Promise<boolean> =>
+  access(path.join(root, id)).then(
+    () => true,
+    () => false,
+  )
+
 /** A request `HeldClient.hold` keeps waiting. */
 export interface HeldRequest {
   /** What the hold's `match` named it. */
@@ -177,9 +184,10 @@ export interface HeldClient {
    * Requests that `match` names (by the id it returns; `undefined`: not held) wait in `held` until released.
    * With `answered`, the router answers them at once and the response is held until released, so it returns late with
    * the vault as it was when the request came.
+   * With `once`, only the first request `match` names is held; later ones go on as if `hold(null)` had been called.
    * `null` holds none from now on; requests already held stay in `held`.
    */
-  hold(match: ((url: URL) => string | undefined) | null, options?: { answered?: boolean }): void
+  hold(match: ((url: URL) => string | undefined) | null, options?: { answered?: boolean; once?: boolean }): void
   /** Held requests, oldest first (emptied by each `hold` with a match). */
   readonly held: HeldRequest[]
   /** Requests it matches fail at once with "Disk full" (`null`: none). */
@@ -191,6 +199,7 @@ export interface HeldClient {
 export function heldClient(app: TestApp): HeldClient {
   let match: ((url: URL) => string | undefined) | null = null
   let answered = false
+  let once = false
   const held: HeldRequest[] = []
   const gone = new Set<string>()
   const controls: HeldClient = {
@@ -200,6 +209,7 @@ export function heldClient(app: TestApp): HeldClient {
       if (root && !url.searchParams.has('vault')) url.searchParams.set('vault', root)
       if (controls.fail?.(url)) throw new Error('Disk full')
       const id = match?.(url)
+      if (id !== undefined && once) match = null
       const wait = async () => {
         if (id === undefined) return
         const { promise, resolve, reject } = Promise.withResolvers<void>()
@@ -218,6 +228,7 @@ export function heldClient(app: TestApp): HeldClient {
     hold(next, options = {}) {
       match = next
       answered = options.answered ?? false
+      once = options.once ?? false
       if (next) held.length = 0
     },
     held,
