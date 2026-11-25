@@ -1001,3 +1001,184 @@ Run: issue-78
 Retro finding (factory, tool-economy, low)
 
 A blocking finding fixed by a one-line comment change still forced full review → targeted → full review (01-f1, 02-f3, 03-f1). Count a targeted green as final when the diff since the last full review changes only comment lines.
+
+## issue-77/01: Fake timers restored with try/finally instead of `using`
+
+Run: issue-77
+Slice: 01 "Inline /date, /time and /datetime slash commands"
+Review: 01-r1
+Reviewed commit: b9184c35da2a3c120e380a0d03ad5ed0bf9f31dd
+
+### [observation] testing-fake-timers-manual-cleanup
+
+- Symbol: picking /datetime inserts the time at run time, and one undo restores the /query
+- Location at filing time: tests/editor/editor.test.ts:97
+- Title: Fake timers restored with try/finally instead of `using`
+- Problem: testing-best-practice rule 7: the test sets fake timers and restores them by hand in try/finally rather than through a `using` disposable resource.
+- Fix: Wrap fake timers in a small disposable helper (returns { [Symbol.dispose]: () => vi.useRealTimers() }) and use `using clock = fakeClock(date)` instead of try/finally.
+- Fix prompt: In tests/editor/editor.test.ts, test 'picking /datetime inserts the time at run time, and one undo restores the /query', replace the try/finally around vi.useFakeTimers/vi.useRealTimers with a disposable helper, e.g. const fakeClock = (at: Date) => { vi.useFakeTimers({ toFake: ['Date'] }); vi.setSystemTime(at); return { [Symbol.dispose]: () => vi.useRealTimers() } }, and `using _clock = fakeClock(new Date(2026, 10, 5, 14, 32))` at the top of the test.
+
+## issue-77/01: SlashCommand.template is an untagged union narrowed by string compare and `'inline' in`
+
+Run: issue-77
+Slice: 01 "Inline /date, /time and /datetime slash commands"
+Review: 01-r1
+Reviewed commit: b9184c35da2a3c120e380a0d03ad5ed0bf9f31dd
+
+### [observation] thermo-slash-template-untagged-union
+
+- Symbol: SlashCommand
+- Location at filing time: src/editor/slash.ts:33
+- Title: SlashCommand.template is an untagged union narrowed by string compare and `'inline' in`
+- Problem: template is now BlockTemplate | InlineCommand | 'image', told apart by `=== 'image'` and `'inline' in`. Every consumer repeats that narrowing (applySlashCommand plus both test helpers in slash.test.ts lines 16 and 80), and slice 02 adds a table-grid kind, which will add another structural check at every site.
+- Fix: Model the command kind as a discriminated union (for example `{ kind: 'block', block } | { kind: 'inline', format } | { kind: 'image' }`) and switch on `kind` in applySlashCommand, so adding the table kind is one new variant plus one new case.
+- Fix prompt: In src/editor/slash.ts, replace `template: BlockTemplate | InlineCommand | 'image'` with a discriminated union keyed by a `kind` field (block, inline, image), update slashCommands entries, make applySlashCommand an exhaustive switch on kind, and simplify the test helpers in tests/editor/slash.test.ts to check `kind`.
+
+## issue-77/02: Focus-then-sync-setEditorFocused workaround copied from index.ts
+
+Run: issue-77
+Slice: 02 "/table size picker grid"
+Review: 02-r1
+Reviewed commit: 9d029b89e69f675fc5d839fcb5feaac742de77c9
+
+### [observation] thermo-refocus-sync-duplicated
+
+- Symbol: pickTableSize
+- Location at filing time: src/editor/slash.ts:253
+- Title: Focus-then-sync-setEditorFocused workaround copied from index.ts
+- Problem: close() repeats the `view.focus(); if (view.hasFocus) view.dispatch({ effects: setEditorFocused.of(true) })` workaround that already lives in setDoc in src/editor/index.ts. Because of it slash.ts now imports a live-preview internal (live-preview/selection.ts). Two copies of a focus-reporting workaround will drift the next time the focus tracking changes.
+- Fix: Export one helper next to setEditorFocused (for example `focusEditor(view)` in live-preview/selection.ts) that focuses the view and syncs the flag, and call it from both index.ts setDoc and the grid's close().
+- Fix prompt: In src/editor/live-preview/selection.ts add an exported `focusEditor(view: EditorView)` (or `syncEditorFocused(view)`) that holds the `if (view.hasFocus) view.dispatch({ effects: setEditorFocused.of(true) })` workaround. Use it in src/editor/index.ts setDoc and in pickTableSize's close() in src/editor/slash.ts, and drop slash.ts's direct setEditorFocused import.
+
+## issue-77/02: 100-line DOM widget mixed into the slash command module
+
+Run: issue-77
+Slice: 02 "/table size picker grid"
+Review: 02-r1
+Reviewed commit: 9d029b89e69f675fc5d839fcb5feaac742de77c9
+
+### [observation] thermo-table-grid-dom-in-slash-module
+
+- Symbol: pickTableSize
+- Location at filing time: src/editor/slash.ts:210
+- Title: 100-line DOM widget mixed into the slash command module
+- Problem: pickTableSize builds the grid DOM, handles keyboard, mouse and focus, and positions the popup, all inside slash.ts next to the command registry, the completion source and the transaction rules. The module now mixes a pure editing policy with a stateful UI widget, so a change to the grid means reading through the slash logic and the other way round.
+- Fix: Move pickTableSize, TableSize and MAX_TABLE_SIZE to their own module (for example src/editor/table-size-grid.ts) that exports `pickTableSize(view, pos)`. Keep runTableCommand and tableTemplate in slash.ts.
+- Fix prompt: Extract pickTableSize, the TableSize interface and MAX_TABLE_SIZE from src/editor/slash.ts into a new src/editor/table-size-grid.ts that exports pickTableSize(view, pos). Import it in slash.ts for runTableCommand. Behaviour stays the same.
+
+## issue-77/02: runTableCommand repeats runImageCommand's remove/track/finally skeleton
+
+Run: issue-77
+Slice: 02 "/table size picker grid"
+Review: 02-r1
+Reviewed commit: 9d029b89e69f675fc5d839fcb5feaac742de77c9
+
+### [observation] thermo-deferred-command-skeleton-duplicated
+
+- Symbol: runTableCommand
+- Location at filing time: src/editor/slash.ts:305
+- Title: runTableCommand repeats runImageCommand's remove/track/finally skeleton
+- Problem: runTableCommand copies runImageCommand's whole lifecycle: dispatch the /query removal, trackInsertion, await a picker, insert at target.at(), and `finally target.done()`. Both also wrap it in an identical `void ...catch(console.error)` in applySlashCommand. A third async command (or a fix to the lifecycle, such as handling a destroyed view) has to be made in every copy.
+- Fix: Extract one `runDeferredCommand(view, from, to, pick, insert)` that owns the removal, the tracking and the cleanup, and let image and table supply only their picker and insert.
+- Fix prompt: In src/editor/slash.ts add a helper that removes the /query (userEvent 'input.slash'), calls trackInsertion(view, from), awaits a supplied async step with the PendingInsertion, and calls target.done() in finally. Rewrite runImageCommand and runTableCommand on top of it, and fold the two `void run...().catch(console.error)` branches in applySlashCommand into the same call.
+
+## issue-77/02: Grid column count hard-coded in theme apart from MAX_TABLE_SIZE
+
+Run: issue-77
+Slice: 02 "/table size picker grid"
+Review: 02-r1
+Reviewed commit: 9d029b89e69f675fc5d839fcb5feaac742de77c9
+
+### [observation] thermo-grid-size-two-sources
+
+- Symbol: baseTheme
+- Location at filing time: src/editor/theme.ts:205
+- Title: Grid column count hard-coded in theme apart from MAX_TABLE_SIZE
+- Problem: The theme sets `gridTemplateColumns: 'repeat(10, 14px)'` while slash.ts builds MAX_TABLE_SIZE cells per row. Changing MAX_TABLE_SIZE leaves the CSS at 10 columns, so the cells wrap into the wrong rows and the highlight no longer matches the picked size.
+- Fix: Set the column count from MAX_TABLE_SIZE when building the grid (for example `cells.style.gridTemplateColumns = `repeat(${MAX_TABLE_SIZE}, 14px)``), or derive the theme value from the exported constant.
+- Fix prompt: Remove the hard-coded 10 from '.cm-lp-table-size-cells' gridTemplateColumns in src/editor/theme.ts. Either set gridTemplateColumns inline in pickTableSize from MAX_TABLE_SIZE, or export MAX_TABLE_SIZE and build the theme string from it.
+
+## issue-77/02: Test waits for a fire-and-forget command by guessing one macrotask
+
+Run: issue-77
+Slice: 02 "/table size picker grid"
+Review: 02-r1
+Reviewed commit: 9d029b89e69f675fc5d839fcb5feaac742de77c9
+
+### [observation] thermo-table-test-waits-on-macrotask
+
+- Symbol: picking /table opens the size grid; a table picked after the document changed lands where the /query maps to
+- Location at filing time: tests/editor/editor.test.ts:131
+- Title: Test waits for a fire-and-forget command by guessing one macrotask
+- Problem: applySlashCommand discards runTableCommand's promise, so the test waits with setTimeout(0) on the assumption that every step settles within microtasks. If any await in the path ever waits on a real macrotask (a read-only period, a host call), the test fails or passes for the wrong reason, and the comment has to explain the workaround.
+- Fix: Poll for the expected document (for example vi.waitFor) instead of guessing the scheduling, or give the test a promise that settles when the insert is done.
+- Fix prompt: In tests/editor/editor.test.ts, in the /table mapped-position test, replace the setTimeout(0) wait with `await vi.waitFor(() => expect(docWithSelection(editor.view.state)).toBe(...))`, so the test does not depend on how many microtasks runTableCommand takes.
+
+## issue-77/02: Field doc now says generic pending insertions, but the field is still named pendingImages
+
+Run: issue-77
+Slice: 02 "/table size picker grid"
+Review: 02-r2
+Reviewed commit: e747d6aac2dc2a157c781befb94a8b6c8e331844
+
+### [observation] holistic-track-insertion-docs-image-only
+
+- Symbol: pendingImages
+- Location at filing time: src/editor/paste.ts:66
+- Title: Field doc now says generic pending insertions, but the field is still named pendingImages
+- Problem: The fix rewrote the comments on lines 66, 101 and 109 to say the tracked positions cover both images and a /table size pick. The StateField right under the new line-66 comment is still named `pendingImages`, and paste.ts uses that name at line 117 (in trackInsertion) and line 211 (in the extension list). The original finding named this field. The comments are now accurate, but the identifier contradicts the comment directly above it, so a reader who searches for or skims the name still gets the image-only reading.
+- Fix: Rename `pendingImages` to a generic name such as `pendingInsertions` at its declaration and both uses in paste.ts.
+- Fix prompt: In src/editor/paste.ts, rename the StateField `pendingImages` (declared around line 67) to `pendingInsertions`, and update its uses in trackInsertion (`view.state.field(pendingImages, false)`) and in the extension list near line 211. Make no other changes.
+
+## issue-77/03: gridBox overwrites the grid's width/height with the window's size under the same keys
+
+Run: issue-77
+Slice: 03 "Harden slash command tests and keep the table grid inside the viewport"
+Review: 03-r1
+Reviewed commit: 06add454a35df09ce0e2c77d39e55a19fb29c630
+
+### [observation] holistic-grid-box-shadows-width-height
+
+- Symbol: gridBox
+- Location at filing time: tests/e2e/slash-table.spec.ts:106
+- Title: gridBox overwrites the grid's width/height with the window's size under the same keys
+- Problem: gridBox spreads grid.getBoundingClientRect().toJSON() (which has width and height of the grid) and then sets width: window.innerWidth and height: window.innerHeight. The returned object therefore has the grid's top/left/right/bottom but the window's width/height, and the grid's own size is silently dropped. The assertions `box.bottom <= box.height` and `box.right <= box.width` read as comparing the grid against its own size, and a later test that checks `box.width` or `box.height` to mean the grid's size would assert against the window instead.
+- Fix: Return the window size under distinct keys, e.g. { grid: rect.toJSON(), innerWidth, innerHeight }, and compare against those names.
+- Fix prompt: In tests/e2e/slash-table.spec.ts, change gridBox to return the window size under keys that do not collide with DOMRect fields, for example `{ ...grid.getBoundingClientRect().toJSON(), innerWidth: window.innerWidth, innerHeight: window.innerHeight }`, and update the two tests to assert `box.bottom <= box.innerHeight` and `box.right <= box.innerWidth`.
+
+## issue-77/03: Viewport placement math is inline DOM code, provable only by slow e2e
+
+Run: issue-77
+Slice: 03 "Harden slash command tests and keep the table grid inside the viewport"
+Review: 03-r1
+Reviewed commit: 06add454a35df09ce0e2c77d39e55a19fb29c630
+
+### [observation] thermo-grid-placement-inline-geometry
+
+- Symbol: pickTableSize
+- Location at filing time: src/editor/slash.ts:298
+- Title: Viewport placement math is inline DOM code, provable only by slow e2e
+- Problem: The above/below and left-clamp decision is a pure geometry rule (cursor coords + popup size + window size -> top/left), but it is written inline in pickTableSize with `coords?.… ?? 0` repeated three times and read straight from `window`. The only proof is two Electron e2e tests (one resizing the window), so a later tweak to the rule (e.g. a top clamp when neither side fits) costs a full e2e run to check.
+- Fix: Extract a pure `placePopup(coords, {width, height}, {innerWidth, innerHeight})` returning {left, top}, default coords once, and call it from pickTableSize; the e2e tests stay as the vertical-slice proof.
+- Fix prompt: In src/editor/slash.ts, move the placement rule from pickTableSize into a small pure function that takes the cursor rect (defaulted once to zeros when coordsAtPos returns null), the popup width/height and the window size, and returns { left, top } (below the cursor unless it overflows the bottom, then above, clamped at 0; left clamped to stay within the width). Call it from pickTableSize after measuring the appended popup. Keep the existing e2e tests.
+
+## issue-77/retro: Unit and e2e suites flaky under load
+
+Run: issue-77
+Retro finding (repo, automated-checks, medium)
+
+In slices 02 and 03 `pnpm run test` and `pnpm test:e2e` each failed their first run and passed on rerun. The failed runs took far longer than normal (test 92s and 63s vs about 12s; e2e 505s and 375s vs about 57s), which points at timing-sensitive tests under machine load. The slice 03 implementer also saw `tests/e2e/slash-table.spec.ts` 'clamps at 1 and 10' miss the grid once. Find the failing tests from the first-run output and make them wait on state (expect.poll / locator waits) instead of fixed timing.
+
+## issue-77/retro: Implementers write tests that cannot fail on the criterion they name
+
+Run: issue-77
+Retro finding (factory, coding-standards, medium)
+
+Two blocking findings in this run were tests that passed for the wrong reason: slice 01's NO_SLASH_NODES test returned null at the whitespace regex before the node check, and slice 03's bottom-edge test never asserted 'above the cursor'; slice 03 r3 found a third (narrow-window precondition). Each was caught only by review and cost a fix round. Ask the implementer prompt to show, for every test tied to an acceptance criterion, a mutation of the code under test that makes it fail (not only a red run before the code existed).
+
+## issue-77/retro: No guidance for editor popups (placement, focus sync)
+
+Run: issue-77
+Retro finding (repo, navigation, low)
+
+Slice 02 built a custom DOM popup and had to rediscover two things: the popup must stay inside the viewport (missed until review, a whole follow-up slice), and refocusing the editor needs the setEditorFocused sync from index.ts setDoc (found by debugging e2e). Add a short note to docs/modernisation/REMIX-NOTES.md or PLAN.md 'Editing' on how editor popups should place themselves and return focus, pointing at pickTableSize.
