@@ -511,16 +511,19 @@ export class Vault {
         }
         const { extension } = splitNoteExtension(id)
         // The note's own names are free (a case-only rename) unless another entry in the folder
-        // shares its stem (a stem twin: `a.MD`, `a.mdx` or an NFD name beside it, which `#relocateNote`
-        // would refuse or which shares its assets folder); the others' names and earlier picks are not.
-        // A foreign `<target>.assets` (another directory than the note's own, on a case-sensitive
-        // disk `Hello.assets` beside `hello.md`) takes the stem too, as `#relocateNote` would refuse it.
+        // shares its stem (a stem twin: `a.MD`, `a.mdx` or an NFD name beside it, which claims the same
+        // `<stem>.assets` path; `#relocateNote` also refuses the move when the twin has the target's
+        // own file name, `a.MD` beside `a.md`); the others' names and earlier picks are not.
+        // A foreign assets folder of the target's key (any entry by `nameKey` but the note's own, on a
+        // case-sensitive disk `Hello.assets` or `hELLo.assets` beside `hello.md`) takes the stem too,
+        // as `#relocateNote` would refuse it.
         const dir = await resolveInside(this.root, folderSegments(note.folder))
         const file = path.join(dir, lastSegment(id))
+        const assetsEntries = names.entries.get(nameKey(`${target}${ASSETS_SUFFIX}`)) ?? 0
         const ownFree =
           !stemShared(names, lastSegment(id)) &&
           nameKey(target) === nameKey(stem) &&
-          (await sameOrMissing(assetsDirOf(file), path.join(dir, `${target}${ASSETS_SUFFIX}`)))
+          (assetsEntries === 0 || (assetsEntries === 1 && (await exists(assetsDirOf(file)))))
         const toStem = uniqueName(
           target,
           (candidate) => !(ownFree && candidate === target) && stemTaken(names, candidate, extension),
@@ -1214,6 +1217,7 @@ async function stemTakenByOthers(file: string, self: string): Promise<boolean> {
   const caseOnly = key === nameKey(noteStem(selfName))
   const candidates = new Set([nameKey(name), nameKey(`${base}${ASSETS_SUFFIX}`)])
   const ownAssets = assetsDirOf(self)
+  const ownAssetsKey = nameKey(path.basename(ownAssets))
   const others: Dirent[] = []
   for (const entry of await readdir(dir, { withFileTypes: true })) {
     // Only a note of the stem, its assets folder or an entry of the file name can take it.
@@ -1221,7 +1225,10 @@ async function stemTakenByOthers(file: string, self: string): Promise<boolean> {
     const ofStem = isNoteFileName(entry.name) && nameKey(noteStem(entry.name)) === key
     if (!ofStem && !candidates.has(entryKey)) continue
     const other = path.join(dir, entry.name)
-    if ((await sameOrMissing(self, other)) || (await sameOrMissing(ownAssets, other))) continue
+    // Only the source's own entry (a case variant of its name) and its own assets folder are self,
+    // not another name hard-linked to it (`a.mdx` linked to `b.md` still takes stem `a`).
+    if (entryKey === nameKey(selfName) && (await sameOrMissing(self, other))) continue
+    if (entryKey === ownAssetsKey && (await sameOrMissing(ownAssets, other))) continue
     if (caseOnly && entry.isFile() && isExtensionCaseTwin(entry.name, selfName)) {
       if (entryKey === nameKey(name)) return true
       continue
@@ -1236,8 +1243,10 @@ async function stemTakenByOthers(file: string, self: string): Promise<boolean> {
  * it, so it stays in place; else `undefined`. A candidate is a stem twin (`isExtensionCaseTwin`:
  * `a.md` beside `a.MD`, `a.mdx` or `A.mdx`, stems compared by `nameKey` as `stemTaken` does) whose
  * own assets folder resolves to the same directory as the note's: on ext4 NFC `Caf\u00e9.md` and NFD
- * `Cafe\u0301.md`, or `A.md` and `a.md`, keep separate folders, so neither is a twin. A twin that is a hard link of the note (same inode) is
- * not detected, so the assets move with it and no warning is given; this is an accepted limit.
+ * `Cafe\u0301.md`, or `A.md` and `a.md`, normally keep separate folders, so neither is a twin, unless
+ * one's `<stem>.assets` resolves to the same directory as the other's (for example through a symlink).
+ * A twin that is a hard link of the note (same inode) is not detected, so the assets move with it
+ * and no warning is given; this is an accepted limit.
  */
 async function sharedAssetsOf(id: string, file: string): Promise<string | undefined> {
   const ours = assetsDirOf(file)

@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readdir, readFile, rm, stat, symlink, writeFile } from 'node:fs/promises'
+import { link, mkdir, mkdtemp, readdir, readFile, rm, stat, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import * as path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
@@ -646,6 +646,24 @@ describe('stem twins (a.md beside a.mdx)', () => {
     expect(plan.renames).toEqual([{ from: 'work/hello.md', to: 'work/Hello 2.md', title: 'Hello' }])
     expect((await vault.applyTitleRenames(plan)).renamed).toEqual(plan.renames)
     expect((await readdir(path.join(root, 'work'))).sort()).toEqual(['Hello 2.md', 'Hello.assets'])
+  })
+
+  it('title-renames hello.md past its own stem beside a foreign hELLo.assets, on a case-sensitive disk', async (ctx) => {
+    await put('work/hello.md', '---\ntitle: Hello\n---\nbody\n')
+    await put('work/hELLo.assets/x.png', 'X')
+    // Needs a case-sensitive file system (`pnpm test:case-sensitive`): elsewhere hELLo.assets is hello.assets.
+    if ((await readFile(path.join(root, 'work/hello.assets/x.png'), 'utf8').catch(() => null)) === 'X') ctx.skip()
+    vault = await openVault(root)
+    const plan = await vault.planTitleRenames()
+    expect(plan.renames).toEqual([{ from: 'work/hello.md', to: 'work/Hello 2.md', title: 'Hello' }])
+    expect((await vault.applyTitleRenames(plan)).renamed).toEqual(plan.renames)
+  })
+
+  it('refuses to rename b.md to a beside a.mdx, a hard link of it', async () => {
+    await put('work/b.md', 'same\n')
+    await link(path.join(root, 'work/b.md'), path.join(root, 'work/a.mdx'))
+    vault = await openVault(root)
+    await expect(vault.renameNote('work/b.md', 'a')).rejects.toMatchObject({ code: 'EXISTS' })
   })
 
   it.each([

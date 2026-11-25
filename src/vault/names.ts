@@ -52,14 +52,19 @@ function increment(counts: Map<string, number>, key: string): void {
   counts.set(key, (counts.get(key) ?? 0) + 1)
 }
 
+/** Counts the directory `name` in `names` by its `nameKey` only: a directory `a.mdx/` takes no stem `a`. */
+export function addFolderName(names: FolderNames, name: string): void {
+  increment(names.entries, nameKey(name))
+}
+
 /**
  * The `FolderNames` of directory entries: each counts by its `nameKey`, and by its stem only when it is
- * no directory and a note file name (a directory `a.mdx/` takes no stem `a`).
+ * no directory and a note file name (`addFolderName`).
  */
 export function folderNamesOf(entries: Iterable<Dirent>): FolderNames {
   const result = folderNames()
   for (const entry of entries) {
-    if (entry.isDirectory()) increment(result.entries, nameKey(entry.name))
+    if (entry.isDirectory()) addFolderName(result, entry.name)
     else addName(result, entry.name)
   }
   return result
@@ -80,7 +85,8 @@ export async function readFolderNames(dir: string): Promise<FolderNames> {
  * (`.md` in any case or `.mdx`) or its `.assets` folder is there, or any entry named
  * `<stem><extension>` (so an `.mdx` note never lands on a non-note `a.MDX`, the same file on a
  * case-insensitive disk), all by `nameKey`. A non-note `a.MDX` takes no `.md` stem. The one
- * taken-stem check of `uniqueStem`, the title-rename planner and the import planner.
+ * taken-stem check of `uniqueStem`, the title-rename planner, the import planner and the rename
+ * and move clash guard (`stemTakenByOthers` in `#relocateNote`, src/vault/vault.ts).
  */
 export function stemTaken(names: FolderNames, stem: string, extension: string): boolean {
   return (

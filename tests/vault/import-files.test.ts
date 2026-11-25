@@ -114,6 +114,16 @@ describe('importFiles', () => {
     expect(await read('work/a 2.md')).toBe('md')
   })
 
+  it('imports a dropped a.md beside a dropped folder a.mdx as a.md', async () => {
+    await put(src, 'a.mdx/n.md', 'n')
+    const file = await put(src, 'a.md', 'md')
+
+    const report = await vault.importFiles([path.join(src, 'a.mdx'), file], '')
+
+    expect(report.notes.map((note) => note.id).sort()).toEqual(['a.md', 'a.mdx/n.md'])
+    expect(await read('a.md')).toBe('md')
+  })
+
   it('imports a dropped a.md beside a non-note a.MDX file as a.md', async () => {
     await put(root, 'work/a.MDX', 'other')
     await vault.refresh()
