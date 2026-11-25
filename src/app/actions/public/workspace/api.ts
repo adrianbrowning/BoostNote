@@ -64,21 +64,21 @@ function inVault(href: string): string {
   return `${href}${href.includes('?') ? '&' : '?'}${new URLSearchParams({ vault: pageVault })}`
 }
 
-/** Fetches a route of this app's own (in-process, typed) router; non-2xx responses throw `ApiError`. */
-async function request<T>(href: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(inVault(href), init)
-  const data: unknown = await response.json().catch(() => null)
-  if (!response.ok) throw new ApiError(response.status, data)
-  const typed = data as T
-  return typed
+/** Sends a request to this app's own router: the page's `fetch`, or the router itself in tests. */
+export type Transport = (href: string, init?: RequestInit) => Promise<Response>
+
+/** A note save: the body, the hash it is based on (`null`: no note may exist there yet), and new frontmatter. */
+export interface NoteSaveInput {
+  id: string
+  body: string
+  baseHash: string | null
+  frontmatter?: Record<string, JsonValue>
 }
 
-function post<T>(href: string, body: unknown = {}): Promise<T> {
-  return request<T>(href, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
-  })
+/** A client's note read and save calls (all `NoteSession` uses); `createClient` types its own with these. */
+export interface NoteApi {
+  readNote: (id: string) => Promise<NoteDocument>
+  saveNote: (input: NoteSaveInput) => Promise<NoteDocument>
 }
 
 function withQuery(href: string, params: Record<string, string>): string {
@@ -92,70 +92,96 @@ export function vaultAssetUrl(noteId: string, src: string): string {
 
 const api = routes.api
 
-/** Typed client of the `/api` routes; failures throw `ApiError`. */
-export const client = {
-  workspace: () => request<WorkspaceData>(api.workspace.href()),
-  search: (q: string, signal?: AbortSignal) =>
-    request<{ ids: string[] }>(withQuery(api.search.href(), { q }), signal ? { signal } : {}),
+/** Typed client of the `/api` routes over `transport`; failures throw `ApiError`. */
+export function createClient(transport: Transport) {
+  /** Fetches a route of this app's own (in-process, typed) router; non-2xx responses throw `ApiError`. */
+  async function request<T>(href: string, init?: RequestInit): Promise<T> {
+    const response = await transport(inVault(href), init)
+    const data: unknown = await response.json().catch(() => null)
+    if (!response.ok) throw new ApiError(response.status, data)
+    const typed = data as T
+    return typed
+  }
 
-  pickVault: () => post<VaultOpenResult>(api.vaultPick.href()),
-  openVault: (path: string) => post<VaultOpenResult>(api.vaultOpen.href(), { path }),
-  closeVault: (path: string) => post<WorkspaceData>(api.vaultClose.href(), { path }),
-  forgetVault: (path: string) => post<WorkspaceData>(api.vaultForget.href(), { path }),
-
-  readNote: (id: string) => request<NoteDocument>(withQuery(api.noteRead.href(), { id })),
-  createNote: (folder: string) => post<NoteDocument>(api.noteCreate.href(), { folder }),
-  saveNote: (input: { id: string; body: string; baseHash: string | null; frontmatter?: Record<string, JsonValue> }) =>
-    post<NoteDocument>(api.noteSave.href(), input),
-  renameNote: (id: string, name: string) => post<NoteDocument>(api.noteRename.href(), { id, name }),
-  moveNote: (id: string, folder: string) => post<NoteDocument>(api.noteMove.href(), { id, folder }),
-  deleteNote: (id: string) => post<AssetsLeftBehind>(api.noteDelete.href(), { id }),
-  revealNote: (id: string) => post<unknown>(api.noteReveal.href(), { id }),
-  planTitleRenames: () => request<TitleRenamePlan>(api.titleRenamesPlan.href()),
-  applyTitleRenames: (renames: TitleRename[]) => post<TitleRenameReport>(api.titleRenamesApply.href(), { renames }),
-  /** Links in other notes to the old place of renamed/moved notes or folders (dry run / rewrite). */
-  planLinkUpdates: (moves: LinkMove[]) => post<LinkUpdateReport>(api.linksPlan.href(), { moves }),
-  applyLinkUpdates: (moves: LinkMove[]) => post<LinkUpdateReport>(api.linksApply.href(), { moves }),
-
-  createFolder: (parent: string, name: string) => post<{ id: string }>(api.folderCreate.href(), { parent, name }),
-  renameFolder: (id: string, name: string) => post<{ id: string }>(api.folderRename.href(), { id, name }),
-  moveFolder: (id: string, parent: string) => post<{ id: string }>(api.folderMove.href(), { id, parent }),
-  deleteFolder: (id: string) => post<unknown>(api.folderDelete.href(), { id }),
-  setFolderColor: (id: string, color: string | null) => post<unknown>(api.folderColor.href(), { id, color }),
-
-  restore: (id: string) => post<{ id: string } & AssetsLeftBehind>(api.trashRestore.href(), { id }),
-  emptyTrash: () => post<unknown>(api.trashEmpty.href()),
-
-  uploadAsset: (noteId: string, file: File) => {
-    const ext = /\.([a-z0-9]+)$/i.exec(file.name)?.[1] ?? file.type.split('/')[1]?.replace(/\+.*$/, '') ?? 'bin'
-    return request<{ href: string }>(withQuery(api.assetUpload.href(), { note: noteId, ext }), {
+  function post<T>(href: string, body: unknown = {}): Promise<T> {
+    return request<T>(href, {
       method: 'POST',
-      headers: { 'Content-Type': file.type || 'application/octet-stream' },
-      body: file,
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
     })
-  },
+  }
 
-  importCandidates: () => request<ImportCandidate[]>(api.importCandidates.href()),
-  pickImportFolder: (purpose: 'source' | 'target') => post<{ path: string | null }>(api.importPick.href(), { purpose }),
-  runImport: (input: { source: string; target: string; dryRun: boolean; force: boolean }) =>
-    post<ImportSummary>(api.importRun.href(), input),
-  /** Copies the dropped `.md` files/folders behind a preload drop ticket into `folder`. */
-  importFiles: (ticket: string, folder: string) => post<ImportFilesReport>(api.importFiles.href(), { ticket, folder }),
+  const readNote: NoteApi['readNote'] = (id) => request(withQuery(api.noteRead.href(), { id }))
+  const saveNote: NoteApi['saveNote'] = (input) => post(api.noteSave.href(), input)
 
-  openExternal: (url: string) => post<unknown>(api.openExternal.href(), { url }),
+  return {
+    workspace: () => request<WorkspaceData>(api.workspace.href()),
+    search: (q: string, signal?: AbortSignal) =>
+      request<{ ids: string[] }>(withQuery(api.search.href(), { q }), signal ? { signal } : {}),
 
-  savePreferences: (patch: UiPatch) => post<PreferencesState>(api.preferencesSave.href(), patch),
+    pickVault: () => post<VaultOpenResult>(api.vaultPick.href()),
+    openVault: (path: string) => post<VaultOpenResult>(api.vaultOpen.href(), { path }),
+    closeVault: (path: string) => post<WorkspaceData>(api.vaultClose.href(), { path }),
+    forgetVault: (path: string) => post<WorkspaceData>(api.vaultForget.href(), { path }),
 
-  exportNote: (id: string, format: 'html' | 'pdf' | 'markdown' | 'print') =>
-    post<ExportResult>(api.exportNote.href(), { id, format }),
-  exportFolder: (folder: string) => post<ExportResult>(api.exportFolder.href(), { folder }),
-  takeOpenRequest: () => post<OpenRequest | null>(api.openRequest.href()),
-  readReader: (ticket: string) => request<ReaderDocument>(api.readerRead.href({ ticket })),
-  /** Revokes a reader tab's ticket (the tab closed). */
-  closeReader: (ticket: string) => post<unknown>(api.readerClose.href({ ticket })),
-  /** Main opens the folder of the reader tab's file as the vault and revokes the ticket. */
-  openReaderFolder: (ticket: string) => post<ReaderFolderResult>(api.readerOpenFolder.href({ ticket })),
-  /** Main imports the reader tab's file into `folder` of the open vault and revokes the ticket once a note came in. */
-  importReader: (ticket: string, folder: string) =>
-    post<ReaderImportResult>(api.readerImport.href({ ticket }), { folder }),
+    readNote,
+    createNote: (folder: string) => post<NoteDocument>(api.noteCreate.href(), { folder }),
+    saveNote,
+    renameNote: (id: string, name: string) => post<NoteDocument>(api.noteRename.href(), { id, name }),
+    moveNote: (id: string, folder: string) => post<NoteDocument>(api.noteMove.href(), { id, folder }),
+    deleteNote: (id: string) => post<AssetsLeftBehind>(api.noteDelete.href(), { id }),
+    revealNote: (id: string) => post<unknown>(api.noteReveal.href(), { id }),
+    planTitleRenames: () => request<TitleRenamePlan>(api.titleRenamesPlan.href()),
+    applyTitleRenames: (renames: TitleRename[]) => post<TitleRenameReport>(api.titleRenamesApply.href(), { renames }),
+    /** Links in other notes to the old place of renamed/moved notes or folders (dry run / rewrite). */
+    planLinkUpdates: (moves: LinkMove[]) => post<LinkUpdateReport>(api.linksPlan.href(), { moves }),
+    applyLinkUpdates: (moves: LinkMove[]) => post<LinkUpdateReport>(api.linksApply.href(), { moves }),
+
+    createFolder: (parent: string, name: string) => post<{ id: string }>(api.folderCreate.href(), { parent, name }),
+    renameFolder: (id: string, name: string) => post<{ id: string }>(api.folderRename.href(), { id, name }),
+    moveFolder: (id: string, parent: string) => post<{ id: string }>(api.folderMove.href(), { id, parent }),
+    deleteFolder: (id: string) => post<unknown>(api.folderDelete.href(), { id }),
+    setFolderColor: (id: string, color: string | null) => post<unknown>(api.folderColor.href(), { id, color }),
+
+    restore: (id: string) => post<{ id: string } & AssetsLeftBehind>(api.trashRestore.href(), { id }),
+    emptyTrash: () => post<unknown>(api.trashEmpty.href()),
+
+    uploadAsset: (noteId: string, file: File) => {
+      const ext = /\.([a-z0-9]+)$/i.exec(file.name)?.[1] ?? file.type.split('/')[1]?.replace(/\+.*$/, '') ?? 'bin'
+      return request<{ href: string }>(withQuery(api.assetUpload.href(), { note: noteId, ext }), {
+        method: 'POST',
+        headers: { 'Content-Type': file.type || 'application/octet-stream' },
+        body: file,
+      })
+    },
+
+    importCandidates: () => request<ImportCandidate[]>(api.importCandidates.href()),
+    pickImportFolder: (purpose: 'source' | 'target') =>
+      post<{ path: string | null }>(api.importPick.href(), { purpose }),
+    runImport: (input: { source: string; target: string; dryRun: boolean; force: boolean }) =>
+      post<ImportSummary>(api.importRun.href(), input),
+    /** Copies the dropped `.md` files/folders behind a preload drop ticket into `folder`. */
+    importFiles: (ticket: string, folder: string) =>
+      post<ImportFilesReport>(api.importFiles.href(), { ticket, folder }),
+
+    openExternal: (url: string) => post<unknown>(api.openExternal.href(), { url }),
+
+    savePreferences: (patch: UiPatch) => post<PreferencesState>(api.preferencesSave.href(), patch),
+
+    exportNote: (id: string, format: 'html' | 'pdf' | 'markdown' | 'print') =>
+      post<ExportResult>(api.exportNote.href(), { id, format }),
+    exportFolder: (folder: string) => post<ExportResult>(api.exportFolder.href(), { folder }),
+    takeOpenRequest: () => post<OpenRequest | null>(api.openRequest.href()),
+    readReader: (ticket: string) => request<ReaderDocument>(api.readerRead.href({ ticket })),
+    /** Revokes a reader tab's ticket (the tab closed). */
+    closeReader: (ticket: string) => post<unknown>(api.readerClose.href({ ticket })),
+    /** Main opens the folder of the reader tab's file as the vault and revokes the ticket. */
+    openReaderFolder: (ticket: string) => post<ReaderFolderResult>(api.readerOpenFolder.href({ ticket })),
+    /** Main imports the reader tab's file into `folder` of the open vault and revokes the ticket once a note came in. */
+    importReader: (ticket: string, folder: string) =>
+      post<ReaderImportResult>(api.readerImport.href({ ticket }), { folder }),
+  }
 }
+
+/** The page's client of the `/api` routes. */
+export const client = createClient((href, init) => fetch(href, init))

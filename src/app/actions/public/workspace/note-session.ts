@@ -1,6 +1,6 @@
 import { TypedEventTarget } from 'remix/component'
 
-import { ApiError, client } from './api.ts'
+import { ApiError, type NoteApi } from './api.ts'
 import type { JsonValue, NoteDocument } from './types.ts'
 
 /** Quiet period after the last keystroke before the note is written. */
@@ -17,6 +17,12 @@ export const AUTOSAVE_DELAY_MS = 500
  *   saves their copy again or closes the note.
  */
 export type SaveState = 'saved' | 'dirty' | 'saving' | 'error' | 'conflict' | 'removed'
+
+/**
+ * How one save request ended: the note's state when that request settled (`dirty` when it worked but
+ * newer edits were queued meanwhile; `saved` when nothing needed saving) and, on `error`, the message.
+ */
+export type SaveOutcome = { state: 'error'; error: string } | { state: Exclude<SaveState, 'error'> }
 
 /** Tells the editor to show `body`; `preserveSelection` for live reloads, a full reset when another note opens. */
 export class DocEvent extends Event {
@@ -54,16 +60,20 @@ export class NoteSession extends TypedEventTarget<{ change: Event; doc: DocEvent
   state: SaveState = 'saved'
   /** The disk version while `state` is `conflict`. */
   theirs: NoteDocument | null = null
-  /** Message of the last failed save. */
+  /** Message of the last failed save; cleared when a save works. */
   error = ''
+  /** A save started in the `error` state is in flight: the error bar and its Retry stay up meanwhile. */
+  retrying = false
 
   #timer: ReturnType<typeof setTimeout> | undefined
-  #inflight: Promise<void> | undefined
+  #inflight: Promise<SaveOutcome> | undefined
   #frontmatter: Record<string, JsonValue> | undefined
+  readonly #api: NoteApi
 
-  /** Unsaved work that would be lost by leaving the note now (after `flush`). */
-  get blocked(): boolean {
-    return this.state === 'conflict' || this.state === 'removed' || this.state === 'error'
+  /** `api`: the page's `client`, or one over the router in tests (`createClient`). */
+  constructor(api: NoteApi) {
+    super()
+    this.#api = api
   }
 
   open(note: NoteDocument): void {
@@ -106,10 +116,13 @@ export class NoteSession extends TypedEventTarget<{ change: Event; doc: DocEvent
 
   /** Writes pending edits now (blur, note switch, quit). Resolves `true` when nothing unsaved remains. */
   async flush(): Promise<boolean> {
-    clearTimeout(this.#timer)
-    if (this.#inflight) await this.#inflight
-    if (this.state === 'dirty' || this.state === 'error') await this.#save()
+    await this.#flush()
     return this.state === 'saved' || this.note === null
+  }
+
+  /** Error bar "Retry": `flush`, resolving to how its own save ended (later flushes may already be saving). */
+  retry(): Promise<SaveOutcome> {
+    return this.#flush()
   }
 
   /** The SSE `note-changed` event for the open note. */
@@ -119,7 +132,7 @@ export class NoteSession extends TypedEventTarget<{ change: Event; doc: DocEvent
     if (this.#inflight) await this.#inflight
     let theirs: NoteDocument
     try {
-      theirs = await client.readNote(note.id)
+      theirs = await this.#api.readNote(note.id)
     } catch (error) {
       if (error instanceof ApiError && error.status === 404) this.externalRemoval()
       return
@@ -153,19 +166,27 @@ export class NoteSession extends TypedEventTarget<{ change: Event; doc: DocEvent
     this.#changed()
   }
 
-  /** Conflict: overwrite the disk version with the editor's. Removed: write the editor's copy back. */
-  keepMine(): Promise<boolean> {
-    if (!this.note) return Promise.resolve(true)
-    if (this.state === 'conflict' && this.theirs) {
+  /** Conflict: overwrite the disk version with the editor's (otherwise the same as `retry`). */
+  keepMine(): Promise<SaveOutcome> {
+    if (this.note && this.state === 'conflict' && this.theirs) {
       this.note = { ...this.note, hash: this.theirs.hash, frontmatter: this.theirs.frontmatter }
-    } else if (this.state === 'removed') {
-      this.note = { ...this.note, hash: '' }
-    } else {
-      return this.flush()
+      this.theirs = null
+      this.state = 'dirty'
     }
-    this.theirs = null
-    this.state = 'dirty'
-    return this.flush()
+    return this.#flush()
+  }
+
+  /**
+   * Removed: write the editor's copy back where the note was, as a new note (otherwise the same as `retry`).
+   * The note's frontmatter goes with it (with no file there, the vault has none to keep).
+   */
+  saveMyCopy(): Promise<SaveOutcome> {
+    if (this.note && this.state === 'removed') {
+      this.#frontmatter ??= this.note.frontmatter
+      this.note = { ...this.note, hash: '' }
+      this.state = 'dirty'
+    }
+    return this.#flush()
   }
 
   /** Conflict: drop the editor's edits and show the disk version. */
@@ -176,6 +197,14 @@ export class NoteSession extends TypedEventTarget<{ change: Event; doc: DocEvent
     this.dispatchEvent(new DocEvent(theirs.body, true))
     this.dispatchEvent(new SavedEvent(theirs))
     this.#changed()
+  }
+
+  /** Saves pending edits after any save in flight; resolves to how that save ended, or the state as is. */
+  async #flush(): Promise<SaveOutcome> {
+    clearTimeout(this.#timer)
+    if (this.#inflight) await this.#inflight
+    if (this.state === 'dirty' || this.state === 'error') return this.#save()
+    return { state: this.state }
   }
 
   #reset(note: NoteDocument | null): void {
@@ -193,41 +222,46 @@ export class NoteSession extends TypedEventTarget<{ change: Event; doc: DocEvent
     this.#timer = setTimeout(() => void this.flush(), AUTOSAVE_DELAY_MS)
   }
 
-  #save(): Promise<void> {
+  #save(): Promise<SaveOutcome> {
     const note = this.note
-    if (!note) return Promise.resolve()
+    if (!note) return Promise.resolve({ state: 'saved' })
     const body = this.body
     const frontmatter = this.#frontmatter
+    this.retrying = this.state === 'error'
     this.state = 'saving'
     this.#changed()
-    const run = (async () => {
+    const run = (async (): Promise<SaveOutcome> => {
       try {
-        const saved = await client.saveNote({
+        const saved = await this.#api.saveNote({
           id: note.id,
           body,
           // `''` marks a note removed on disk: it must not exist when we write our copy back.
           baseHash: note.hash === '' ? null : note.hash,
           ...(frontmatter ? { frontmatter } : {}),
         })
-        if (this.note?.id !== note.id) return
+        if (this.note?.id !== note.id) return { state: 'saved' }
         this.note = saved
+        this.error = ''
         if (this.#frontmatter === frontmatter) this.#frontmatter = undefined
         this.state = this.body === body && this.#frontmatter === undefined ? 'saved' : 'dirty'
         if (this.state === 'dirty') this.#schedule()
         this.dispatchEvent(new SavedEvent(saved))
+        return { state: this.state }
       } catch (error) {
-        if (this.note?.id !== note.id) return
-        if (error instanceof ApiError && error.conflict) {
-          this.theirs = error.conflict
-          this.state = 'conflict'
-        } else if (error instanceof ApiError && error.status === 404) {
-          this.state = 'removed'
-        } else {
-          this.state = 'error'
-          this.error = error instanceof Error ? error.message : String(error)
-        }
+        const conflict = error instanceof ApiError ? error.conflict : undefined
+        const outcome: SaveOutcome = conflict
+          ? { state: 'conflict' }
+          : error instanceof ApiError && error.status === 404
+            ? { state: 'removed' }
+            : { state: 'error', error: error instanceof Error ? error.message : String(error) }
+        if (this.note?.id !== note.id) return outcome
+        if (conflict) this.theirs = conflict
+        if (outcome.state === 'error') this.error = outcome.error
+        this.state = outcome.state
+        return outcome
       } finally {
         this.#inflight = undefined
+        this.retrying = false
         this.#changed()
       }
     })()
