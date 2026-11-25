@@ -263,7 +263,7 @@ export class Navigation {
     this.#host.changed()
   }
 
-  /** An outside `.md` file opened from the OS: its reader tab becomes active (a new one after the active tab). */
+  /** An outside `.md`/`.mdx` file opened from the OS: its reader tab becomes active (a new one after the active tab). */
   async openReader(ticket: string, name: string): Promise<void> {
     await this.#switch((tabs) => tabs.openReader(ticket, name))
   }

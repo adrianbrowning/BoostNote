@@ -28,7 +28,7 @@ export function importDrop(model: WorkspaceModel, data: DataTransfer, folder: st
 }
 
 /**
- * Makes the whole window a drop target for `.md` files and folders from the OS: they go to the
+ * Makes the whole window a drop target for `.md`/`.mdx` files and folders from the OS: they go to the
  * folder selected in the sidebar (folder rows handle their own drops). Runs in the capture phase so
  * the editor never inserts a dropped note's text; drops of nothing but images onto the editor text
  * are left to the editor, which stores them as assets.

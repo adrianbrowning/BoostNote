@@ -437,7 +437,8 @@ and reveal it. Sidebar folder menus have "Export as HTML…".
 
 ### Opening `.md` files
 
-`electron-builder.yml` declares a `.md` file association (role Editor, rank Alternate). macOS
+`electron-builder.yml` declares `.md` and `.mdx` file associations (`mimeType: text/markdown`, role
+Editor, rank Alternate). macOS
 delivers files through `open-file` (also before `ready`), Windows/Linux through argv (first launch)
 or `second-instance` argv. Main queues the file (`VaultSession.requestOpen`) and pushes SSE
 `open-request`; the workspace takes requests (`POST /api/open-request`) until the queue is empty,
@@ -781,7 +782,7 @@ deleted for good: `trash` moves a note to `.trash/` (restorable), there is no em
 
 ## Drop import (phase 12)
 
-Drag `.md`/`.markdown` files and folders from Finder/Explorer onto the window to **copy** them into
+Drag `.md`/`.markdown`/`.mdx` files and folders from Finder/Explorer onto the window to **copy** them into
 the vault. The originals are only read: never moved, renamed or changed.
 
 - **Targets** (`src/app/actions/public/workspace/drop-import.ts`, `sidebar.tsx`): a sidebar folder
@@ -814,7 +815,9 @@ the vault. The originals are only read: never moved, renamed or changed.
   first and writes nothing, so a refused import (over 2000 files or 512 MB: `TOO_LARGE`, `413`)
   leaves no partial copy.
   - Names: `noteFileName(stem)`, unique ignoring case in the target folder (` 2`, ` 3`…, also
-    against `<stem>.assets`); `.markdown` becomes `.md`. A folder becomes a new folder of the same
+    against `<stem>.assets` and `.md`/`.mdx` notes of that stem); `.md`/`.markdown` in any case become
+    `.md`, a lowercase `.mdx` stays `.mdx` (a link to it from another imported note is rewritten to its
+    new id) and a `.MDX` file is skipped as not Markdown. A folder becomes a new folder of the same
     (sanitised, unique) name with its Markdown files in their sub-folders; dot-entries and `*.assets`
     folders are not walked, symlinks are skipped, folders without notes are not created.
   - Content: the source's bytes, frontmatter included; no frontmatter is added. The file's mtime

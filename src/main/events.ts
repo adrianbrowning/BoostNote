@@ -18,7 +18,7 @@ export interface VaultChangeEvent {
   id: string
 }
 
-/** The OS asked to open a `.md` file; the workspace takes it from `POST /api/open-request`. */
+/** The OS asked to open a `.md`/`.mdx` file; the workspace takes it from `POST /api/open-request`. */
 export interface OpenRequestEvent {
   type: 'open-request'
 }

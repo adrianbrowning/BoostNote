@@ -25,12 +25,18 @@ files:
 # window. Unpacking everything the asset server reads (src/ and the browser packages) is no asar.
 asar: false
 
-# Opening a .md file (Finder "Open With", double-click, Explorer) opens its folder as a vault and the
+# Opening a .md or .mdx file (Finder "Open With", double-click, Explorer) opens its folder as a vault and the
 # note in a tab (`open-file` on macOS, argv on Windows/Linux; see src/main/main.ts).
 fileAssociations:
   - ext: md
     name: Markdown Document
     description: Markdown note
+    mimeType: text/markdown
+    role: Editor
+    rank: Alternate
+  - ext: mdx
+    name: MDX Document
+    description: MDX note
     mimeType: text/markdown
     role: Editor
     rank: Alternate

@@ -9,13 +9,13 @@ import { button } from './styles.ts'
 import type { ReaderTab } from './tabs.ts'
 
 /**
- * The active reader tab: an outside `.md` shown read-only, with a banner naming the file (its base
+ * The active reader tab: an outside `.md`/`.mdx` shown read-only, with a banner naming the file (its base
  * name only), an "Add to vault…" button (main imports the file and its images into a folder of the
  * open vault and the tab becomes the new note's tab; disabled, with the reason, without an open
  * vault), an "Open folder as vault" button (main opens the file's folder as the vault and the tab
  * becomes the note's tab) and a Close button that closes the tab and so revokes its ticket. The
  * HTML was rendered and sanitised by `src/markdown/render.ts` in main. http(s) links open in the
- * browser as in notes; every other link (relative `.md` files, anchors into other files) is inert.
+ * browser as in notes; every other link (relative `.md`/`.mdx` files, anchors into other files) is inert.
  * Mermaid code blocks become diagrams in the page, rendered as in the editor (`renderDiagrams`).
  */
 export function ReaderPane(handle: Handle<{ model: WorkspaceModel; tab: ReaderTab }>) {

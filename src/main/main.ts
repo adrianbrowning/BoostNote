@@ -49,7 +49,7 @@ const updater = createUpdater({
   onUpdate: (update) => eventHub.broadcast({ type: 'update', ...update }),
 })
 
-// A `.md` file opened from the OS is queued in VaultSession (takeOpenRequest decides whether it is a
+// A `.md`/`.mdx` file opened from the OS is queued in VaultSession (takeOpenRequest decides whether it is a
 // note of a known vault or an outside file for a reader tab); the workspace takes queued requests on
 // SSE `open-request`. macOS delivers files (Finder, `open -a`, dock drops) through `open-file`,
 // possibly before `ready`.

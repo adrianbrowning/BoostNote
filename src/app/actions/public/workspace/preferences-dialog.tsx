@@ -73,7 +73,7 @@ export function acceleratorOf(event: KeyboardEvent, isMac: boolean): string | nu
 
 /**
  * Preferences (⌘,): theme, editor font/size/line width, table width, spellcheck, delete confirmation, how a
- * `.md` outside every vault opens, and the global show/hide hotkey. Every change is saved (and
+ * `.md`/`.mdx` outside every vault opens, and the global show/hide hotkey. Every change is saved (and
  * applied) right away.
  */
 export function PreferencesDialog(handle: Handle<{ model: WorkspaceModel }>) {

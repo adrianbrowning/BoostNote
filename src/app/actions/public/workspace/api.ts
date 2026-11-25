@@ -168,7 +168,7 @@ export function createClient(transport: Transport) {
       post<{ path: string | null }>(api.importPick.href(), { purpose }),
     runImport: (input: { source: string; target: string; dryRun: boolean; force: boolean }) =>
       post<ImportSummary>(api.importRun.href(), input),
-    /** Copies the dropped `.md` files/folders behind a preload drop ticket into `folder`. */
+    /** Copies the dropped `.md`/`.mdx` files/folders behind a preload drop ticket into `folder`. */
     importFiles: (ticket: string, folder: string) =>
       post<ImportFilesReport>(api.importFiles.href(), { ticket, folder }),
 
