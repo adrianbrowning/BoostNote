@@ -1,8 +1,8 @@
-import { describe, expect, it } from 'vitest'
+import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 
 import { scratchTitle } from '../../src/shared/scratch.ts'
 
-/** 5 January 2026, 09:07 local time. */
+/** 5 January 2026, 09:07 local time; the other cases never reach the creation-time fallback. */
 const created = new Date(2026, 0, 5, 9, 7, 42).toISOString()
 
 describe('scratchTitle', () => {
@@ -25,7 +25,19 @@ describe('scratchTitle', () => {
     expect(scratchTitle(text, created)).toBe(title)
   })
 
-  it.each(['', '   \n\t\n'])('%j → the local creation time', (text) => {
-    expect(scratchTitle(text, created)).toBe('Scratch 2026-01-05 09:07')
+  describe('in a zone whose January offset is not zero', () => {
+    const zone = process.env.TZ
+    beforeAll(() => {
+      process.env.TZ = 'America/New_York'
+    })
+    afterAll(() => {
+      if (zone === undefined) delete process.env.TZ
+      else process.env.TZ = zone
+    })
+
+    it.each(['', '   \n\t\n'])('%j → the local creation time', (text) => {
+      const localCreated = new Date(2026, 0, 5, 9, 7, 42).toISOString()
+      expect(scratchTitle(text, localCreated)).toBe('Scratch 2026-01-05 09:07')
+    })
   })
 })
