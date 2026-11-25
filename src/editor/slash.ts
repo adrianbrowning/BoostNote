@@ -291,9 +291,13 @@ function pickTableSize(view: EditorView, pos: number): Promise<TableSize | undef
 
   highlight(size.columns, size.rows)
   const coords = view.coordsAtPos(pos)
-  popup.style.left = `${coords?.left ?? 0}px`
-  popup.style.top = `${(coords?.bottom ?? 0) + 4}px`
+  const below = (coords?.bottom ?? 0) + 4
   view.dom.append(popup)
+  // Keep the whole grid in the window: above the cursor when it would overflow the bottom, shifted left at the right.
+  const { width, height } = popup.getBoundingClientRect()
+  const top = below + height > window.innerHeight ? Math.max(0, (coords?.top ?? 0) - height - 4) : below
+  popup.style.left = `${Math.max(0, Math.min(coords?.left ?? 0, window.innerWidth - width))}px`
+  popup.style.top = `${top}px`
   popup.focus()
   return promise
 }
