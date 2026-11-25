@@ -65,7 +65,8 @@ export const routes = route({
     readerImport: post('/reader/:ticket/import'),
     /**
      * Scratch notes, kept outside every vault (`ScratchStore`), with or without an open vault. Ids
-     * (32 lowercase hex) travel in `?id=` / `{ id }`; any other id or a gone note is a `404`.
+     * (32 lowercase hex) travel in `?id=` / `{ id }`. A missing or non-string id is a `400`; any
+     * other string id, or a gone note, is a `404`.
      */
     scratchList: get('/scratch'),
     scratchCreate: post('/scratch/create'),
