@@ -310,6 +310,12 @@ vault left fails, the other vault still shows (the switch counts) and the store 
   notes that no longer exist. App renames/moves (notes and folders) rebase tabs, trails and closed
   tabs; app deletes close their tabs; after a list refresh, background tabs whose note vanished on
   disk are dropped (the active one keeps the "removed" bar until the user decides).
+- Scratch tabs (`ScratchTab`, `{ kind: 'scratch', id }`) show a scratch note by its id. `openScratch` opens one
+  after the active tab (or activates the open tab of that id); `replaceScratch` turns one into a note tab in
+  place, as `replaceReader` does. Like reader tabs they have no back/forward trail, are not in `TabsSnapshot`,
+  are skipped by rebase and forget, and stay open when the vault switches or closes (an active scratch tab
+  stays active); navigating from one opens a new note tab. Closing one does not put it on the closed-tab
+  stack, so ⇧⌘T does not bring it back.
 
 ### Properties panel
 
@@ -528,9 +534,10 @@ the tab the user moved to meanwhile (its note is not saved for this), so the rev
 never stays. The whole page action, the folder choice included, runs through
 `#inOpenOrder`: clicked while a drain switches vaults, it asks for a folder of the vault the drain
 left open, and a drain that starts meanwhile waits for it. In
-`Tabs` a tab is a note tab or a reader tab: reader tabs are never saved to `localStorage`, have no
-back/forward trail, are skipped by rebase/forget, stay open when the vault switches or closes, and
-are the only tabs while no vault is open. Grants live in memory, so reader tabs are gone after a restart.
+`Tabs` a tab is a note tab, a reader tab or a scratch tab (see "Tabs"): reader tabs are never saved to
+`localStorage`, have no back/forward trail, are skipped by rebase/forget, stay open when the vault switches or
+closes, and are, with scratch tabs, the only tabs while no vault is open. Grants live in memory, so reader tabs
+are gone after a restart.
 
 ### End-to-end tests (`tests/e2e`, `pnpm test:e2e`)
 

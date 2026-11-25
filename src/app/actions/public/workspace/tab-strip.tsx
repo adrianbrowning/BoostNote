@@ -54,9 +54,11 @@ export function TabStrip(handle: Handle<{ model: WorkspaceModel }>) {
         <div role="tablist" aria-label="Open notes" mix={tabListStyle}>
           {model.tabs.tabs.map((tab, index) => {
             const title =
-              tab.kind === 'reader'
-                ? tab.name
-                : (model.data.notes.find((note) => note.id === tab.path)?.title ?? noteStem(tab.path))
+              tab.kind === 'note'
+                ? (model.data.notes.find((note) => note.id === tab.path)?.title ?? noteStem(tab.path))
+                : tab.kind === 'reader'
+                  ? tab.name
+                  : 'Scratch note'
             const active = tab.key === model.tabs.activeKey
             return (
               <div
@@ -64,7 +66,13 @@ export function TabStrip(handle: Handle<{ model: WorkspaceModel }>) {
                 role="tab"
                 tabIndex={active ? 0 : -1}
                 aria-selected={active ? 'true' : 'false'}
-                title={tab.kind === 'reader' ? `${tab.name} (read only, not in a vault)` : tab.path}
+                title={
+                  tab.kind === 'note'
+                    ? tab.path
+                    : tab.kind === 'reader'
+                      ? `${tab.name} (read only, not in a vault)`
+                      : 'Scratch note (not in a vault)'
+                }
                 draggable="true"
                 data-tab={tab.kind === 'note' ? tab.path : undefined}
                 data-reader-tab={tab.kind === 'reader' ? tab.name : undefined}
