@@ -89,9 +89,12 @@ export function buildPreviewWidgets(state: EditorState): DecorationSet {
           decorations.push(Decoration.replace({ widget: new HorizontalRuleWidget() }).range(node.from, node.to))
           return false
         }
-        case 'Table':
-          addBlock(node, new TableWidget(renderTable(state, node, host.resolveAssetUrl)))
+        case 'Table': {
+          // Only top-level tables get the table width; a table in a list item keeps the text column's.
+          const nested = node.parent?.name !== 'Document'
+          addBlock(node, new TableWidget(renderTable(state, node, host.resolveAssetUrl), nested))
           return false
+        }
         case 'BlockMath':
           addBlock(node, new MathWidget(mathSource(state, node), true))
           return false

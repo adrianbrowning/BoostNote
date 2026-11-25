@@ -1,6 +1,6 @@
 import type { Locator } from '@playwright/test'
 
-import { expect, test } from './fixtures.ts'
+import { expect, readSettings, test } from './fixtures.ts'
 
 const sentence =
   'The customer asked for a refund after the parcel arrived late and the box was badly damaged in transit'
@@ -40,4 +40,122 @@ test('live-preview table cells break only between words and stay within the text
   // Prose outside tables still wraps long unbroken words.
   const prose = page.locator('[data-editor] .cm-line', { hasText: longWord.slice(0, 50) })
   expect(await textLines(prose)).toBeGreaterThan(1)
+})
+
+const box = async (locator: Locator) => {
+  const rect = await locator.boundingBox()
+  if (!rect) throw new Error('element is not visible')
+  return rect
+}
+
+/** The horizontal extent and height of `locator`, leaving out where it sits vertically on the page. */
+const across = async (locator: Locator) => {
+  const { x, width, height } = await box(locator)
+  return { x, width, height }
+}
+
+test.describe('the table width', () => {
+  const cell = 'y'.repeat(60)
+  test.use({
+    files: {
+      'widths.md': [
+        '# Widths',
+        '',
+        'A paragraph of prose that is long enough to fill the whole text column of the editor, so its line is as wide as the text column.',
+        '',
+        '| Customer | Notes | Outcome | Follow-up | Owner |',
+        '| --- | --- | --- | --- | --- |',
+        `| Acme | ${sentence} | ${sentence} | ${sentence} | ${sentence} |`,
+        '',
+        '| Key | Value |',
+        '| --- | --- |',
+        '| a | b |',
+        '',
+        '- A list item',
+        '',
+        '  | In | List |',
+        '  | --- | --- |',
+        `  | ${sentence} | ${sentence} |`,
+        '',
+        `| ${Array(8).fill('Wide').join(' | ')} |`,
+        `| ${Array(8).fill('---').join(' | ')} |`,
+        `| ${Array(8).fill(cell).join(' | ')} |`,
+        '',
+      ].join('\n'),
+    },
+    ui: { lineWidth: 600, panes: { sidebarCollapsed: true, listWidth: 200 } },
+  })
+
+  test('lets live-preview tables grow from the text column to the pane while prose keeps the line width', async ({
+    app,
+  }) => {
+    const { page } = app
+    await page.locator('[data-note="widths.md"]').click()
+    const editor = page.locator('[data-editor]')
+    const content = editor.locator('.cm-content')
+    const widgets = editor.locator('.cm-lp-table')
+    await expect(widgets).toHaveCount(4)
+    const [wide, narrow, inList, tooWide] = [widgets.nth(0), widgets.nth(1), widgets.nth(2), widgets.nth(3)]
+    const paragraph = editor.locator('.cm-line', { hasText: 'A paragraph of prose' })
+
+    // The default table width keeps every table within the text column, as before.
+    const column = await box(paragraph)
+    const wideBefore = await box(wide)
+    expect(wideBefore.x).toBeGreaterThanOrEqual(column.x - 0.5)
+    expect(wideBefore.x + wideBefore.width).toBeLessThanOrEqual(column.x + column.width + 0.5)
+    const narrowBefore = await across(narrow.locator('table'))
+    const narrowWidgetBefore = await across(narrow)
+
+    const tableWidth = page.getByRole('combobox', { name: 'Table width', exact: true })
+    await app.clickMenu('preferences')
+    await tableWidth.selectOption('full')
+    await expect.poll(async () => (await readSettings(app)).ui.tableWidth).toBe('full')
+    await page.keyboard.press('Escape')
+
+    // Prose keeps the line width.
+    await expect(content).toHaveCSS('max-width', '600px')
+    expect((await box(paragraph)).width).toBeLessThanOrEqual(600)
+    expect(await box(paragraph)).toEqual(column)
+
+    // A wide table grows past the line width, within the pane, centred on the text column.
+    const pane = await box(editor)
+    await expect.poll(async () => (await box(wide.locator('table'))).width).toBeGreaterThan(600)
+    const wideAfter = await box(wide)
+    expect(wideAfter.x).toBeGreaterThanOrEqual(pane.x)
+    expect(wideAfter.x + wideAfter.width).toBeLessThanOrEqual(pane.x + pane.width)
+    expect(Math.abs(wideAfter.x + wideAfter.width / 2 - (column.x + column.width / 2))).toBeLessThanOrEqual(1)
+    // The pane itself never scrolls sideways.
+    const scroller = editor.locator('.cm-scroller')
+    expect(await scroller.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(true)
+
+    // A narrow table looks as it did (it only moves up, as the wide table above it got shorter).
+    expect(await across(narrow.locator('table'))).toEqual(narrowBefore)
+    expect(await across(narrow)).toEqual(narrowWidgetBefore)
+    // A table in a list keeps the width of the text column.
+    const inListBox = await box(inList)
+    expect(inListBox.x).toBeGreaterThanOrEqual(column.x - 0.5)
+    expect(inListBox.x + inListBox.width).toBeLessThanOrEqual(column.x + column.width + 0.5)
+
+    // A table wider than the pane scrolls inside its widget, within the pane.
+    const tooWideBox = await box(tooWide)
+    expect(tooWideBox.x + tooWideBox.width).toBeLessThanOrEqual(pane.x + pane.width)
+    expect(await tooWide.evaluate((element) => element.scrollWidth > element.clientWidth)).toBe(true)
+
+    // A pixel table width caps tables at that width.
+    await app.clickMenu('preferences')
+    await tableWidth.selectOption('custom')
+    await page.getByRole('spinbutton', { name: 'Table width (px)' }).click()
+    await page.keyboard.press('ControlOrMeta+A')
+    await page.keyboard.type('700')
+    await page.keyboard.press('Enter')
+    await expect.poll(async () => (await readSettings(app)).ui.tableWidth).toBe(700)
+    await page.keyboard.press('Escape')
+    await expect.poll(async () => (await box(wide)).width).toBeLessThanOrEqual(700)
+    expect((await box(wide.locator('table'))).width).toBeGreaterThan(600)
+
+    // A click on a cell still moves the cursor into the table source.
+    await tooWide.locator('td').first().click()
+    await expect(widgets).toHaveCount(3)
+    await expect(editor.locator('.cm-line', { hasText: `| ${cell} |` })).toBeVisible()
+  })
 })
