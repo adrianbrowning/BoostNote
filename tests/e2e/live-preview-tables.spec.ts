@@ -221,6 +221,10 @@ for (const tableWidth of ['line', 'full'] as const) {
         await editor.locator('.cm-scroller').evaluate((element) => element.scrollWidth <= element.clientWidth),
       ).toBe(true)
       expect(await widget.evaluate((element) => element.scrollWidth > element.clientWidth)).toBe(true)
+      // A user scrolls it with a horizontal wheel.
+      await widget.hover()
+      await page.mouse.wheel(200, 0)
+      await expect.poll(() => widget.evaluate((element) => element.scrollLeft)).toBeGreaterThan(0)
     })
   })
 }
