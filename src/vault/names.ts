@@ -83,10 +83,9 @@ export async function readFolderNames(dir: string): Promise<FolderNames> {
  * taken-stem check of `uniqueStem`, the title-rename planner and the import planner.
  */
 export function stemTaken(names: FolderNames, stem: string, extension: string): boolean {
-  const key = nameKey(stem)
   return (
-    names.stems.has(key) ||
-    names.entries.has(`${key}${ASSETS_SUFFIX}`) ||
+    names.stems.has(nameKey(stem)) ||
+    names.entries.has(nameKey(`${stem}${ASSETS_SUFFIX}`)) ||
     names.entries.has(nameKey(`${stem}${extension}`))
   )
 }

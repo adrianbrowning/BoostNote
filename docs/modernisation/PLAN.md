@@ -596,7 +596,8 @@ The file name **is** the note's name (as in Obsidian/Hubble); the first `# H1` i
   note's file name (by `nameKey`; one check, `stemTaken` in `src/vault/names.ts`, for create, move,
   trash, restore, title renames, rename and drop import; only directories named like notes, `a.mdx/`,
   take no stem), so `a.md` and `a.mdx` never overwrite each other (renaming `b.md` to `a` beside
-  `a.mdx` is refused with `EXISTS`; a case-only rename stays free):
+  `a.mdx` is refused with `EXISTS`; a case-only rename stays free, also beside a stem twin: `a.md` →
+  `A` beside `a.mdx` gives `A.md`):
   a new note `a` beside `a.mdx` is `a 2.md`, `a.mdx` moved or restored beside `a.md` is `a 2.mdx`, a
   dropped `a.md` is `a 2.md`, and HTML export gives them `a.html` and `a 2.html`. A non-note `a.MDX`
   takes no stem from an `.md` note (a new note `a` beside it is `a.md`), but an `.mdx` note placed

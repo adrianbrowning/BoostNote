@@ -589,6 +589,38 @@ describe('stem twins (a.md beside a.mdx)', () => {
     expect(await read('work/b.md')).toBe('md\n')
   })
 
+  it('refuses to rename b.md onto the stem of ΟΣ.mdx, whose lower case ends in σ, not ς', async () => {
+    await put('work/ΟΣ.mdx', 'mdx\n')
+    await put('work/b.md', 'md\n')
+    vault = await openVault(root)
+    await expect(vault.renameNote('work/b.md', 'ΟΣ')).rejects.toMatchObject({ code: 'EXISTS' })
+    expect((await readdir(path.join(root, 'work'))).sort()).toEqual(['b.md', 'ΟΣ.mdx'])
+  })
+
+  it('refuses to rename b.md onto the stem of a ΟΣ.assets folder', async () => {
+    await put('work/ΟΣ.assets/x.png', 'X')
+    await put('work/b.md', 'md\n')
+    vault = await openVault(root)
+    await expect(vault.renameNote('work/b.md', 'ΟΣ')).rejects.toMatchObject({ code: 'EXISTS' })
+    expect((await readdir(path.join(root, 'work'))).sort()).toEqual(['b.md', 'ΟΣ.assets'])
+  })
+
+  it('creates a note ΟΣ past a ΟΣ.assets folder', async () => {
+    await put('work/ΟΣ.assets/x.png', 'X')
+    vault = await openVault(root)
+    expect((await vault.createNote('work', 'ΟΣ')).id).toBe('work/ΟΣ 2.md')
+  })
+
+  it('renames a.md to A beside its .mdx twin a.mdx, a case-only rename', async () => {
+    await put('work/a.md', 'md\n')
+    await put('work/a.mdx', 'mdx\n')
+    vault = await openVault(root)
+    expect((await vault.renameNote('work/a.md', 'A')).note.id).toBe('work/A.md')
+    expect((await readdir(path.join(root, 'work'))).sort()).toEqual(['A.md', 'a.mdx'])
+    expect(await read('work/A.md')).toBe('md\n')
+    expect(await read('work/a.mdx')).toBe('mdx\n')
+  })
+
   it('creates a note a beside a directory named a.mdx as a.md', async () => {
     await mkdir(path.join(root, 'work/a.mdx'), { recursive: true })
     vault = await openVault(root)

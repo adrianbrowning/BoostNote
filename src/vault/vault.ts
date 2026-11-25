@@ -446,7 +446,7 @@ export class Vault {
    * (`doc.md` + `x.mdx` → `x.md`), and a
    * name that is only `.md` (any case) or `.mdx` is refused with `INVALID_PATH`. A target stem another
    * note or `.assets` folder takes (`stemTaken`: `b.md` → `a` beside `a.mdx`) is refused with `EXISTS`;
-   * a case-only rename is free. Its assets folder follows
+   * a case-only rename is free, also beside a stem twin (`a.md` → `A` beside `a.mdx`). Its assets folder follows
    * (unless a stem twin shares it) and its own links are rewritten. Other notes' links follow
    * with `links: 'apply'`.
    */
@@ -1201,20 +1201,31 @@ async function sameOrMissing(from: string, to: string): Promise<boolean> {
 /**
  * Whether the note file `file` would clash in its folder by `stemTaken` (a note of its stem, by
  * `nameKey`, a `<stem>.assets` folder or an entry of its file name) with an entry other than `self`
- * and `self`'s own assets folder, so a case-only rename of `self` is free.
+ * and `self`'s own assets folder. A case-only rename of `self` is free: its stem twins
+ * (`isExtensionCaseTwin`: `a.mdx` beside `a.md`) then take no stem, so `a.md` → `A` beside `a.mdx`
+ * goes through, though an entry of the target's own name by `nameKey` still clashes.
  */
 async function stemTakenByOthers(file: string, self: string): Promise<boolean> {
   const dir = path.dirname(file)
   const name = path.basename(file)
+  const selfName = path.basename(self)
   const { base, extension } = splitNoteExtension(name)
   const key = nameKey(base)
+  const caseOnly = key === nameKey(noteStem(selfName))
+  const candidates = new Set([nameKey(name), nameKey(`${base}${ASSETS_SUFFIX}`)])
   const ownAssets = assetsDirOf(self)
   const others: Dirent[] = []
   for (const entry of await readdir(dir, { withFileTypes: true })) {
-    // Only names that start with the stem key can take it.
-    if (!nameKey(entry.name).startsWith(key)) continue
+    // Only a note of the stem, its assets folder or an entry of the file name can take it.
+    const entryKey = nameKey(entry.name)
+    const ofStem = isNoteFileName(entry.name) && nameKey(noteStem(entry.name)) === key
+    if (!ofStem && !candidates.has(entryKey)) continue
     const other = path.join(dir, entry.name)
     if ((await sameOrMissing(self, other)) || (await sameOrMissing(ownAssets, other))) continue
+    if (caseOnly && entry.isFile() && isExtensionCaseTwin(entry.name, selfName)) {
+      if (entryKey === nameKey(name)) return true
+      continue
+    }
     others.push(entry)
   }
   return stemTaken(folderNamesOf(others), base, extension)
