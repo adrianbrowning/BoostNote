@@ -75,7 +75,7 @@ const encodeHref = (relPath: string) => relPath.split('/').map(encodeURIComponen
  * extension (`.md` in any case, or `.mdx`: `doc.mdx` → `doc.html`). A page name that clashes with
  * one already given out, with a folder a note sits in (a
  * vault folder `a.html/`), or with the reserved listing name (`index.html`, or `_contents.html`
- * when the folder has its own `index.md`; itself numbered past a folder of that name), gets the next free
+ * when the folder has its own `index.md` (any case) or `index.mdx`; itself numbered past a folder of that name), gets the next free
  * ` N` suffix (` 2`, ` 3`...) in `vault.notes()` order. Clashes are compared by `nameKey` (letter
  * case and Unicode normalization ignored), so `A.md` and `a.md`, NFC and NFD `Café`, and
  * stem twins get distinct pages: `a.md`, `a.MD` (or `a.mdx`) → `a.html`, `a 2.html`; `_contents.md`
@@ -100,7 +100,10 @@ export async function exportFolderHtml(
   // folder `index.html/` makes the listing `index 2.html`), and only a numbered listing name also
   // skips the notes' own pages, so the plain listing name wins over a note's own page
   // (`_contents.md` beside `index.md` → `_contents 2.html`).
-  const ownIndex = notes.some((note) => nameKey(note.id.slice(prefix.length)) === 'index.md')
+  const ownIndex = notes.some((note) => {
+    const rel = note.id.slice(prefix.length)
+    return !rel.includes('/') && nameKey(noteStem(rel)) === 'index'
+  })
   const own = new Set(notes.map((note) => nameKey(`${splitNoteExtension(note.id).base}.html`)))
   const pages = new Map<string, string>()
   const taken = new Set<string>()

@@ -594,7 +594,9 @@ The file name **is** the note's name (as in Obsidian/Hubble); the first `# H1` i
   (also for moves, trash slots and restores). A note stem counts as taken when a `.md` (any case) or
   `.mdx` note of that stem or its `.assets` folder is in the folder, or any entry with the placed
   note's file name (by `nameKey`; one check, `stemTaken` in `src/vault/names.ts`, for create, move,
-  trash, restore, title renames and drop import), so `a.md` and `a.mdx` never overwrite each other:
+  trash, restore, title renames, rename and drop import; only directories named like notes, `a.mdx/`,
+  take no stem), so `a.md` and `a.mdx` never overwrite each other (renaming `b.md` to `a` beside
+  `a.mdx` is refused with `EXISTS`; a case-only rename stays free):
   a new note `a` beside `a.mdx` is `a 2.md`, `a.mdx` moved or restored beside `a.md` is `a 2.mdx`, a
   dropped `a.md` is `a 2.md`, and HTML export gives them `a.html` and `a 2.html`. A non-note `a.MDX`
   takes no stem from an `.md` note (a new note `a` beside it is `a.md`), but an `.mdx` note placed
@@ -604,14 +606,17 @@ The file name **is** the note's name (as in Obsidian/Hubble); the first `# H1` i
 - **Extension case:** a note file ends in `.md` of any case or in lowercase `.mdx` (`isNoteFileName`,
   `splitNoteExtension` / `noteStem`, `src/shared/vault-ids.ts`); `.MDX` and `.Mdx` files are no notes. New notes get `.md`; rename, title renames, moves, trash, restore and
   HTML export (`Plan.MD` → `Plan.html`) follow the note's own extension (`Plan.MD` renamed to Roadmap is `Roadmap.MD`, its `Plan.assets`
-  follows), and a typed `.md` of any case or `.mdx` is dropped from a new name, so a rename never switches a note
+  follows), and a typed `.md` of any case or `.mdx` is dropped from a new name (after trimming, so
+  `Other.mdx ` too), so a rename never switches a note
   between `.md` and `.mdx` (`doc.mdx` renamed to `Other.mdx` is `Other.mdx`; `doc.md` renamed to `x.mdx` is `x.md`). `x.md` and `x.MD` count as the
-  same name. Two notes whose stems are equal by `nameKey` while their extensions differ (stem twins: `a.md`
-  beside `a.MD` on case-sensitive file systems, or `a.md` beside `a.mdx` anywhere) share an assets folder only
+  same name. Two note files in one folder are stem twins when their stems are equal by `nameKey` (NFC, lower
+  case), whatever their note extensions (`a.md` beside `a.MD` or `A.md` beside `a.md` on case-sensitive
+  file systems, or `a.md` beside `a.mdx` anywhere); they share an assets folder only
   when their `<stem>.assets` paths are one directory: always for identical stems (`a.md` beside `a.mdx` or
   `a.MD`), and for stems that differ only in letter case or Unicode normalization (`a.md` beside `A.mdx`) only
-  on a case-insensitive or normalizing file system; on a case-sensitive disk each keeps its own
-  `a.assets` / `A.assets`, which moves with it. When shared,
+  on a case-insensitive or normalizing file system; on a case-sensitive disk each normally keeps its own
+  `a.assets` / `A.assets`, which moves with it, unless one resolves to the same directory as the other,
+  for example through a symlink. When shared,
   trashing, renaming or moving one leaves the folder for the other and the result says so
   (`assetsLeftBehind: 'work/a.assets'`, kept in the trash entry so `restore` says it too, while the
   folder still exists); rename, move and restore keep the note's links on the folder's real place.
@@ -817,8 +822,9 @@ the vault. The originals are only read: never moved, renamed or changed.
   writes; under `#exclusive`, atomic writes, `#track`ed so no self-events). Planning reads everything
   first and writes nothing, so a refused import (over 2000 files or 512 MB: `TOO_LARGE`, `413`)
   leaves no partial copy.
-  - Names: `noteFileName(stem)`, unique ignoring case in the target folder (` 2`, ` 3`…, also
-    against `<stem>.assets` and `.md`/`.mdx` notes of that stem); `.md`/`.markdown` in any case become
+  - Names: `noteFileName(stem)`, made unique (` 2`, ` 3`…) by `stemTaken` (`src/vault/names.ts`): no
+    `.md` (any case) or `.mdx` note of that stem and no `<stem>.assets` folder in the target folder,
+    compared by `nameKey`, so a dropped `a.md` beside `a.mdx` becomes `a 2.md`; `.md`/`.markdown` in any case become
     `.md`, a lowercase `.mdx` stays `.mdx` (a link to it from another imported note is rewritten to its
     new id) and a `.MDX` file is skipped as not Markdown. A folder becomes a new folder of the same
     (sanitised, unique) name with its Markdown files in their sub-folders; dot-entries and `*.assets`

@@ -1,3 +1,4 @@
+import type { Dirent } from 'node:fs'
 import { readdir } from 'node:fs/promises'
 
 import { isNoteFileName, noteStem } from '../shared/vault-ids.ts'
@@ -51,10 +52,23 @@ function increment(counts: Map<string, number>, key: string): void {
   counts.set(key, (counts.get(key) ?? 0) + 1)
 }
 
-/** The `FolderNames` of the entries of `dir`; empty when it does not exist. */
+/**
+ * The `FolderNames` of directory entries: each counts by its `nameKey`, and by its stem only when it is
+ * no directory and a note file name (a directory `a.mdx/` takes no stem `a`).
+ */
+export function folderNamesOf(entries: Iterable<Dirent>): FolderNames {
+  const result = folderNames()
+  for (const entry of entries) {
+    if (entry.isDirectory()) increment(result.entries, nameKey(entry.name))
+    else addName(result, entry.name)
+  }
+  return result
+}
+
+/** The `FolderNames` of the entries of `dir` (`folderNamesOf`); empty when it does not exist. */
 export async function readFolderNames(dir: string): Promise<FolderNames> {
   try {
-    return folderNames(await readdir(dir))
+    return folderNamesOf(await readdir(dir, { withFileTypes: true }))
   } catch (error) {
     if (isNodeError(error, 'ENOENT')) return folderNames()
     throw error

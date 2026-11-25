@@ -205,6 +205,14 @@ describe('vault export', () => {
     expect((await stat(path.join(sub, 'todo.html'))).isFile()).toBe(true)
   })
 
+  it('treats a root-level index.mdx as the folder’s own index', async () => {
+    await put('site/index.mdx', '# Site index\n')
+    await vault.refresh()
+    const own = await exportFolderHtml(vault, 'site', out)
+    expect(own).toEqual({ contents: path.join(out, '_contents.html'), pages: 1 })
+    expect(await readFile(path.join(out, 'index.html'), 'utf8')).toContain('Site index')
+  })
+
   it('lists exported pages in the order vault.notes() gives them', async () => {
     // Deliberately not id-sorted: export must keep the vault's order, not re-sort it.
     const notes = [

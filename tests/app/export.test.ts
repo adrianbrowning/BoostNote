@@ -88,6 +88,17 @@ describe('POST /api/export/note', () => {
     })
   })
 
+  it('offers <stem>.html with the HTML filter for an .mdx note exported as html', async () => {
+    await writeFile(path.join(vault.root, 'work/doc.mdx'), '# Doc\n')
+    await vault.refresh()
+    await app.post(api.exportNote.href(), { id: 'work/doc.mdx', format: 'html' })
+    expect(app.saveCalls[0]).toEqual({
+      title: 'Export as HTML',
+      defaultPath: 'doc.html',
+      filters: [{ name: 'HTML', extensions: ['html'] }],
+    })
+  })
+
   it('handles cancel, unknown formats and missing notes', async () => {
     expect(await exportNote('html')).toEqual({ path: null })
     expect((await app.post(api.exportNote.href(), { id: 'work/plan.md', format: 'docx' })).status).toBe(400)

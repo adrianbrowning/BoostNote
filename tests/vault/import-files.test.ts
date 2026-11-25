@@ -185,6 +185,17 @@ describe('importFiles', () => {
     expect(await read('Mixed/a.md')).toBe('[b](b.mdx)\n')
     expect(await read('Mixed/b.mdx')).toBe('[a](./a.md)\n')
     expect(await listFiles(root)).toEqual(['Mixed/a.md', 'Mixed/b.mdx'])
+    expect(report.unresolved).toEqual([])
+  })
+
+  it('reports a link to an .mdx note that is not dropped and copies no asset', async () => {
+    const a = await put(src, 'a.md', '[b](b.mdx)\n')
+    await put(src, 'b.mdx', 'mdx')
+
+    const report = await vault.importFiles([a], '')
+
+    expect(report.unresolved).toEqual([{ id: 'a.md', link: 'b.mdx', reason: 'note not part of this import' }])
+    expect(await listFiles(root)).toEqual(['a.md'])
   })
 
   it('rewrites a link to a dropped .mdx note to its new id', async () => {

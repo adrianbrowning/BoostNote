@@ -211,6 +211,7 @@ describe('note ids', () => {
     const written = await cli(['write', 'doc', '--body', 'new <Card />\n', '--json'])
     expect(written.json().id).toBe('docs/doc.mdx')
     expect((await read('docs/doc.mdx')).endsWith('---\nnew <Card />\n')).toBe(true)
+    expect(await read('docs/doc.mdx')).toContain('title: Component guide')
   })
 })
 
