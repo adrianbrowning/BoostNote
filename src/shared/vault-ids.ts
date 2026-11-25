@@ -5,7 +5,7 @@
  * A vault id is a POSIX path relative to the vault root: `work/todo.md` (note), `work` (folder),
  * `''` (the root). A note file name ends in `.md` in any letter case (`.md`, `.MD`, `.Md`, `.mD`) or
  * in lowercase `.mdx` (`.MDX`, `.Mdx` are not notes) and has a stem; new notes are written with a
- * lowercase `.md`. Two notes in one folder whose stems are equal while their note extensions differ
+ * lowercase `.md`. Two notes in one folder whose stems are equal ignoring letter case and Unicode normalization while their note extensions differ
  * (stem twins: `a.md` and `a.MD`, possible on case-sensitive filesystems, or `a.md` and `a.mdx`,
  * possible anywhere) share the stem `a`: a new, moved, restored or imported note skips a stem either
  * extension (or its `.assets` folder) takes. Stem twins share the asset folder `a.assets`; this is an

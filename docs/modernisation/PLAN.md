@@ -599,7 +599,7 @@ The file name **is** the note's name (as in Obsidian/Hubble); the first `# H1` i
   HTML export (`Plan.MD` → `Plan.html`) follow the note's own extension (`Plan.MD` renamed to Roadmap is `Roadmap.MD`, its `Plan.assets`
   follows), and a typed `.md` of any case or `.mdx` is dropped from a new name, so a rename never switches a note
   between `.md` and `.mdx` (`doc.mdx` renamed to `Other.mdx` is `Other.mdx`; `doc.md` renamed to `x.mdx` is `x.md`). `x.md` and `x.MD` count as the
-  same name. Two notes whose stems are equal while their extensions differ (stem twins: `a.md`
+  same name. Two notes whose stems are equal by `nameKey` while their extensions differ (stem twins: `a.md`
   beside `a.MD` on case-sensitive file systems, or `a.md` beside `a.mdx` anywhere) share `a.assets`:
   trashing, renaming or moving one leaves the folder for the other and the result says so
   (`assetsLeftBehind: 'work/a.assets'`, kept in the trash entry so `restore` says it too, while the

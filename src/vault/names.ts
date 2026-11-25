@@ -11,11 +11,13 @@ export function nameKey(name: string): string {
 
 /**
  * Whether note file names `a` and `b` are stem twins: both are note file names and their stems are
- * equal after NFC normalization, whatever their note extensions (`a.md` and `a.MD`, `a.md` and
- * `a.mdx`, NFD `Cafe\u0301.md` and `Caf\u00e9.MD`). Twins share `<stem>.assets/`.
+ * equal by `nameKey` (NFC, lower case), whatever their note extensions (`a.md` and `a.MD`, `a.md`
+ * and `A.mdx`, NFD `Cafe\u0301.md` and `Caf\u00e9.MD`). Twins can share `<stem>.assets/`; callers check
+ * that their assets folders resolve to one directory (on a case-sensitive disk `A.md` and `a.md` keep
+ * separate ones).
  */
 export function isExtensionCaseTwin(a: string, b: string): boolean {
-  return isNoteFileName(a) && isNoteFileName(b) && noteStem(a).normalize('NFC') === noteStem(b).normalize('NFC')
+  return isNoteFileName(a) && isNoteFileName(b) && nameKey(noteStem(a)) === nameKey(noteStem(b))
 }
 
 /** The `nameKey`s of the note files a stem can have in a folder: `<stem>.md` (any case) and `<stem>.mdx`. */

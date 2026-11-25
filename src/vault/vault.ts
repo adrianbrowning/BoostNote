@@ -1194,9 +1194,9 @@ async function nameTaken(file: string, self: string): Promise<boolean> {
 /**
  * Vault path of the assets folder of note `id` (at `file`) when it exists and another note shares
  * it, so it stays in place; else `undefined`. A candidate is a stem twin (`isExtensionCaseTwin`:
- * `a.md` beside `a.MD` or `a.mdx`, stems compared after NFC normalization) whose own assets folder
- * resolves to the same directory as the note's: on ext4 NFC `Caf\u00e9.md` and NFD `Cafe\u0301.md` keep
- * separate folders, so neither is a twin. A twin that is a hard link of the note (same inode) is
+ * `a.md` beside `a.MD`, `a.mdx` or `A.mdx`, stems compared by `nameKey` as `nameTaken` does) whose
+ * own assets folder resolves to the same directory as the note's: on ext4 NFC `Caf\u00e9.md` and NFD
+ * `Cafe\u0301.md`, or `A.md` and `a.md`, keep separate folders, so neither is a twin. A twin that is a hard link of the note (same inode) is
  * not detected, so the assets move with it and no warning is given; this is an accepted limit.
  */
 async function sharedAssetsOf(id: string, file: string): Promise<string | undefined> {

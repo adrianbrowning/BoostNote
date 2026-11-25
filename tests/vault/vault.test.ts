@@ -634,6 +634,18 @@ describe('stem twins (a.md beside a.mdx)', () => {
     expect(await read('work/a.assets/x.png')).toBe('X')
   })
 
+  it('trashes an A.mdx note beside a.md, leaving the assets folder both reach on a case-insensitive disk', async (ctx) => {
+    await put('work/A.mdx', 'mdx\n')
+    await put('work/a.md', 'md ![x](./a.assets/x.png)\n')
+    await put('work/a.assets/x.png', 'X')
+    // Needs a case-insensitive file system (default macOS): there `A.assets` is `a.assets`.
+    if ((await readFile(path.join(root, 'work/A.assets/x.png'), 'utf8').catch(() => null)) !== 'X') ctx.skip()
+    vault = await openVault(root)
+    const entry = await vault.deleteNote('work/A.mdx')
+    expect(entry).toMatchObject({ id: 'work/A.mdx', assetsLeftBehind: 'work/A.assets' })
+    expect(await read('work/a.assets/x.png')).toBe('X')
+  })
+
   it('title-renames past a stem an .mdx note takes', async () => {
     await put('work/meeting-notes.md', '---\ntitle: Meeting notes\n---\nbody\n')
     await put('work/Meeting notes.mdx', 'other\n')
