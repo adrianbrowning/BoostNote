@@ -417,8 +417,8 @@ to a missing id (including an extension-case variant such as `a.md` beside `a.MD
 leaves the vault stay as written. It also writes an `index.html` listing (`_contents.html` when the
 folder has its own `index.md` in any case, which then becomes `index.html` with its stem's case kept, so `INDEX.MD` → `INDEX.html`). A page name clashing,
 by `nameKey`, with one already given out, with a folder a note sits in (`a.html/`) or with the
-listing's gets ` 2`, ` 3`... in `vault.notes()` order, so case, NFC/NFD and extension-case twins get
-distinct pages (`a.md`, `a.MD` → `a.html`, `a 2.html`), each linked from its own note's links; `exportNoteMarkdown` copies the file and its
+listing's gets ` 2`, ` 3`... in `vault.notes()` order, so case, NFC/NFD and stem twins get
+distinct pages (`a.md`, `a.MD` or `a.mdx` → `a.html`, `a 2.html`), each linked from its own note's links; `exportNoteMarkdown` copies the file and its
 `<stem>.assets/` (renamed after the new file name, links rewritten).
 
 ### Mermaid, PDF and printing (`src/main/export.ts`)
@@ -661,8 +661,8 @@ Renaming or moving a note or folder asks each time whether to update links point
 style).
 
 - **Moves** (`LinkMove`, `src/vault/links.ts`): `{ from, to, kind: 'note' | 'folder', assets? }`, ids
-  before → after. A note move also covers its `<stem>.assets/` (unless `assets: false`: an
-  extension-case twin kept it); a folder move is a path-prefix map over every note, asset and subfolder
+  before → after. A note move also covers its `<stem>.assets/` (unless `assets: false`: a
+  stem twin such as `a.MD` or `a.mdx` kept it); a folder move is a path-prefix map over every note, asset and subfolder
   under it (`movedId`, `src/shared/vault-ids.ts`, the one prefix rule). The most specific (longest)
   prefix wins. The vault builds them: `renameNote`/`moveNote` return `{ note, moves, assetsLeftBehind? }`
   and `renameFolder`/`moveFolder` `{ folder, moves }` (empty `moves` when nothing moved); the
