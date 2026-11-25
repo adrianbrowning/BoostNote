@@ -215,16 +215,8 @@ describe('WorkspaceModel operations that change the open note after a request', 
     await workspace.openNote('meeting.md')
     await workspace.openNote('f/n.md', { newTab: true })
     await workspace.openNote('g/x.md', { newTab: true })
-    let first = true
     // The first move's lists are read at once (before the second move) and return late.
-    net.hold(
-      (url) => {
-        if (url.pathname !== '/api/workspace' || !first) return undefined
-        first = false
-        return 'refresh'
-      },
-      { answered: true },
-    )
+    net.hold(onPath('/api/workspace'), { answered: true, once: true })
     const one = workspace.moveNote('meeting.md', 'g')
     await expect.poll(() => net.held.length).toBe(1)
     // The second move's link question waits its turn behind the first's: its lists show before that.
@@ -243,15 +235,7 @@ describe('WorkspaceModel operations that change the open note after a request', 
   })
 
   it('shows an earlier relocation’s lists when a later refresh fails before they return', async () => {
-    let first = true
-    net.hold(
-      (url) => {
-        if (url.pathname !== '/api/workspace' || !first) return undefined
-        first = false
-        return 'refresh'
-      },
-      { answered: true },
-    )
+    net.hold(onPath('/api/workspace'), { answered: true, once: true })
     const moving = workspace.moveNote('meeting.md', 'g')
     await expect.poll(() => net.held.length).toBe(1)
     net.fail = (url) => url.pathname === '/api/workspace'

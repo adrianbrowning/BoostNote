@@ -3,7 +3,16 @@ import * as path from 'node:path'
 import type { Page } from '@playwright/test'
 
 import { createLegacyStorage } from '../migrate/fixture.ts'
-import { expect, launchApp, openLooseFile, quitWithoutDialog, readSettings, test, writeFiles } from './fixtures.ts'
+import {
+  expect,
+  failableSaves,
+  launchApp,
+  openLooseFile,
+  quitWithoutDialog,
+  readSettings,
+  test,
+  writeFiles,
+} from './fixtures.ts'
 
 const DIAGRAM = `---
 title: Diagram
@@ -559,10 +568,10 @@ test('"Add to vault…" that imports nothing keeps the reader tab, so another fo
 
 declare global {
   interface Window {
-    /** The page-side fetch wrapper of the next test: holds the import's answer, fails saves on demand. */
-    importHold?: { held: boolean; failSaves: boolean; release(): void }
-    /** The page-side fetch wrapper of the test after it: records requests, fails saves on demand. */
-    saveGuard?: { failSaves: boolean; sent: string[] }
+    /** The page-side fetch wrapper of the next test: holds the import's answer. */
+    importHold?: { held: boolean; release(): void }
+    /** The page-side fetch wrapper of the test after it: records requests. */
+    saveGuard?: { sent: string[] }
   }
 }
 
@@ -580,18 +589,15 @@ test('"Add to vault…" answering while another, unsavable note is active turns 
     // Hold the import's answer (main has imported and revoked the ticket; the page has not heard back
     // yet) and, on demand, fail every save.
     // (`page.route` does not see `boost://` requests, so the page's fetch is wrapped.)
+    const saves = await failableSaves(page)
     await page.evaluate(() => {
       const original = window.fetch
       const hold = Promise.withResolvers<void>()
-      const state = { held: false, failSaves: false, release: () => hold.resolve() }
+      const state = { held: false, release: () => hold.resolve() }
       window.importHold = state
       window.fetch = async (input, init) => {
-        const pathname = new URL(String(input), location.href).pathname
-        if (pathname === '/api/notes/save' && state.failSaves) {
-          return new Response(JSON.stringify({ error: 'IO', message: 'Disk full' }), { status: 500 })
-        }
         const response = await original(input, init)
-        if (/^\/api\/reader\/[^/]+\/import$/.test(pathname)) {
+        if (/^\/api\/reader\/[^/]+\/import$/.test(new URL(String(input), location.href).pathname)) {
           state.held = true
           await hold.promise
         }
@@ -599,10 +605,6 @@ test('"Add to vault…" answering while another, unsavable note is active turns 
       }
     })
     const held = () => page.evaluate(() => window.importHold?.held)
-    const failSaves = (on: boolean) =>
-      page.evaluate((value) => {
-        if (window.importHold) window.importHold.failSaves = value
-      }, on)
 
     await page.locator('[data-reader-add]').click()
     await page.getByRole('dialog', { name: 'Add to vault' }).getByRole('button', { name: 'Add' }).click()
@@ -611,7 +613,7 @@ test('"Add to vault…" answering while another, unsavable note is active turns 
     // While main's answer is on its way, the user edits another note whose save fails.
     await page.locator('[role="tab"][data-tab="inside.md"]').click()
     await expect(page.locator('[data-note-title]')).toHaveText('inside')
-    await failSaves(true)
+    await saves.fail(true)
     await editor(page).click()
     await page.keyboard.press('ControlOrMeta+End')
     await page.keyboard.type('\nMine.', { delay: 20 })
@@ -631,7 +633,7 @@ test('"Add to vault…" answering while another, unsavable note is active turns 
     expect(await readFile(path.join(app.vault, 'readme.md'), 'utf8')).toBe('# Loose readme\n')
 
     // Saving works again: the edit reaches the disk, so the app quits without asking about it.
-    await failSaves(false)
+    await saves.fail(false)
     await page.keyboard.type('More', { delay: 20 })
     await expect
       .poll(() => readFile(path.join(app.vault, 'inside.md'), 'utf8'), { timeout: 20_000 })
@@ -641,7 +643,7 @@ test('"Add to vault…" answering while another, unsavable note is active turns 
     // "Quit Anyway" dialog (which Playwright cannot answer), also when an assertion above failed.
     await app.page
       .evaluate(() => {
-        if (window.importHold) window.importHold.failSaves = false
+        if (window.failingSaves) window.failingSaves.fail = false
       })
       .catch(() => undefined)
     await quitWithoutDialog(app.electronApp)
@@ -659,24 +661,17 @@ test('"Add to vault…" sends nothing when the open note cannot be saved; the re
 
     // Record every request and, on demand, fail every save.
     // (`page.route` does not see `boost://` requests, so the page's fetch is wrapped.)
+    const saves = await failableSaves(page)
     await page.evaluate(() => {
       const original = window.fetch
-      const state: NonNullable<Window['saveGuard']> = { failSaves: false, sent: [] }
+      const state: NonNullable<Window['saveGuard']> = { sent: [] }
       window.saveGuard = state
       window.fetch = (input, init) => {
-        const pathname = new URL(String(input), location.href).pathname
-        state.sent.push(pathname)
-        if (pathname === '/api/notes/save' && state.failSaves) {
-          return Promise.resolve(new Response(JSON.stringify({ error: 'IO', message: 'Disk full' }), { status: 500 }))
-        }
+        state.sent.push(new URL(String(input), location.href).pathname)
         return original(input, init)
       }
     })
     const sent = () => page.evaluate(() => window.saveGuard?.sent ?? [])
-    const failSaves = (on: boolean) =>
-      page.evaluate((value) => {
-        if (window.saveGuard) window.saveGuard.failSaves = value
-      }, on)
     await page.locator('[role="tab"][data-reader-tab="readme.md"]').click()
     await expect(page.locator('[data-reader-body] h1')).toHaveText('Loose readme')
     const ticket = (await sent()).find((pathname) => /^\/api\/reader\/[^/]+$/.test(pathname))?.split('/')[3]
@@ -688,7 +683,7 @@ test('"Add to vault…" sends nothing when the open note cannot be saved; the re
     await expect(dialog).toBeVisible()
     await app.clickMenu('next-tab')
     await expect(page.locator('[role="tab"][aria-selected="true"]')).toHaveAttribute('data-tab', 'inside.md')
-    await failSaves(true)
+    await saves.fail(true)
     await editor(page).focus()
     await page.keyboard.press('ControlOrMeta+End')
     await page.keyboard.type('\nMine.', { delay: 20 })
@@ -704,7 +699,7 @@ test('"Add to vault…" sends nothing when the open note cannot be saved; the re
     expect(await page.evaluate((t) => fetch(`/api/reader/${t}`).then((r) => r.status), ticket)).toBe(200)
 
     // Once the note saves again, the reader still shows its file.
-    await failSaves(false)
+    await saves.fail(false)
     await editor(page).click()
     await page.keyboard.press('ControlOrMeta+End')
     await page.keyboard.type('More', { delay: 20 })
@@ -717,7 +712,7 @@ test('"Add to vault…" sends nothing when the open note cannot be saved; the re
     // Saves work again before quitting, so main shows no native "Quit Anyway" dialog.
     await app.page
       .evaluate(() => {
-        if (window.saveGuard) window.saveGuard.failSaves = false
+        if (window.failingSaves) window.failingSaves.fail = false
       })
       .catch(() => undefined)
     await quitWithoutDialog(app.electronApp)
