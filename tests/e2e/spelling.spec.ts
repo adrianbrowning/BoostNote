@@ -65,12 +65,19 @@ test('a spelling suggestion from the native menu replaces the word, is saved and
       )
       .toBe(true)
   } catch (error) {
-    // Skip only when Chromium marked no word on any right-click: macOS always has the system checker,
-    // elsewhere Chromium may have no dictionary to mark with. A reported word with a menu lacking
-    // spelling items is a regression in main and fails the test, as does any other failure.
+    // Skip only when the spellchecker is on, a Cut-led menu was seen and Chromium marked no word on any
+    // right-click: macOS always has the system checker, elsewhere Chromium may have no dictionary to
+    // mark with. A reported word with a menu lacking spelling items, a disabled spellchecker or any
+    // other failure fails the test.
     const reported = await electronApp.evaluate(() => (globalThis as SpellingCapture).misspelledWords ?? [])
+    const spellcheck = await electronApp.evaluate(({ session }) => session.defaultSession.isSpellCheckerEnabled())
+    const seen = (await menus.labels()).at(-1)?.[0]
     test.skip(
-      process.platform !== 'darwin' && reported.length > 0 && reported.every((w) => w === ''),
+      process.platform !== 'darwin' &&
+        spellcheck &&
+        seen === 'Cut' &&
+        reported.length > 0 &&
+        reported.every((w) => w === ''),
       `Chromium marks no misspelled word on ${process.platform}: no spellcheck dictionary (manual check in PLAN.md)`,
     )
     throw error
