@@ -32,7 +32,7 @@ test('a spelling suggestion from the native menu replaces the word, is saved and
   const { page, vault, electronApp } = app
   const file = path.join(vault, 'spelling.md')
   const menus = await captureContextMenus(electronApp)
-  // What Chromium reported for each right-click, recorded in main before the menu is built.
+  // What Chromium reported for each right-click, read from the event params in main, independent of the menu the app builds.
   await electronApp.evaluate(({ BrowserWindow }) => {
     const reported: string[] = []
     ;(globalThis as SpellingCapture).misspelledWords = reported
