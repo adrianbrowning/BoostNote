@@ -168,7 +168,7 @@ export function normalizeFolder(folder: string): string {
 }
 
 /**
- * The note id `input` names: an exact id (with or without its `.md` in any case or `.mdx`), else a bare name matching one
+ * The note id `input` names: an exact id, else that id with any note extension (`.md` in any case or `.mdx`) dropped, else a bare name matching one
  * note's file name or title (exactly, then ignoring case). Several matches is an error listing them.
  */
 export async function resolveNoteId(vault: Vault, input: string): Promise<string> {
@@ -177,8 +177,8 @@ export async function resolveNoteId(vault: Vault, input: string): Promise<string
   if (await vault.hasNote(id)) return id
   const name = splitNoteExtension(id).base
   const named = (await vault.notes()).map((meta) => ({ id: meta.id, stem: noteStem(meta.id), title: meta.title }))
-  // A path names the note whose id minus its extension equals it exactly: `ideas/Roadmap` and
-  // `ideas/Roadmap.md` match `ideas/Roadmap.MD`; only the extension's case is ignored, not the folder's or stem's.
+  // A path names the note whose id minus its note extension equals it exactly: `ideas/Roadmap`, `ideas/Roadmap.md`
+  // and `ideas/Roadmap.mdx` all match `ideas/Roadmap.MD`; the extension is ignored, not the folder's or stem's case.
   const byPath = named.filter((note) => splitNoteExtension(note.id).base === name)
   const exact = named.filter((note) => note.stem === name || note.title === name)
   const lower = name.toLowerCase()
