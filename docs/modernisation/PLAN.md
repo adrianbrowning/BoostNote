@@ -826,9 +826,10 @@ the vault. The originals are only read: never moved, renamed or changed.
     `<dest>`, `./`, `../`, `#fragment` work as for link updates).
   - Links: a relative link (markdown or `src`/`href`) to another note of the same drop → its new
     path; to an existing file under what was dropped (the file's folder for a dropped file, the
-    dropped folder for a folder) that is not a `.md` → copied to `<stem>.assets/<sha256-12>.<ext>`
+    dropped folder for a folder) that is not a note file (`.md`/`.markdown` in any case, or
+    lowercase `.mdx`) → copied to `<stem>.assets/<sha256-12>.<ext>`
     (same naming as `saveAsset`) and linked as `./<stem>.assets/…`. Web links, absolute paths,
-    missing files, files outside the drop and `.md` files not in the drop stay as written and are
+    missing files, files outside the drop and `.md`/`.markdown`/`.mdx` files not in the drop stay as written and are
     listed in `report.unresolved`.
   - Skips (`report.skipped`): non-Markdown files (unless a note linked to them), missing paths, a
     source directly in the target folder ("already in …", nothing written: dropping a vault note on
