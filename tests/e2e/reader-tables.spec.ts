@@ -9,13 +9,13 @@ const NOTE = `# Tables
 
 A paragraph of prose that is long enough to fill the whole text column of the reader pane, so its width is the line width.
 
-| Customer | Notes | Outcome | Follow-up | Owner |
-| --- | --- | --- | --- | --- |
-| Acme | ${sentence} | ${sentence} | ${sentence} | ${sentence} |
-
 | A | B |
 | --- | --- |
 | a | b |
+
+| Customer | Notes | Outcome | Follow-up | Owner |
+| --- | --- | --- | --- | --- |
+| Acme | ${sentence} | ${sentence} | ${sentence} | ${sentence} |
 
 > | Quoted | Table |
 > | --- | --- |
@@ -41,8 +41,8 @@ const width = async (locator: Locator) => {
 test('with the default table width a reader table keeps the line width', async ({ app }) => {
   const reader = await openInReader(app)
   await expect(app.page.locator('[data-vault]')).toHaveCSS('--table-max-width', '600px')
-  await expect(reader.locator('> table').first()).toHaveCSS('max-width', '600px')
-  expect(await width(reader.locator('> table').first())).toBeLessThanOrEqual(600)
+  await expect(reader.locator('> table').nth(1)).toHaveCSS('max-width', '600px')
+  expect(await width(reader.locator('> table').nth(1))).toBeLessThanOrEqual(600)
 })
 
 test.describe('a full table width', () => {
@@ -51,7 +51,7 @@ test.describe('a full table width', () => {
   test('lets a wide top-level table grow to the pane while prose keeps the line width', async ({ app }) => {
     const reader = await openInReader(app)
     await expect(app.page.locator('[data-vault]')).toHaveCSS('--table-max-width', 'none')
-    const table = reader.locator('> table').first()
+    const table = reader.locator('> table').nth(1)
     const tableWidth = await width(table)
     expect(tableWidth).toBeGreaterThan(600)
     // It fits the pane: the reader body does not scroll sideways.
@@ -88,13 +88,9 @@ test.describe('a zero line width', () => {
 test('the preferences dialog sets the table width and the reader follows without a reload', async ({ app }) => {
   const { page } = app
   const reader = await openInReader(app)
-  const table = reader.locator('> table').first()
-  const narrow = reader.locator('> table').nth(1)
-  const horizontal = async () => {
-    const rect = await narrow.boundingBox()
-    return rect && { x: rect.x, width: rect.width, height: rect.height }
-  }
-  const narrowBefore = await horizontal()
+  const table = reader.locator('> table').nth(1)
+  const narrow = reader.locator('> table').first()
+  const narrowBefore = await narrow.boundingBox()
   await app.clickMenu('preferences')
   const select = page.getByRole('combobox', { name: 'Table width', exact: true })
   await expect(select).toHaveValue('line')
@@ -106,7 +102,7 @@ test('the preferences dialog sets the table width and the reader follows without
   expect(await width(table)).toBeGreaterThan(600)
   // A narrow table keeps its natural box.
   expect(narrowBefore?.width).toBeLessThan(600)
-  expect(await horizontal()).toEqual(narrowBefore)
+  expect(await narrow.boundingBox()).toEqual(narrowBefore)
 
   await select.selectOption('custom')
   const pixels = page.getByRole('spinbutton', { name: 'Table width (px)' })
