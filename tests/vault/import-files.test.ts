@@ -102,6 +102,18 @@ describe('importFiles', () => {
     expect(await read('work/Cafe\u0301.md')).toBe('nfd')
   })
 
+  it('suffixes an imported note whose stem an .mdx note in the folder takes', async () => {
+    await put(root, 'work/a.mdx', 'mdx')
+    await vault.refresh()
+    const file = await put(src, 'a.md', 'md')
+
+    const report = await vault.importFiles([file], 'work')
+
+    expect(report.notes.map((note) => note.id)).toEqual(['work/a 2.md'])
+    expect(await read('work/a.mdx')).toBe('mdx')
+    expect(await read('work/a 2.md')).toBe('md')
+  })
+
   it('copies linked images into the note’s assets folder and rewrites only those links', async () => {
     await put(src, 'my image.png', 'PNG1')
     await put(src, 'img/b.gif', 'GIF')

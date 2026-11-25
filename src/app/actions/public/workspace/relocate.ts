@@ -8,8 +8,8 @@ export interface RelocateNotice {
 }
 
 /**
- * The notice after a rename, move, trash or restore: `done` is its lead text ("Moved to …"); when an
- * extension-case twin kept the assets folder (`assetsLeftBehind`), the notice names it. Without
+ * The notice after a rename, move, trash or restore: `done` is its lead text ("Moved to …"); when a
+ * stem twin (`a.MD` or `a.mdx` beside `a.md`) kept the assets folder (`assetsLeftBehind`), the notice names it. Without
  * either there is no notice.
  */
 export function relocateNotice(options: { assetsLeftBehind?: string | undefined; done?: string }): RelocateNotice {

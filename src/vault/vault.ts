@@ -31,7 +31,16 @@ import { copyFileAtomic, exists, isFile, writeFileAtomic } from './files.ts'
 import { type Frontmatter, keepUnchangedValues, parseNoteText, serializeNoteText } from './frontmatter.ts'
 import { type ImportFilesReport, type ImportOptions, planImport } from './import-files.ts'
 import { checkMoves, type LinkMove, rebaseNoteLinks, rewriteMovedLinks } from './links.ts'
-import { entryKeyCounts, isExtensionCaseTwin, lowerCaseEntries, nameKey, uniqueStem } from './names.ts'
+import {
+  entryKeyCounts,
+  hasStemTwin,
+  isExtensionCaseTwin,
+  lowerCaseEntries,
+  nameKey,
+  stemTaken,
+  takeStem,
+  uniqueStem,
+} from './names.ts'
 import { findH1, hashText, type Note, type ReadonlyNoteMeta, toNote } from './note.ts'
 import {
   ASSETS_SUFFIX,
@@ -133,8 +142,8 @@ export interface TitleRenamePlan {
 }
 
 /**
- * Part of the result of trashing, restoring, renaming or moving a note whose extension-case twin
- * (`a.md` beside `a.MD`) shares its assets folder: the folder stayed in place for the twin.
+ * Part of the result of trashing, restoring, renaming or moving a note whose stem twin
+ * (`a.md` beside `a.MD` or `a.mdx`) shares its assets folder: the folder stayed in place for the twin.
  */
 export interface AssetsLeftBehind {
   /**
@@ -433,7 +442,7 @@ export class Vault {
    * (`Plan.MD` → `Roadmap.MD`, `doc.mdx` → `Other.mdx`); a trailing note extension typed in `name` is
    * dropped, so a rename never switches between `.md` and `.mdx` (`doc.md` + `x.mdx` → `x.md`), and a
    * name that is only `.md` (any case) or `.mdx` is refused with `INVALID_PATH`. Its assets folder follows
-   * (unless an extension-case twin shares it) and its own links are rewritten. Other notes' links follow
+   * (unless a stem twin shares it) and its own links are rewritten. Other notes' links follow
    * with `links: 'apply'`.
    */
   renameNote(
@@ -458,8 +467,9 @@ export class Vault {
    * Dry run of `applyTitleRenames`: finds notes whose file name is still the slug the importer gave
    * them before file names became note names (`slugify(title)`, maybe with a `-2` suffix), where
    * `title` is the frontmatter `title`, else the first H1. Each gets `noteFileName(title)`, made
-   * unique (ignoring case) in its folder. Files named some other way (by the user) are skipped.
-   * Nothing is written.
+   * unique in its folder by `stemTaken` (no `.md` or `.mdx` note or `.assets` folder of that stem,
+   * by `nameKey`); the note's own stem counts as free only when no stem twin (`a.MD`, `a.mdx`) sits
+   * beside it. Files named some other way (by the user) are skipped.
    */
   planTitleRenames(): Promise<TitleRenamePlan> {
     return this.#exclusive(async () => {
@@ -493,18 +503,12 @@ export class Vault {
         }
         const { names, counts } = entries
         // The note's own names are free (a case-only rename) unless another note file in the folder
-        // has the same name key (an extension-case or NFD twin, which `nameTaken` would refuse);
-        // the others' names and earlier picks are not.
-        const twin = (counts.get(nameKey(`${stem}.md`)) ?? 0) > 1
-        const own = twin ? undefined : nameKey(stem)
-        const toStem = uniqueName(target, (candidate) => {
-          const candidateKey = nameKey(candidate)
-          return (
-            candidateKey !== own && (names.has(`${candidateKey}.md`) || names.has(`${candidateKey}${ASSETS_SUFFIX}`))
-          )
-        })
-        names.add(`${nameKey(toStem)}.md`)
-        names.add(`${nameKey(toStem)}${ASSETS_SUFFIX}`)
+        // has the same stem by name key (a stem twin: `a.MD`, `a.mdx` or an NFD name beside it, which
+        // `nameTaken` would refuse or which shares its assets folder); the others' names and earlier
+        // picks are not.
+        const own = hasStemTwin(counts, stem) ? undefined : nameKey(stem)
+        const toStem = uniqueName(target, (candidate) => nameKey(candidate) !== own && stemTaken(names, candidate))
+        takeStem(names, toStem)
         plan.renames.push({ from: id, to: joinId(note.folder, `${toStem}${splitNoteExtension(id).extension}`), title })
       }
       return plan
@@ -513,7 +517,7 @@ export class Vault {
 
   /**
    * Applies (a possibly user-trimmed) `planTitleRenames` result: renames each file in place (its
-   * assets folder and own links follow as with `renameNote`, unless an extension-case twin shares
+   * assets folder and own links follow as with `renameNote`, unless a stem twin shares
    * the folder: then it stays in place and the `renamed` entry carries `assetsLeftBehind`), drops a
    * frontmatter `title` that now equals the file name, then rewrites the relative links of every
    * note that pointed at a renamed note, or into an assets folder that moved with it. Renames that
@@ -599,7 +603,7 @@ export class Vault {
 
   /**
    * Note moves that do not say whether their assets folder moved get `assets: false` when the
-   * folder is still at the old place (an extension-case twin kept it), so links into it stay.
+   * folder is still at the old place (a stem twin kept it), so links into it stay.
    */
   async #withAssetsState(moves: readonly LinkMove[]): Promise<LinkMove[]> {
     return Promise.all(
@@ -614,8 +618,9 @@ export class Vault {
   }
 
   /**
-   * Moves a note into `folder`, keeping its file name (extension case too) unless taken (then ` 2`,
-   * …); its assets folder follows unless an extension-case twin shares it. Other notes' links
+   * Moves a note into `folder`, keeping its file name (extension case too) unless its stem is taken
+   * there (`uniqueStem`: by a `.md` or `.mdx` note or `.assets` folder; then ` 2`, …); its assets
+   * folder follows unless a stem twin (`a.MD` or `a.mdx` beside `a.md`) shares it. Other notes' links
    * follow with `links: 'apply'`.
    */
   moveNote(
@@ -640,8 +645,8 @@ export class Vault {
   }
 
   /**
-   * Moves a note and its assets (unless an extension-case twin shares them) into `.trash/`, keeping
-   * its file name (extension case too) unless taken.
+   * Moves a note and its assets (unless a stem twin shares them) into `.trash/`, keeping
+   * its file name (extension case too) unless its stem is taken there (`uniqueStem`).
    */
   deleteNote(id: string): Promise<TrashEntry> {
     return this.#exclusive(async () => {
@@ -1188,8 +1193,8 @@ async function nameTaken(file: string, self: string): Promise<boolean> {
 
 /**
  * Vault path of the assets folder of note `id` (at `file`) when it exists and another note shares
- * it, so it stays in place; else `undefined`. A candidate is an extension-case twin (`a.md` beside
- * `a.MD`, stems compared after NFC normalization as `nameTaken` does) whose own assets folder
+ * it, so it stays in place; else `undefined`. A candidate is a stem twin (`isExtensionCaseTwin`:
+ * `a.md` beside `a.MD` or `a.mdx`, stems compared after NFC normalization) whose own assets folder
  * resolves to the same directory as the note's: on ext4 NFC `Caf\u00e9.md` and NFD `Cafe\u0301.md` keep
  * separate folders, so neither is a twin. A twin that is a hard link of the note (same inode) is
  * not detected, so the assets move with it and no warning is given; this is an accepted limit.

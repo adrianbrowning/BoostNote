@@ -587,18 +587,25 @@ The file name **is** the note's name (as in Obsidian/Hubble); the first `# H1` i
   120 characters / 200 UTF-8 bytes on a grapheme boundary, Windows device names suffixed with `-`
   (`CON` → `CON-`, `con.txt` → `con-.txt`); empty → `Untitled` (`sanitizeFileName` returns `''`
   so renames can refuse it). Names are unique per folder ignoring case, with ` 2`, ` 3`, …
-  (also for moves, trash slots and restores). `createNote` makes `Untitled.md`, `Untitled 2.md`, … with an
+  (also for moves, trash slots and restores). A note stem counts as taken when a `.md` (any case) or
+  `.mdx` note of that stem or its `.assets` folder is in the folder (by `nameKey`; one check,
+  `stemTaken` in `src/vault/names.ts`, for create, move, trash, restore, title renames and drop
+  import), so `a.md` and `a.mdx` never overwrite each other: a new note `a` beside `a.mdx` is
+  `a 2.md`, `a.mdx` moved or restored beside `a.md` is `a 2.mdx`, a dropped `a.md` is `a 2.md`, and
+  HTML export gives them `a.html` and `a 2.html`. `createNote` makes `Untitled.md`, `Untitled 2.md`, … with an
   empty body. Link paths encode space, `#`, `%`, `(`, `)`, `<`, `>`.
 - **Extension case:** a note file ends in `.md` of any case or in lowercase `.mdx` (`isNoteFileName`,
   `splitNoteExtension` / `noteStem`, `src/shared/vault-ids.ts`); `.MDX` and `.Mdx` files are no notes. New notes get `.md`; rename, title renames, moves, trash, restore and
   HTML export (`Plan.MD` → `Plan.html`) follow the note's own extension (`Plan.MD` renamed to Roadmap is `Roadmap.MD`, its `Plan.assets`
   follows), and a typed `.md` of any case or `.mdx` is dropped from a new name, so a rename never switches a note
   between `.md` and `.mdx` (`doc.mdx` renamed to `Other.mdx` is `Other.mdx`; `doc.md` renamed to `x.mdx` is `x.md`). `x.md` and `x.MD` count as the
-  same name. Two notes that differ only in extension case (`a.md` beside `a.MD`, on case-sensitive
-  file systems) share `a.assets`: trashing, renaming or moving one leaves the folder for the other
-  and the result says so (`assetsLeftBehind: 'work/a.assets'`, kept in the trash entry so `restore`
-  says it too, while the folder still exists); rename, move and restore keep the note's links on the
-  folder's real place. The check only sees twins present now: once one twin was renamed, moved or
+  same name. Two notes whose stems are equal while their extensions differ (stem twins: `a.md`
+  beside `a.MD` on case-sensitive file systems, or `a.md` beside `a.mdx` anywhere) share `a.assets`:
+  trashing, renaming or moving one leaves the folder for the other and the result says so
+  (`assetsLeftBehind: 'work/a.assets'`, kept in the trash entry so `restore` says it too, while the
+  folder still exists); rename, move and restore keep the note's links on the folder's real place.
+  The title-rename planner treats such a note's own stem as taken (`plan.md` with `# Plan` beside
+  `plan.mdx` → `Plan 2.md`, not `Plan.md`). The check only sees twins present now: once one twin was renamed, moved or
   trashed away from the folder, a later rename, move or trash of the other carries the folder and
   the first note's links into it break (an accepted limit).
 - **Inline rename:** click the name in the editor header (or focus it and press F2/Enter); Enter or

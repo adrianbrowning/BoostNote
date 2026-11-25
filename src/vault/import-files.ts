@@ -6,7 +6,7 @@ import { joinId, noteStem, parentOf } from '../shared/vault-ids.ts'
 import { isNodeError, VaultError } from './errors.ts'
 import { parseNoteText } from './frontmatter.ts'
 import { rewriteRelativeLinks } from './links.ts'
-import { lowerCaseEntries, nameKey } from './names.ts'
+import { lowerCaseEntries, nameKey, stemTaken, takeStem } from './names.ts'
 import {
   ASSETS_SUFFIX,
   assetFileName,
@@ -154,12 +154,8 @@ export async function planImport(options: {
   }
   const pickNoteId = (parent: string, stem: string) => {
     const names = takenIn(parent)
-    const picked = uniqueName(noteFileName(stem), (candidate) => {
-      const key = nameKey(candidate)
-      return names.has(`${key}.md`) || names.has(`${key}${ASSETS_SUFFIX}`)
-    })
-    names.add(`${nameKey(picked)}.md`)
-    names.add(`${nameKey(picked)}${ASSETS_SUFFIX}`)
+    const picked = uniqueName(noteFileName(stem), (candidate) => stemTaken(names, candidate))
+    takeStem(names, picked)
     const id = joinId(parent, `${picked}.md`)
     noteSegments(id)
     return id

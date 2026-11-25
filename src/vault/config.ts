@@ -33,8 +33,8 @@ export interface TrashEntry {
   /** Folder settings (colours) of a deleted folder and its subfolders, keyed relative to the folder. */
   folders?: Record<string, FolderConfig>
   /**
-   * A deleted note's assets folder that stayed in place (`work/a.assets`), shared with an
-   * extension-case twin (`a.md` beside `a.MD`); `restore` keeps the note's links pointing at it.
+   * A deleted note's assets folder that stayed in place (`work/a.assets`), shared with a
+   * stem twin (`a.md` beside `a.MD` or `a.mdx`); `restore` keeps the note's links pointing at it.
    */
   assetsLeftBehind?: string
 }

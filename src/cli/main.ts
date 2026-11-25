@@ -470,7 +470,7 @@ function relocateText(verb: string, result: RelocateResult): string {
   return `${verb} ${result.previousId} → ${result.id}\n${links}\nhash: ${result.hash}${assetsStayedText(result)}`
 }
 
-/** A line saying an extension-case twin kept the shared assets folder, or nothing. */
+/** A line saying a stem twin (`a.MD` or `a.mdx` beside `a.md`) kept the shared assets folder, or nothing. */
 function assetsStayedText({ assetsLeftBehind }: { assetsLeftBehind?: string }): string {
   return assetsLeftBehind ? `\nAssets folder ${assetsLeftBehind} stayed in place for the note with the same name.` : ''
 }

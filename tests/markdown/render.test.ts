@@ -250,6 +250,26 @@ describe('vault export', () => {
     expect(await readFile(path.join(out, 'index.html'), 'utf8')).toContain('<a href="a%202.html">')
   })
 
+  it('gives a.md and a.mdx their own pages, a.html and a 2.html, and links each to its own page', async () => {
+    await put('a.md', '---\ntitle: Md\n---\n[mdx](a.mdx)\n')
+    await put('a.mdx', '---\ntitle: Mdx\n---\n[md](a.md)\n')
+    await vault.refresh()
+    const ids = (await vault.notes()).map((note) => note.id).filter((id) => id.startsWith('a.'))
+    expect(ids.toSorted()).toEqual(['a.md', 'a.mdx'])
+    await exportFolderHtml(vault, '', out)
+    const [first, second] = ids as [string, string]
+    const titleOf: Record<string, string> = { 'a.md': 'Md', 'a.mdx': 'Mdx' }
+    const pageOf = (id: string) => (id === first ? 'a.html' : 'a 2.html')
+    expect(await readFile(path.join(out, 'a.html'), 'utf8')).toContain(`<title>${titleOf[first]}</title>`)
+    expect(await readFile(path.join(out, 'a 2.html'), 'utf8')).toContain(`<title>${titleOf[second]}</title>`)
+    expect(await readFile(path.join(out, pageOf('a.md')), 'utf8')).toContain(
+      `href="${encodeURIComponent(pageOf('a.mdx'))}"`,
+    )
+    expect(await readFile(path.join(out, pageOf('a.mdx')), 'utf8')).toContain(
+      `href="${encodeURIComponent(pageOf('a.md'))}"`,
+    )
+  })
+
   it('on disk, gives a twin\u2019s numbered page a name another note does not own', async (context) => {
     await put('a.md', '---\ntitle: Lower\n---\n')
     await put('a.MD', '---\ntitle: Upper\n---\n')

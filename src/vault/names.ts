@@ -10,11 +10,41 @@ export function nameKey(name: string): string {
 }
 
 /**
- * Whether note file names `a` and `b` are extension-case twins: both are note file names and their
- * stems are equal after NFC normalization (`a.md` and `a.MD`, NFD `Cafe\u0301.md` and `Caf\u00e9.MD`).
+ * Whether note file names `a` and `b` are stem twins: both are note file names and their stems are
+ * equal after NFC normalization, whatever their note extensions (`a.md` and `a.MD`, `a.md` and
+ * `a.mdx`, NFD `Cafe\u0301.md` and `Caf\u00e9.MD`). Twins share `<stem>.assets/`.
  */
 export function isExtensionCaseTwin(a: string, b: string): boolean {
   return isNoteFileName(a) && isNoteFileName(b) && noteStem(a).normalize('NFC') === noteStem(b).normalize('NFC')
+}
+
+/** The `nameKey`s of the note files a stem can have in a folder: `<stem>.md` (any case) and `<stem>.mdx`. */
+function noteKeys(stem: string): [string, string] {
+  const key = nameKey(stem)
+  return [`${key}.md`, `${key}.mdx`]
+}
+
+/**
+ * Whether `stem` is taken in a folder whose entry `nameKey`s are `names`: a `.md` (any case) or
+ * `.mdx` note of that stem, or its `.assets` folder, exists there (all by `nameKey`). The one
+ * taken-stem check of `uniqueStem`, the title-rename planner and the import planner.
+ */
+export function stemTaken(names: ReadonlySet<string>, stem: string): boolean {
+  return [...noteKeys(stem), `${nameKey(stem)}${ASSETS_SUFFIX}`].some((key) => names.has(key))
+}
+
+/** Marks `stem` taken in `names` (the `nameKey`s of a folder's entries plus earlier picks), as `stemTaken` checks it. */
+export function takeStem(names: Set<string>, stem: string): void {
+  names.add(noteKeys(stem)[0])
+  names.add(`${nameKey(stem)}${ASSETS_SUFFIX}`)
+}
+
+/**
+ * Whether more than one note file of `stem` is in a folder whose entries per `nameKey` are counted
+ * in `counts` (`entryKeyCounts`): stem twins such as `a.md` beside `a.MD` or `a.mdx`.
+ */
+export function hasStemTwin(counts: ReadonlyMap<string, number>, stem: string): boolean {
+  return noteKeys(stem).reduce((sum, key) => sum + (counts.get(key) ?? 0), 0) > 1
 }
 
 /** The `nameKey`s of the entries of `dir`; empty when it does not exist. */
@@ -38,11 +68,8 @@ export async function entryKeyCounts(dir: string): Promise<Map<string, number>> 
   return counts
 }
 
-/** First free stem in `dir` (checked by `nameKey` against `<stem>.md`, `<stem>.mdx` and `<stem>.assets`). */
+/** First free stem in `dir` (one `stemTaken` checks against `<stem>.md`, `<stem>.mdx` and `<stem>.assets`). */
 export async function uniqueStem(dir: string, base: string): Promise<string> {
   const names = await lowerCaseEntries(dir)
-  return uniqueName(base, (candidate) => {
-    const key = nameKey(candidate)
-    return names.has(`${key}.md`) || names.has(`${key}.mdx`) || names.has(`${key}${ASSETS_SUFFIX}`)
-  })
+  return uniqueName(base, (candidate) => stemTaken(names, candidate))
 }
