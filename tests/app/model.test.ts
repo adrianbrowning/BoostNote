@@ -1,4 +1,4 @@
-import { readFile, realpath } from 'node:fs/promises'
+import { readFile, realpath, rm } from 'node:fs/promises'
 import * as path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import type { Client } from '../../src/app/actions/public/workspace/api.ts'
@@ -210,6 +210,103 @@ describe('WorkspaceModel operations that change the open note after a request', 
     // The lists stay as last read (the refresh failed): nothing is added for the note's new place.
     expect(workspace.data.notes.map((note) => note.id)).toEqual(listed)
   })
+
+  it('keeps the lists and tabs of a later relocation when an earlier one’s list refresh returns after it', async () => {
+    await workspace.openNote('meeting.md')
+    await workspace.openNote('f/n.md', { newTab: true })
+    await workspace.openNote('g/x.md', { newTab: true })
+    let first = true
+    // The first move's lists are read at once (before the second move) and return late.
+    net.hold(
+      (url) => {
+        if (url.pathname !== '/api/workspace' || !first) return undefined
+        first = false
+        return 'refresh'
+      },
+      { answered: true },
+    )
+    const one = workspace.moveNote('meeting.md', 'g')
+    await expect.poll(() => net.held.length).toBe(1)
+    // The second move's link question waits its turn behind the first's: its lists show before that.
+    const two = workspace.moveNote('f/n.md', 'g')
+    await expect.poll(() => workspace.data.notes.some((note) => note.id === 'g/n.md')).toBe(true)
+    net.held[0]?.release()
+    await Promise.all([one, two])
+    const ids = workspace.data.notes.map((note) => note.id)
+    expect(ids).toContain('g/n.md')
+    expect(ids).not.toContain('f/n.md')
+    expect(workspace.tabs.tabs.map((tab) => tab.kind === 'note' && tab.path)).toEqual([
+      'g/meeting.md',
+      'g/n.md',
+      'g/x.md',
+    ])
+  })
+
+  it('shows an earlier relocation’s lists when a later refresh fails before they return', async () => {
+    let first = true
+    net.hold(
+      (url) => {
+        if (url.pathname !== '/api/workspace' || !first) return undefined
+        first = false
+        return 'refresh'
+      },
+      { answered: true },
+    )
+    const moving = workspace.moveNote('meeting.md', 'g')
+    await expect.poll(() => net.held.length).toBe(1)
+    net.fail = (url) => url.pathname === '/api/workspace'
+    await expect(workspace.refresh()).rejects.toThrow('Disk full')
+    net.fail = null
+    net.held[0]?.release()
+    await moving
+    const ids = workspace.data.notes.map((note) => note.id)
+    expect(ids).toContain('g/meeting.md')
+    expect(ids).not.toContain('meeting.md')
+  })
+
+  it('keeps a reader file added to the vault, and its tab, when a refresh started before the import returns after it', async () => {
+    const outside = path.join(await folderWith(app, 'outside', { 'outside.md': '# Outside\n' }), 'outside.md')
+    const ticket = await app.vaults.readers.grant(await realpath(outside))
+    if (ticket === undefined) throw new Error('No reader ticket for outside.md')
+    await workspace.navigation.openReader(ticket, 'outside.md')
+    const key = workspace.tabs.active?.key
+    if (key === undefined) throw new Error('No reader tab')
+    net.hold(onPath('/api/workspace'), { answered: true })
+    const refreshing = workspace.refresh()
+    await expect.poll(() => net.held.length).toBe(1)
+    net.hold(null)
+    const adding = workspace.addReaderToVault(key)
+    await expect.poll(() => workspace.dialog?.kind).toBe('choose')
+    const dialog = workspace.dialog
+    if (dialog?.kind === 'choose') dialog.resolve('')
+    await adding
+    expect(workspace.tabs.active).toMatchObject({ kind: 'note', path: 'outside.md' })
+    net.held[0]?.release()
+    await refreshing
+    expect(workspace.data.notes.map((note) => note.id)).toContain('outside.md')
+    expect(workspace.tabs.active).toMatchObject({ kind: 'note', path: 'outside.md' })
+  })
+
+  it('keeps the selected folder and the expanded folders, at their new place, when a folder moves', async () => {
+    await api.createFolder('f', 's')
+    await workspace.refresh()
+    workspace.select({ kind: 'folder', id: 'f' })
+    workspace.expanded.add('f')
+    workspace.expanded.add('f/s')
+    await workspace.moveFolder('f', 'g')
+    expect(workspace.selection).toEqual({ kind: 'folder', id: 'g/f' })
+    expect([...workspace.expanded].sort()).toEqual(['g/f', 'g/f/s'])
+  })
+
+  it('shows why an image could not be saved into the open note as an error notice, and still refuses it', async () => {
+    await workspace.openNote('meeting.md')
+    await rm(path.join(app.dir, 'vault', 'meeting.md'))
+    workspace.session.externalRemoval()
+    const image = new File([new Uint8Array([1, 2, 3])], 'p.png', { type: 'image/png' })
+    const text = 'Save your copy of the note first, then add the image'
+    await expect(workspace.saveAsset(image)).rejects.toThrow(text)
+    expect(workspace.notice).toEqual({ kind: 'error', text })
+  })
 })
 
 describe('WorkspaceModel relocations that return after a vault switch', () => {
@@ -304,6 +401,59 @@ describe('WorkspaceModel link questions', () => {
     workspace.session.close()
   })
 
+  const folderPrompt = () =>
+    workspace.prompt({ title: 'New folder', label: 'Folder name', value: '', confirm: 'Create' })
+
+  /** Answers the dialog showing: a prompt with `value`, a links question with `ok`. */
+  function answer(value: string | null, ok = false): void {
+    const dialog = workspace.dialog
+    if (dialog?.kind === 'prompt') dialog.resolve(value)
+    else if (dialog?.kind === 'links') dialog.resolve(ok)
+    else throw new Error(`No prompt or question shows: ${dialog?.kind}`)
+  }
+
+  it('parks an Update links? question that comes while another dialog is open, and asks it once that one closes', async () => {
+    const naming = folderPrompt()
+    let named = false
+    void naming.then(() => {
+      named = true
+    })
+    // A context menu open over the prompt: a dialog that comes (the question) closes it.
+    workspace.openMenu(0, 0, [])
+    const moving = workspace.moveNote('a.md', 'g')
+    await expect.poll(() => workspace.menu).toBeNull()
+    expect(workspace.dialog?.kind).toBe('prompt')
+    expect(named).toBe(false)
+    answer('x')
+    expect(await naming).toBe('x')
+    expect(workspace.dialog).toMatchObject({ kind: 'links', message: '1 link in 1 note points to “a”.' })
+    answer(null, true)
+    await moving
+    expect(workspace.dialog).toBeNull()
+    expect(await readFile(path.join(app.dir, 'links', 'linker.md'), 'utf8')).toBe('# L\n\n[a](./g/a.md)\n')
+  })
+
+  it('asks an Update links? question again once two dialogs opened over it, one after the other, closed', async () => {
+    const moving = workspace.moveNote('a.md', 'g')
+    await expect.poll(() => workspace.dialog?.kind).toBe('links')
+    const first = folderPrompt()
+    const second = folderPrompt()
+    // The second prompt cancels the first; the question stays parked under it.
+    expect(await first).toBeNull()
+    expect(workspace.dialog?.kind).toBe('prompt')
+    answer(null)
+    expect(await second).toBeNull()
+    expect(workspace.dialog).toMatchObject({ kind: 'links', message: '1 link in 1 note points to “a”.' })
+    answer(null, true)
+    await moving
+    expect(await readFile(path.join(app.dir, 'links', 'linker.md'), 'utf8')).toBe('# L\n\n[a](./g/a.md)\n')
+    // The questions after it are still asked.
+    const back = workspace.moveNote('g/a.md', '')
+    await expect.poll(() => workspace.dialog?.kind).toBe('links')
+    answer(null, false)
+    await back
+  })
+
   it('keeps an Update links? question that another dialog opened over, and asks it again once that one closes', async () => {
     const moving = workspace.moveNote('a.md', 'g')
     await expect.poll(() => workspace.dialog?.kind).toBe('links')
@@ -320,4 +470,29 @@ describe('WorkspaceModel link questions', () => {
     expect(workspace.dialog).toBeNull()
     expect(await readFile(path.join(app.dir, 'links', 'linker.md'), 'utf8')).toBe('# L\n\n[a](./g/a.md)\n')
   })
+
+  it.each([
+    { what: 'showing', over: false },
+    { what: 'parked under a prompt', over: true },
+  ])(
+    'closes an Update links? question $what when another vault shows, and the relocation settles',
+    async ({ over }) => {
+      const other = await realpath(await folderWith(app, 'other', { 'b.md': '# B\n' }))
+      const moving = workspace.moveNote('a.md', 'g')
+      await expect.poll(() => workspace.dialog?.kind).toBe('links')
+      const naming = over
+        ? workspace.prompt({ title: 'New folder', label: 'Folder name', value: '', confirm: 'Create' })
+        : undefined
+      await workspace.openVault(other)
+      expect(workspace.data.vault?.root).toBe(other)
+      await moving
+      // A prompt over the question stays: only the vault left's question goes.
+      expect(workspace.dialog?.kind).toBe(over ? 'prompt' : undefined)
+      const prompt = workspace.dialog
+      if (prompt?.kind === 'prompt') prompt.resolve(null)
+      if (naming) expect(await naming).toBeNull()
+      expect(workspace.dialog).toBeNull()
+      expect(await readFile(path.join(app.dir, 'links', 'linker.md'), 'utf8')).toBe('# L\n\n[a](./a.md)\n')
+    },
+  )
 })

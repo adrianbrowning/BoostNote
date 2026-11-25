@@ -237,6 +237,14 @@ describe('vault notes', () => {
     expect(file).toBe(path.join(vault.root, 'work', 'My Note.assets', link.split('/').at(-1) ?? ''))
     expect(await readFile(file, 'utf8')).toBe('image bytes')
   })
+
+  it('refuses an asset for a note that does not exist, creating no folder', async () => {
+    await put('a.md', '# A\n')
+    vault = await openVault(root)
+    await expect(vault.saveAsset('gone/x.md', new Uint8Array([1]), 'png')).rejects.toMatchObject({ code: 'NOT_FOUND' })
+    await expect(vault.saveAsset('b.md', new Uint8Array([1]), 'png')).rejects.toMatchObject({ code: 'NOT_FOUND' })
+    expect(await readdir(root)).toEqual(['a.md'])
+  })
 })
 
 describe('extension-case twins (a.md beside a.MD)', () => {

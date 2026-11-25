@@ -180,6 +180,13 @@ export class WorkspaceModel extends TypedEventTarget<{
   #openRequests: Promise<void> = Promise.resolve()
   /** An "Update links?" question waiting for the dialog over it to close (`#showDialog`). */
   #parked: Dialog | null = null
+  /** Counts the requests that return the lists (`refresh`, `#snapshot`), in the order they started. */
+  #refreshes = 0
+  /**
+   * The `#refreshes` count of the latest-started request whose lists showed: refreshes started before it are
+   * dropped when they return.
+   */
+  #listsShown = 0
 
   constructor(initial: WorkspaceData, preferences: PreferencesState, { api, store }: WorkspaceOptions) {
     super()
@@ -441,7 +448,7 @@ export class WorkspaceModel extends TypedEventTarget<{
         })
         if (folder === null || !(await this.navigation.leave())) return
         await this.attempt(async () => {
-          const { report, workspace } = await this.#api.importReader(tab.ticket, folder)
+          const { report, workspace } = await this.#snapshot(() => this.#api.importReader(tab.ticket, folder))
           this.#showData(workspace)
           await this.#reportImport(report, folder, (id) => this.navigation.readerImported(key, id))
         })
@@ -483,6 +490,19 @@ export class WorkspaceModel extends TypedEventTarget<{
    */
   saveNow(): Promise<boolean> {
     return this.#saving.saveNow()
+  }
+
+  /**
+   * Saves an image pasted, dropped or picked into the open note (`NoteSession.saveAsset`). A failure is shown as an
+   * error notice and rejects too, so the editor inserts no link.
+   */
+  async saveAsset(file: File): Promise<string> {
+    try {
+      return await this.session.saveAsset(file)
+    } catch (error) {
+      this.fail(error)
+      throw error
+    }
   }
 
   /** Conflict bar "Retry" (a save that failed). */
@@ -933,7 +953,7 @@ export class WorkspaceModel extends TypedEventTarget<{
     if (!root) return
     if (root !== this.data.vault?.root) {
       await this.attempt(async () => {
-        this.data = await this.#api.closeVault(root)
+        this.data = await this.#snapshot(() => this.#api.closeVault(root))
         this.changed()
       })
       return
@@ -948,12 +968,16 @@ export class WorkspaceModel extends TypedEventTarget<{
 
   async forgetVault(path: string): Promise<void> {
     await this.attempt(async () => {
-      this.data = await this.#api.forgetVault(path)
+      this.data = await this.#snapshot(() => this.#api.forgetVault(path))
       this.changed()
     })
   }
 
-  /** Shows another vault's lists (or none) before `navigation` restores its tabs. */
+  /**
+   * Shows another vault's lists (or none) before `navigation` restores its tabs. An "Update links?" question of the
+   * vault left, showing or parked, is answered "Don't update" (its links are not this vault's), so the questions
+   * queued behind it go on; a dialog over it stays.
+   */
   #showVault(data: WorkspaceData): void {
     this.data = data
     setPageVault(data.vault?.root ?? null)
@@ -961,19 +985,44 @@ export class WorkspaceModel extends TypedEventTarget<{
     this.expanded.clear()
     this.importOpen = false
     this.setQuery('')
+    const question = this.dialog?.kind === 'links' ? this.dialog : this.#parked
+    if (question?.kind === 'links') {
+      const over = question === this.dialog ? null : this.dialog
+      this.#parked = null
+      question.resolve(false)
+      this.dialog = over
+    }
   }
 
   // ── Live updates ────────────────────────────────────────────────────────────────────────
 
   /**
    * Re-reads the lists (after a mutation, or when the vault changed on disk). Lists that return once another vault
-   * shows are dropped: they are the vault left's.
+   * shows are dropped: they are the vault left's; so are lists that return once the lists of a request started
+   * after this one showed (a later refresh, a reader import, a vault closed or forgotten: `#snapshot`): they may be
+   * older than those. A later refresh that fails drops nothing, so this one's lists still show.
    */
   async refresh(): Promise<void> {
     clearTimeout(this.#refreshTimer)
     const sameVault = this.navigation.vaultToken()
+    const at = ++this.#refreshes
     const data = await this.#api.workspace()
-    if (sameVault()) this.#showData(data)
+    if (!sameVault() || at < this.#listsShown) return
+    this.#listsShown = at
+    this.#showData(data)
+  }
+
+  /**
+   * Runs `request`, which returns lists the caller shows at once: refreshes started before it are dropped when they
+   * return after it (`refresh`). Its own lists show even when a refresh started after it showed first: that refresh
+   * may have been answered before the vault did this request's work (an import's note would then be missing, and
+   * its tab closed), while these lists were made once that work was done.
+   */
+  async #snapshot<T>(request: () => Promise<T>): Promise<T> {
+    const at = ++this.#refreshes
+    const result = await request()
+    this.#listsShown = Math.max(this.#listsShown, at)
+    return result
   }
 
   /** Shows the open vault's lists as `data` has them (same vault): selection and tabs follow. */

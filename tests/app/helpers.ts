@@ -175,9 +175,11 @@ export interface HeldClient {
   client: Client
   /**
    * Requests that `match` names (by the id it returns; `undefined`: not held) wait in `held` until released.
+   * With `answered`, the router answers them at once and the response is held until released, so it returns late with
+   * the vault as it was when the request came.
    * `null` holds none from now on; requests already held stay in `held`.
    */
-  hold(match: ((url: URL) => string | undefined) | null): void
+  hold(match: ((url: URL) => string | undefined) | null, options?: { answered?: boolean }): void
   /** Held requests, oldest first (emptied by each `hold` with a match). */
   readonly held: HeldRequest[]
   /** Requests it matches fail at once with "Disk full" (`null`: none). */
@@ -188,6 +190,7 @@ export interface HeldClient {
 
 export function heldClient(app: TestApp): HeldClient {
   let match: ((url: URL) => string | undefined) | null = null
+  let answered = false
   const held: HeldRequest[] = []
   const gone = new Set<string>()
   const controls: HeldClient = {
@@ -197,18 +200,24 @@ export function heldClient(app: TestApp): HeldClient {
       if (root && !url.searchParams.has('vault')) url.searchParams.set('vault', root)
       if (controls.fail?.(url)) throw new Error('Disk full')
       const id = match?.(url)
-      if (id !== undefined) {
+      const wait = async () => {
+        if (id === undefined) return
         const { promise, resolve, reject } = Promise.withResolvers<void>()
         held.push({ id, release: (failure) => (failure === undefined ? resolve() : reject(new Error(failure))) })
         await promise
       }
+      const late = answered
+      if (!late) await wait()
       if (url.pathname === '/api/notes/read' && gone.has(url.searchParams.get('id') ?? '')) {
         return Response.json({ error: 'NOT_FOUND', message: 'Note not found' }, { status: 404 })
       }
-      return app.fetch(`${url.pathname}${url.search}`, init)
+      const response = await app.fetch(`${url.pathname}${url.search}`, init)
+      if (late) await wait()
+      return response
     }),
-    hold(next) {
+    hold(next, options = {}) {
       match = next
+      answered = options.answered ?? false
       if (next) held.length = 0
     },
     held,

@@ -82,6 +82,12 @@ export class NoteSession extends TypedEventTarget<{ change: Event; doc: DocEvent
    * theirs); a relocation keeps the count (`saveAsset`).
    */
   #opened = 0
+  /**
+   * Counts the reads of the open note taken out (`readTicket`) and the documents, states and places it took from
+   * elsewhere (`relocated`, `retarget`, `#reset`, a save that worked, a save's conflict or removal, `externalRemoval`):
+   * a read's result applies only while no later one was taken out or taken.
+   */
+  #generation = 0
 
   /** `api`: the page's `client`, or one over the router in tests (`createClient`). */
   constructor(api: NoteApi) {
@@ -93,21 +99,46 @@ export class NoteSession extends TypedEventTarget<{ change: Event; doc: DocEvent
    * Saves an image pasted or dropped into the open note (`POST /api/assets`) and resolves with the link to insert,
    * relative to the note. When the note was renamed or moved while the image was saved (`relocated`), it is saved
    * again for the note's new place (assets are stored by content hash, so that is the same file) until the note
-   * stays put, and the last link is the one returned. Rejects with "No note is open" when no note is open, or the
-   * note closed meanwhile. When another note replaced it meanwhile, it resolves with the link for the note it was
-   * saved for (the editor drops that insert). The editor also checks the place right before the insert
-   * (`EditorHost.assetPlace`), for a relocation that lands after this resolved.
+   * stays put, and the last link is the one returned; an upload that reached the vault once the note had left its
+   * old place is refused there (`404`, nothing written) and saved again the same way, also when the app has not yet
+   * taken the relocation's answer (it waits until no transition holds the note, `locked`). Rejects with "No note is
+   * open" when no note is open, or the note closed meanwhile, and asks for the user's copy to be saved first while the
+   * note is `removed` (deleted or moved outside the app: the vault refuses an image for a note that does not exist).
+   * When another note replaced it meanwhile, it resolves with the link for the note it was saved for (the editor drops
+   * that insert). The editor also checks the place right before the insert (`EditorHost.assetPlace`), for a
+   * relocation that lands after this resolved.
    */
   async saveAsset(file: File): Promise<string> {
     const opened = this.#opened
     let id = this.note?.id
     if (id === undefined) throw new Error('No note is open')
+    if (this.state === 'removed') throw new Error('Save your copy of the note first, then add the image')
     for (;;) {
-      const { href } = await this.#api.uploadAsset(id, file)
+      let href: string
+      try {
+        href = (await this.#api.uploadAsset(id, file)).href
+      } catch (error) {
+        if (!(error instanceof ApiError && error.status === 404)) throw error
+        // A rename or move the vault ran may still be on its way back: the note moves once it lands.
+        await this.#unlocked()
+        const now = this.note?.id
+        if (this.#opened !== opened || now === undefined || now === id) throw error
+        id = now
+        continue
+      }
       const now: string | undefined = this.note?.id
       if (now === undefined) throw new Error('No note is open')
       if (this.#opened !== opened || now === id) return href
       id = now
+    }
+  }
+
+  /** Resolves once no transition holds the note (`locked`). */
+  async #unlocked(): Promise<void> {
+    while (this.locked) {
+      const { promise, resolve } = Promise.withResolvers<void>()
+      this.addEventListener('change', () => resolve(), { once: true })
+      await promise
     }
   }
 
@@ -130,6 +161,7 @@ export class NoteSession extends TypedEventTarget<{ change: Event; doc: DocEvent
    */
   relocated(note: NoteDocument): void {
     if (!this.note) return
+    this.#generation++
     this.note = note
     if (this.state === 'saved' && note.body !== this.body) {
       this.body = note.body
@@ -140,13 +172,26 @@ export class NoteSession extends TypedEventTarget<{ change: Event; doc: DocEvent
   }
 
   /**
+   * Takes out a read of the open note: the handle answers `true` while no later read was taken out and the note took
+   * no document, state or place since (`relocated`, `retarget`, opening, closing, Load theirs, a save that worked, a
+   * save's conflict or removal, `externalRemoval`). A read that returns once it answers `false` is dropped: a later
+   * read was taken out, or the note took a document, state or place since, so this read may be older than what the
+   * note shows or is about to show (when the later read fails, neither is taken).
+   */
+  readTicket(): () => boolean {
+    const at = ++this.#generation
+    return () => at === this.#generation
+  }
+
+  /**
    * The app moved the open note to `id` and has not read it there yet (`relocated` takes that read): it follows with
    * the hash and text it had, so when the read fails its next save goes to the new place and conflicts (instead of
-   * overwriting) when the vault changed the file meanwhile. No `saved` event: the lists learn the new place from
-   * their next refresh.
+   * overwriting) when the vault changed the file meanwhile. A read of its old place that is still out is dropped
+   * (`readTicket`). No `saved` event: the lists learn the new place from their next refresh.
    */
   retarget(id: string): void {
     if (!this.note) return
+    this.#generation++
     this.note = { ...this.note, id, folder: parentOf(id) }
     this.#changed()
   }
@@ -192,14 +237,17 @@ export class NoteSession extends TypedEventTarget<{ change: Event; doc: DocEvent
     const note = this.note
     if (!note) return
     if (this.#inflight) await this.#inflight
+    const fresh = this.readTicket()
     let theirs: NoteDocument
     try {
       theirs = await this.#api.readNote(note.id)
     } catch (error) {
-      if (error instanceof ApiError && error.status === 404) this.externalRemoval()
+      // A 404 for a place the note has left says nothing about where it is now.
+      const gone = error instanceof ApiError && error.status === 404
+      if (gone && fresh() && this.note?.id === note.id) this.externalRemoval()
       return
     }
-    if (this.note?.id !== note.id || theirs.hash === this.note.hash) return
+    if (!fresh() || this.note?.id !== note.id || theirs.hash === this.note.hash) return
     if (this.state === 'saved') {
       this.note = theirs
       this.body = theirs.body
@@ -222,6 +270,7 @@ export class NoteSession extends TypedEventTarget<{ change: Event; doc: DocEvent
   /** The SSE `note-removed` event for the open note. */
   externalRemoval(): void {
     if (!this.note) return
+    this.#generation++
     clearTimeout(this.#timer)
     this.state = 'removed'
     this.theirs = null
@@ -278,6 +327,7 @@ export class NoteSession extends TypedEventTarget<{ change: Event; doc: DocEvent
   #reset(note: NoteDocument | null): void {
     clearTimeout(this.#timer)
     this.#opened++
+    this.#generation++
     this.note = note
     this.body = note?.body ?? ''
     this.state = 'saved'
@@ -310,6 +360,7 @@ export class NoteSession extends TypedEventTarget<{ change: Event; doc: DocEvent
           ...(frontmatter ? { frontmatter } : {}),
         })
         if (this.note?.id !== note.id) return { state: 'saved' }
+        this.#generation++
         this.note = saved
         this.error = ''
         if (this.#frontmatter === frontmatter) this.#frontmatter = undefined
@@ -325,6 +376,8 @@ export class NoteSession extends TypedEventTarget<{ change: Event; doc: DocEvent
             ? { state: 'removed' }
             : { state: 'error', error: error instanceof Error ? error.message : String(error) }
         if (this.note?.id !== note.id) return outcome
+        // A read taken out before this save is older than the disk version or the removal it found.
+        if (outcome.state !== 'error') this.#generation++
         if (conflict) this.theirs = conflict
         if (outcome.state === 'error') this.error = outcome.error
         this.state = outcome.state

@@ -6,26 +6,43 @@ export interface DocChange {
 }
 
 /**
- * Most characters one pass of the character diff inserts and deletes together. A pass that needs more keeps the
- * path that got furthest and diffs the rest in another pass, so a pass costs at most this squared plus the shared
- * text it walks, and no unchanged text ever ends up inside a replaced span.
+ * Most characters (or lines) one pass of the diff inserts and deletes together. A pass that needs more keeps the
+ * path that got furthest and diffs the rest in another pass, so a pass visits at most about this squared diagonals,
+ * plus the matching text they walk, and no unchanged text ends up inside a replaced span (within `DIFF_ROUNDS`).
  */
 const MAX_EDITS = 1024
+
+/**
+ * Most diff rounds (one line or character inserted or deleted each) one `docChanges` call runs, its line and
+ * character passes together, so adopting a very different or many-line outside edit visits at most about this times
+ * `MAX_EDITS` diagonals. The bound covers the rounds only: the matching text each diagonal walks comes on top (each
+ * diagonal walks any stretch of the text at most once). Once the rounds are spent, the lines not yet diffed become
+ * one run, and each run not yet diffed character by character becomes one change (without its common start and end).
+ */
+export const DIFF_ROUNDS = 4 * MAX_EDITS
+
+/** The diff rounds a `docChanges` call has left (`DIFF_ROUNDS` at its start). */
+interface Budget {
+  rounds: number
+}
 
 /**
  * The changes that turn document `from` into `to`, ascending and in `from`'s positions, changing only the
  * characters that differ: the selection and undo history then map through all the text the two share (two links
  * a relocation rebased keep the text between them, and the cursor there). The lines are diffed first, so a line
  * that moved (an outside edit added or removed lines above it) maps to itself, and only the runs of changed lines
- * are diffed character by character.
+ * are diffed character by character. The work is bounded (`DIFF_ROUNDS`): past it, the rest of the lines left to
+ * diff is one run, and each run left to diff character by character one change (both still without their common
+ * start and end).
  */
 export function docChanges(from: string, to: string): DocChange[] {
   const changes: DocChange[] = []
+  const budget: Budget = { rounds: DIFF_ROUNDS }
   const fromLines = from.split('\n')
   const toLines = to.split('\n')
   const fromStarts = lineStarts(fromLines)
   const toStarts = lineStarts(toLines)
-  for (const [fromLine, fromEndLine, toLine, toEndLine] of lineHunks(fromLines, toLines)) {
+  for (const [fromLine, fromEndLine, toLine, toEndLine] of lineHunks(fromLines, toLines, budget)) {
     // A run past the last line of one document (lines only added or only removed at the end) starts at the line
     // break before it: the last line has no break after it to take.
     const back = fromLine === fromLines.length || toLine === toLines.length ? 1 : 0
@@ -33,7 +50,7 @@ export function docChanges(from: string, to: string): DocChange[] {
     const toStart = (toStarts[toLine] ?? 0) - back
     const end = back ? from.length : (fromStarts[fromEndLine] ?? 0)
     const toEnd = back ? to.length : (toStarts[toEndLine] ?? 0)
-    characterChanges(from.slice(start, end), to.slice(toStart, toEnd), start, changes)
+    characterChanges(from.slice(start, end), to.slice(toStart, toEnd), start, changes, budget)
   }
   return changes
 }
@@ -49,8 +66,9 @@ function lineStarts(lines: string[]): number[] {
  * The runs of lines that differ between `from` and `to`, as `[fromStart, fromEnd, toStart, toEnd]` line indexes,
  * ascending: Myers' diff over whole lines, one pass of at most `MAX_EDITS` line inserts and deletes at a time (as the
  * character diff), so every unchanged line it finds maps straight through however many lines changed around it.
+ * Once `budget` is spent, the lines left are one run.
  */
-function lineHunks(from: string[], to: string[]): [number, number, number, number][] {
+function lineHunks(from: string[], to: string[], budget: Budget): [number, number, number, number][] {
   const hunks: [number, number, number, number][] = []
   let start = 0
   let toStart = 0
@@ -68,11 +86,11 @@ function lineHunks(from: string[], to: string[]): [number, number, number, numbe
     const n = fromEnd - start
     const m = toEnd - toStart
     if (n === 0 && m === 0) return hunks
-    if (n === 0 || m === 0) {
+    if (n === 0 || m === 0 || budget.rounds === 0) {
       addHunk(hunks, [start, fromEnd, toStart, toEnd])
       return hunks
     }
-    const [x, y] = linePass(from, to, start, toStart, n, m, hunks)
+    const [x, y] = linePass(from, to, start, toStart, n, m, hunks, budget)
     start += x
     toStart += y
   }
@@ -80,8 +98,8 @@ function lineHunks(from: string[], to: string[]): [number, number, number, numbe
 
 /**
  * One pass of Myers' diff between `from`'s `n` lines at `start` and `to`'s `m` at `toStart`: adds the runs of
- * changed lines of the shortest path to their ends, or of the path that got furthest within `MAX_EDITS`, and
- * returns how far into each that path got.
+ * changed lines of the shortest path to their ends, or of the path that got furthest within `MAX_EDITS` (or the
+ * rounds left in `budget`, which it spends), and returns how far into each that path got.
  */
 function linePass(
   from: string[],
@@ -91,15 +109,17 @@ function linePass(
   n: number,
   m: number,
   hunks: [number, number, number, number][],
+  budget: Budget,
 ): [number, number] {
-  const limit = Math.min(n + m, MAX_EDITS)
+  const limit = Math.min(n + m, MAX_EDITS, budget.rounds)
   const ends = new Int32Array(2 * limit + 3)
   const at = (k: number) => ends[k + limit + 1] ?? 0
+  /** The diagonals `-d..d` of `ends` as each round `d` started: it reads them to step back from where it got. */
   const rounds: Int32Array[] = []
   let edits = limit
   let finished: number | undefined
   for (let d = 0; d <= limit && finished === undefined; d++) {
-    rounds.push(ends.slice())
+    rounds.push(ends.slice(limit + 1 - d, limit + 2 + d))
     for (let k = -d; k <= d; k += 2) {
       let x = k === -d || (k !== d && at(k - 1) < at(k + 1)) ? at(k + 1) : at(k - 1) + 1
       let y = x - k
@@ -115,6 +135,7 @@ function linePass(
       }
     }
   }
+  budget.rounds -= edits
   let last = finished ?? 0
   if (finished === undefined) {
     // Out of edits: the path of the last round that got furthest into both, of those that stayed within them.
@@ -134,7 +155,7 @@ function linePass(
   const equal: [number, number, number][] = [[x, y, 0]]
   for (let d = edits; d > 0; d--) {
     const before = rounds[d]
-    const ended = (k: number) => before?.[k + limit + 1] ?? 0
+    const ended = (k: number) => before?.[k + d] ?? 0
     const k = x - y
     const previous = k === -d || (k !== d && ended(k - 1) < ended(k + 1)) ? k + 1 : k - 1
     const previousX = ended(previous)
@@ -173,9 +194,10 @@ function addHunk(hunks: [number, number, number, number][], hunk: [number, numbe
  * Adds to `changes` the changes that turn `from` into `to` (at `offset` in the document): their common start and
  * end are kept, and between them Myers' diff inserts and deletes the fewest characters within one pass of at most
  * `MAX_EDITS` edits; a longer middle is diffed pass after pass from where the furthest path of the last one got,
- * which keeps unchanged text out of replaced spans but may change more than the fewest characters overall.
+ * which keeps unchanged text out of replaced spans but may change more than the fewest characters overall. Once
+ * `budget` is spent, the middle left is one change.
  */
-function characterChanges(from: string, to: string, offset: number, changes: DocChange[]): void {
+function characterChanges(from: string, to: string, offset: number, changes: DocChange[], budget: Budget): void {
   let start = 0
   const max = Math.min(from.length, to.length)
   while (start < max && from.charCodeAt(start) === to.charCodeAt(start)) start++
@@ -194,11 +216,11 @@ function characterChanges(from: string, to: string, offset: number, changes: Doc
     const n = fromEnd - start
     const m = toEnd - toStart
     if (n === 0 && m === 0) return
-    if (n === 0 || m === 0) {
+    if (n === 0 || m === 0 || budget.rounds === 0) {
       add(changes, { from: offset + start, to: offset + fromEnd, insert: to.slice(toStart, toEnd) })
       return
     }
-    const [x, y] = pass(from, to, start, toStart, n, m, offset, changes)
+    const [x, y] = pass(from, to, start, toStart, n, m, offset, changes, budget)
     start += x
     toStart += y
   }
@@ -206,8 +228,8 @@ function characterChanges(from: string, to: string, offset: number, changes: Doc
 
 /**
  * One pass of Myers' diff between `from`'s `n` characters at `start` and `to`'s `m` at `toStart`: adds the changes
- * of the shortest path to their ends, or of the path that got furthest within `MAX_EDITS`, and returns how far into
- * each that path got.
+ * of the shortest path to their ends, or of the path that got furthest within `MAX_EDITS` (or the rounds left in
+ * `budget`, which it spends), and returns how far into each that path got.
  */
 function pass(
   from: string,
@@ -218,19 +240,20 @@ function pass(
   m: number,
   offset: number,
   changes: DocChange[],
+  budget: Budget,
 ): [number, number] {
   const same = (x: number, y: number) => from.charCodeAt(start + x) === to.charCodeAt(toStart + y)
   // `ends[k + limit + 1]`: how far into `from`'s part the furthest path on diagonal `k` (x - y) reached.
-  const limit = Math.min(n + m, MAX_EDITS)
+  const limit = Math.min(n + m, MAX_EDITS, budget.rounds)
   const ends = new Int32Array(2 * limit + 3)
   const at = (k: number) => ends[k + limit + 1] ?? 0
-  /** `ends` as each round started: round `d` reads them to step back from where it got. */
+  /** The diagonals `-d..d` of `ends` as each round `d` started: it reads them to step back from where it got. */
   const rounds: Int32Array[] = []
   let edits = limit
   /** The diagonal of the path that reached both ends, once one has. */
   let finished: number | undefined
   for (let d = 0; d <= limit && finished === undefined; d++) {
-    rounds.push(ends.slice())
+    rounds.push(ends.slice(limit + 1 - d, limit + 2 + d))
     for (let k = -d; k <= d; k += 2) {
       let x = k === -d || (k !== d && at(k - 1) < at(k + 1)) ? at(k + 1) : at(k - 1) + 1
       let y = x - k
@@ -246,6 +269,7 @@ function pass(
       }
     }
   }
+  budget.rounds -= edits
   let last = finished ?? 0
   if (finished === undefined) {
     // Out of edits: the path of the last round that got furthest into both texts (x + y is 2x - k), of those that
@@ -266,7 +290,7 @@ function pass(
   const steps: DocChange[] = []
   for (let d = edits; d > 0; d--) {
     const before = rounds[d]
-    const ended = (k: number) => before?.[k + limit + 1] ?? 0
+    const ended = (k: number) => before?.[k + d] ?? 0
     const k = x - y
     const down = k === -d || (k !== d && ended(k - 1) < ended(k + 1))
     const previous = down ? k + 1 : k - 1

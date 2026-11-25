@@ -57,7 +57,8 @@ export function EditorPane(handle: Handle<{ model: WorkspaceModel }>) {
         const id = session().note?.id
         return id === undefined ? relPath : vaultAssetUrl(id, relPath)
       },
-      saveAsset: (file) => session().saveAsset(file),
+      // A failure shows as a notice (the note was removed outside the app, the upload failed); no link is inserted.
+      saveAsset: (file) => handle.props.model.saveAsset(file),
       // An image pending while the note is renamed or moved is saved again for its new place.
       assetPlace: () => session().note?.id,
       onOpenLink,
