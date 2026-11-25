@@ -39,25 +39,28 @@ test('a spelling suggestion from the native menu replaces the word, is saved and
   // Marking runs after the typing, so right-click until a menu pops up that does not lead with Cut
   // (an editable-field menu without spelling items: Chromium marked no word yet).
   const word = await wordCentre(page, 'wrod')
-  // The first item of the last menu popped up, read after a right-click; undefined while one runs.
+  // The first item of the last menu popped up, read after a completed right-click. expect.poll drops a
+  // callback still running at its deadline, so the callback assigns this only after it reads the labels.
   let first: string | undefined
   try {
     await expect
       .poll(
         async () => {
-          first = undefined
           await page.mouse.click(word.x, word.y, { button: 'right' })
-          first = (await menus.labels()).at(-1)?.[0]
-          return first !== undefined && first !== 'Cut'
+          const label = (await menus.labels()).at(-1)?.[0]
+          first = label
+          return label !== undefined && label !== 'Cut'
         },
         { timeout: 10_000 },
       )
       .toBe(true)
   } catch (error) {
     // Skip only on a seen menu without spelling items: macOS always has the system checker, elsewhere
-    // Chromium may have no dictionary to mark with. Any other failure fails the test.
+    // Chromium may have no dictionary to mark with. Any other failure fails the test. Read the last menu
+    // from main again: a callback dropped at the deadline may not have recorded it.
+    const seen = (await menus.labels()).at(-1)?.[0]
     test.skip(
-      process.platform !== 'darwin' && first === 'Cut',
+      process.platform !== 'darwin' && seen === 'Cut',
       `Chromium marks no misspelled word on ${process.platform}: no spellcheck dictionary (manual check in PLAN.md)`,
     )
     throw error
