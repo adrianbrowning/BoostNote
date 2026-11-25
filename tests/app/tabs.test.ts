@@ -319,16 +319,17 @@ describe('Tabs', () => {
       // A tab already showing the note moves into the scratch tab's slot, with its trail.
       tabs.select(2)
       tabs.navigate('c.md')
-      const other = tabs.openScratch('s2')
       tabs.select(0)
+      const other = tabs.openScratch('s2')
+      expect(paths(tabs)).toEqual(['a.md', 'scratch:s2', 'new.md', 'c.md'])
       const moved = tabs.replaceScratch(other.key, 'c.md')
-      expect(paths(tabs)).toEqual(['a.md', 'new.md', 'c.md'])
+      expect(paths(tabs)).toEqual(['a.md', 'c.md', 'new.md'])
       expect(moved?.back).toEqual(['b.md'])
       expect(label(tabs.active)).toBe('c.md')
 
       // No scratch tab under that key.
       expect(tabs.replaceScratch(tabs.tabs[0]?.key ?? 0, 'x.md')).toBeUndefined()
-      expect(paths(tabs)).toEqual(['a.md', 'new.md', 'c.md'])
+      expect(paths(tabs)).toEqual(['a.md', 'c.md', 'new.md'])
     })
   })
 })
