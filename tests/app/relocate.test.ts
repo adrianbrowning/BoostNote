@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest'
 import {
   linksUpdatedNotice,
   linkUpdateFailedNotice,
+  refreshFailedNotice,
   relocateNotice,
 } from '../../src/app/actions/public/workspace/relocate.ts'
 
@@ -63,5 +64,14 @@ describe('link-update failure notice', () => {
 
   it('without a warning is only the error and closes on its own', () => {
     expect(linkUpdateFailedNotice('Server unreachable')).toEqual({ text: 'Server unreachable', sticky: false })
+  })
+})
+
+describe('could-not-refresh notice', () => {
+  it('follows an assets warning with no doubled period', () => {
+    const done = relocateNotice({ assetsLeftBehind: 'a.assets', done: 'Moved to g' }).notice
+    expect(refreshFailedNotice('Disk full', done)).toBe(
+      "Moved to g. The assets folder a.assets stayed in place for the note with the same name; this note's links into it may break. Could not refresh: Disk full",
+    )
   })
 })

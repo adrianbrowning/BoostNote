@@ -9,8 +9,7 @@ import { ChangeSet, EditorSelection, type EditorState, type Extension, type Tran
 import type { EditorView } from '@codemirror/view'
 import type { SyntaxNode } from '@lezer/common'
 
-import { editorHost } from './config.ts'
-import { imageMarkdown, trackInsertion } from './paste.ts'
+import { imageMarkdown, insertSavedImages, trackInsertion } from './paste.ts'
 
 /** A block the slash menu inserts. `cursor` is the offset inside `text` where the cursor lands. */
 interface BlockTemplate {
@@ -144,13 +143,10 @@ async function runImageCommand(view: EditorView, from: number, to: number): Prom
   const target = trackInsertion(view, from)
   try {
     const file = await pickImage()
-    if (!file || (await target.whenEditable()) === undefined) return
-    const path = await view.state.facet(editorHost).saveAsset(file)
-    // Wait out read-only periods, then read the position right before the insert (nothing ran in between).
-    while (view.state.readOnly && (await target.whenEditable()) !== undefined) {}
-    const at = target.at()
-    if (at === undefined) return
-    view.dispatch(slashCommandTransaction(view.state, at, at, template(imageMarkdown(file.name, path))))
+    if (!file) return
+    await insertSavedImages(view, target, [file], (at, [path = '']) =>
+      view.dispatch(slashCommandTransaction(view.state, at, at, template(imageMarkdown(file.name, path)))),
+    )
   } finally {
     target.done()
   }

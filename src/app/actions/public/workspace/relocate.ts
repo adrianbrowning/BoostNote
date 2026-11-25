@@ -31,7 +31,18 @@ export function linkUpdateFailedNotice(message: string, warning?: string): { tex
   return { text: joinNotice(message, warning) ?? message, sticky: warning !== undefined }
 }
 
+/**
+ * The notice when the vault made a relocation but the list refresh, the open note's read or saving the tabs after it
+ * failed: what was done (`done`, if anything is said about it), then that the app could not refresh.
+ */
+export function refreshFailedNotice(message: string, done?: string): string {
+  const failed = `Could not refresh: ${message}`
+  return joinNotice(done, failed) ?? failed
+}
+
+/** Joins the present parts with '. ', or with ' ' after a part that already ends in a period. */
 function joinNotice(...parts: (string | undefined)[]): string | undefined {
   const present = parts.filter((part) => part !== undefined)
-  return present.length === 0 ? undefined : present.join('. ')
+  if (present.length === 0) return undefined
+  return present.reduce((text, part) => `${text}${text.endsWith('.') ? ' ' : '. '}${part}`)
 }

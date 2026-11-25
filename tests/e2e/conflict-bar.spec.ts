@@ -36,7 +36,12 @@ async function typeUnsaved(page: Page, saves: FailableSaves, { stayInEditor = fa
   await expect(page.locator('[data-conflict="error"]')).toBeVisible({ timeout: 20_000 })
 }
 
-const onDisk = (vault: string, id: string) => () => readFile(path.join(vault, id), 'utf8')
+// A file not yet written reads as '' so expect.poll retries instead of failing on ENOENT.
+const onDisk = (vault: string, id: string) => () =>
+  readFile(path.join(vault, id), 'utf8').catch((error: NodeJS.ErrnoException) => {
+    if (error.code === 'ENOENT') return ''
+    throw error
+  })
 
 /** Records every notice shown from now on in `window.noticesSeen` (a notice auto-dismisses after a few seconds). */
 const recordNotices = (page: Page) =>

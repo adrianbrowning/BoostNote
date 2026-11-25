@@ -118,8 +118,8 @@ Chromium 140+ migrate the Electron 4 profile in place. A `--user-data-dir=<dir>`
 
 `src/editor` is the live-preview editor: one CodeMirror 6 view whose document is the markdown source,
 browser-only and framework-agnostic. Public API (`src/editor/index.ts`):
-`createLivePreviewEditor({ parent, doc, theme, onChange, resolveAssetUrl, saveAsset, onOpenLink })`
-returns `{ view, setDoc(doc, { preserveSelection }), setTheme, focus, destroy }`.
+`createLivePreviewEditor({ parent, doc, theme, onChange, resolveAssetUrl, saveAsset, assetPlace, onOpenLink })`
+returns `{ view, setDoc(doc, { preserveSelection }), setReadOnly, setTheme, focus, destroy }`.
 
 - **Live preview.** `live-preview/markers.ts` (view plugin, visible ranges only) styles headings,
   quotes, lists, code and links and hides `#`, `*`/`_`, `` ` ``, `~~`, link brackets/URLs, `>`, escapes
@@ -146,14 +146,17 @@ returns `{ view, setDoc(doc, { preserveSelection }), setTheme, focus, destroy }`
   Mod-B/I/E/Shift-X toggle `**`/`*`/`` ` ``/`~~`, Mod-K links, Enter continues lists/tasks/quotes and
   ends the list on an empty item, Tab/Shift-Tab nest list items by the sibling's marker width,
   `( [ { "` auto-close, `` ` * _ ~ `` wrap a selection, Mod-F search. Pasted/dropped images go
-  through `saveAsset`; a pasted lone `http(s)` URL becomes `![](url)` with the cursor in the alt
+  through `saveAsset`; `assetPlace` names where images are stored now, and a pending image whose place
+  changed before its insert is saved again; a pasted lone `http(s)` URL becomes `![](url)` with the cursor in the alt
   text (a selection becomes the alt text; code, links and images keep the URL as typed); pasted HTML
   becomes GFM markdown (turndown + turndown-plugin-gfm).
 - **Themes.** Colours are CSS variables scoped to `.cm-editor` (values match `base.css`); hosts tune
   `--editor-font`, `--editor-font-size`, `--editor-line-height`, `--editor-max-width`, `--editor-padding`.
 - **`setDoc`** without options resets the state (selection, history); with `preserveSelection` it
-  replaces only the changed middle so the selection maps through, isn't undoable, and doesn't call
-  `onChange`.
+  changes only the characters that differ (the lines are matched first, so unchanged lines map
+  through even when lines were added or removed, then each run of changed lines is diffed character
+  by character; `src/editor/doc-changes.ts`), so the selection and undo history map through all
+  unchanged text; it isn't undoable and doesn't call `onChange`.
 - The workspace (phase 4) hosts the editor; the phase-3 `/dev/editor` harness is gone. `pnpm build`
   compiles the workspace entry's whole graph, including every lazily loaded language.
 
@@ -269,11 +272,14 @@ a refused delete trashes nothing), change the tabs, save them to the tab store, 
 note from disk. From the gate until it is done the transition holds the open note (`Navigation.hold`):
 the session takes no edits and the editor is read-only while its requests are out, so nothing typed
 meanwhile is dropped when the note is replaced or closed. Operations that change the open note after
-a request (rename, move, folder rename/move, title renames) run through the same `hold`; export only
-needs it saved first and calls the gate. Background tabs therefore never hold unsaved text.
+a request (rename, move, folder rename/move, title renames) run through the relocation module
+(`relocation.ts`, see "Link updates"), which gates and holds them the same way. Three operations only
+need the open note saved first and still call the gate themselves (`Navigation.leave`): export note,
+export folder and a reader tab's "Add to vault…". Background tabs therefore never hold unsaved text.
 `WorkspaceModel` keeps its tab actions and calls through; `tests/app/navigation.test.ts` drives
 `Navigation` over the in-process router with a memory tab store. Vault switches await the tab
-restore, so a restore that fails reaches the model's error notice.
+restore, so a restore that fails reaches the model's error notice; when only saving the tabs of the
+vault left fails, the other vault still shows (the switch counts) and the store error is the notice.
 
 - Click in the note list (or a relative `.md` link, or ↑/↓ in the list) navigates the active tab,
   pushing onto its back trail; ⌘/Ctrl+click, middle-click or "Open in New Tab" open a new tab after
@@ -575,8 +581,10 @@ The file name **is** the note's name (as in Obsidian/Hubble); the first `# H1` i
   and own links follow, as `renameNote`), removes a frontmatter `title` equal to the new stem
   (in-place YAML edit), then rewrites incoming links with the shared pass of Link updates (phase 10),
   without asking (the plan dialog is the confirmation). Renames that no longer apply are reported as
-  skipped. The workspace saves the open note first, rebases tabs old id → new id and reloads the open
-  note. `slugify` survives only for this recognition.
+  skipped. The workspace runs the apply through the relocation sequence (`Relocation`, see phase 10
+  'Link updates'): the open note is saved first, then tabs rebase old id → new id, and the open note
+  takes its text at the new place while the editor keeps cursor, selection and undo. `slugify` survives
+  only for this recognition.
 
 ## Update notice (phase 8)
 
@@ -626,14 +634,36 @@ style).
   note's relative links on its new folder, and links to itself or its assets follow; a folder
   rename/move does the same for every note inside it, so links out of the folder gain/lose `../` and
   links between notes inside it stay valid.
-- **Workspace:** after a successful inline rename, Rename…, Move to…, drag onto a folder, or a folder
-  rename/move, the model calls `POST /api/links/plan` with the `moves` the rename/move route returned
-  (the app asks first, so plan and apply stay two steps); with `total > 0` it shows "Update links? N links
-  in M notes point to “old name”." with the notes listed (scrolls past eight). **Update links**
-  (focused, Enter) flushes the open note's pending save, calls `POST /api/links/apply`, reloads the open
-  note through the live-reload path if it was rewritten (`setDoc` with `preserveSelection` when clean,
-  the conflict bar when dirty), refreshes the lists and shows "Updated N links". **Don’t update** (Esc)
-  writes nothing. With nothing to update no dialog appears.
+- **Workspace** (`Relocation`, `src/app/actions/public/workspace/relocation.ts`; unit tests in
+  `tests/app/relocation.test.ts`, e2e in `tests/e2e/relocation.spec.ts`): every inline rename, Rename…,
+  Move to…, drag onto a folder, folder rename/move and title-rename apply runs one sequence:
+  1. **Gate:** when the operation moves the open note, or moves the note of an active tab that does not
+     show it, which then loads over it (`Navigation.relocationReplaces`; title renames: always), the open note is saved
+     first (`Navigation.leave`); when that fails nothing runs and the unsaved-changes notice shows.
+  2. **Vault operation**, the open note held (`Navigation.hold`: no edits while it is out).
+  3. **The open note follows**, decided when the response arrives (a note opened meanwhile counts): it
+     takes the vault's document at its new place (the rename/move route returns it), its rebased links
+     included, and the editor keeps cursor, selection and undo (`NoteSession.relocated`, `setDoc` with
+     `preserveSelection`). Folder moves and title renames have no document to return: the note follows
+     to its new place at once (`NoteSession.retarget`) and is read again there after the tabs followed,
+     so a relocation that lands meanwhile maps it on from there (each in the order the vault answered).
+     Tabs, trails and the view (selected and expanded folders) follow; an active tab that does not show
+     its note (its read was out as the move landed, or failed) loads at its new place.
+  4. **Refresh** of the lists, then the notice as before (twin-assets warning, "Moved to X"). When the
+     vault succeeded but the refresh, the read of step 3 or saving the tabs failed, it still counts: the title-rename
+     dialog keeps its report, and the notice adds "Could not refresh: …".
+  5. **Ask:** `POST /api/links/plan` with the `moves` the route returned (the app asks first, so plan and
+     apply stay two steps); with `total > 0` "Update links? N links in M notes point to “old name”." with
+     the notes listed (scrolls past eight). Questions queue: one at a time, in the order the relocations
+     landed, none dropped (another dialog opened over one parks it until that dialog closes).
+  6. **Apply** on **Update links** (focused, Enter): the gate again (nothing is rewritten when the open
+     note cannot be saved), `POST /api/links/apply` with the open note held, the open note takes its
+     rewritten text like step 3, the lists refresh and "Updated N links" shows (plus "Could not refresh"
+     as in step 4). **Don’t update** (Esc) writes nothing. With nothing to update no dialog appears.
+  A relocation that returns after a vault switch does nothing more: no rebase, refresh, notice or question
+  (they would reach the other vault). An image pasted, dropped or picked while the open note moves is saved
+  again for its new place, so its link fits: when the save returns (`NoteSession.saveAsset`) and right before
+  the insert (`EditorHost.assetPlace`, `insertSavedImages`).
 
 ## CLI and MCP (phase 11)
 

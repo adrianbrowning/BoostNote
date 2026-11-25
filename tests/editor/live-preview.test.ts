@@ -116,6 +116,7 @@ describe('preview widgets', () => {
         return `asset:${relPath}`
       },
       saveAsset: async () => '',
+      assetPlace: () => undefined,
       onOpenLink: () => {},
     })
     const [table] = widgets(
@@ -132,6 +133,7 @@ describe('preview widgets', () => {
     const host = editorHost.of({
       resolveAssetUrl: (relPath) => `boost://app/vault-asset/${relPath}`,
       saveAsset: async () => '',
+      assetPlace: () => undefined,
       onOpenLink: () => {},
     })
     const [local] = widgets('![A cat|320x200](./note.assets/cat.png)\n‸', host)
@@ -158,6 +160,7 @@ describe('preview widgets', () => {
         return `asset:${relPath}`
       },
       saveAsset: async () => '',
+      assetPlace: () => undefined,
       onOpenLink: () => {},
     })
     const [empty] = widgets('![a]()\n‸', host)
@@ -175,6 +178,7 @@ describe('preview widgets', () => {
         return `asset:${relPath}`
       },
       saveAsset: async () => '',
+      assetPlace: () => undefined,
       onOpenLink: () => {},
     })
     // CommonMark: with no destination before it, ` "t"` is the destination, not a title,
@@ -268,6 +272,7 @@ describe('unfocused editor', () => {
           editorHost.of({
             resolveAssetUrl: (relPath) => `boost://app/vault-asset/${relPath}`,
             saveAsset: async () => '',
+            assetPlace: () => undefined,
             onOpenLink: () => {},
           }),
         ],

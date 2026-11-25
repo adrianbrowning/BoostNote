@@ -1,4 +1,4 @@
-import { readFile, writeFile } from 'node:fs/promises'
+import { access, readFile, writeFile } from 'node:fs/promises'
 import * as path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createClient, type NoteApi } from '../../src/app/actions/public/workspace/api.ts'
@@ -256,6 +256,7 @@ describe('NoteSession', () => {
       saveNote: () => {
         throw new Error('Not JSON')
       },
+      uploadAsset: api.uploadAsset,
     }
     session = new NoteSession(throwing)
     session.open(await api.createNote(''))
@@ -264,5 +265,53 @@ describe('NoteSession', () => {
     expect(session.state).toBe('error')
     // A save that threw before it was sent leaves no save in flight: this flush settles instead of waiting forever.
     expect(await session.flush()).toBe(false)
+  })
+})
+
+describe('NoteSession.saveAsset', () => {
+  const image = () => new File([new Uint8Array([1, 2, 3])], 'p.png', { type: 'image/png' })
+
+  it('gives the image link for the note’s new place when it was renamed while the image was saved', async () => {
+    const net = heldClient(app)
+    session = new NoteSession(net.client)
+    const note = await openNote('start\n')
+    net.hold((url) => (url.pathname === '/api/assets' ? 'upload' : undefined))
+    const saving = session.saveAsset(image())
+    await vi.waitFor(() => expect(net.held).toHaveLength(1))
+    const { note: renamed } = await api.renameNote(note.id, 'Renamed')
+    session.relocated(renamed)
+    net.hold(null)
+    net.held[0]?.release()
+    const href = await saving
+    expect(href).toMatch(/^\.\/Renamed\.assets\/[0-9a-f]+\.png$/)
+    expect(await readFile(path.join(vault.root, href))).toEqual(Buffer.from([1, 2, 3]))
+  })
+
+  it('does not save the image for another note opened while it was saved', async () => {
+    const net = heldClient(app)
+    session = new NoteSession(net.client)
+    const note = await openNote('start\n')
+    const other = await api.createNote('')
+    net.hold((url) => (url.pathname === '/api/assets' ? 'upload' : undefined))
+    const saving = session.saveAsset(image())
+    await vi.waitFor(() => expect(net.held).toHaveLength(1))
+    session.open(other)
+    net.hold(null)
+    net.held[0]?.release()
+    expect(await saving).toMatch(new RegExp(`^\\./${note.id.replace(/\.md$/, '')}\\.assets/`))
+    await expect(access(path.join(vault.root, `${other.id.replace(/\.md$/, '')}.assets`))).rejects.toThrow()
+  })
+
+  it('refuses with no note open, and when the note closed while the image was saved', async () => {
+    const net = heldClient(app)
+    session = new NoteSession(net.client)
+    await expect(session.saveAsset(image())).rejects.toThrow('No note is open')
+    await openNote('start\n')
+    net.hold((url) => (url.pathname === '/api/assets' ? 'upload' : undefined))
+    const saving = session.saveAsset(image())
+    await vi.waitFor(() => expect(net.held).toHaveLength(1))
+    session.close()
+    net.held[0]?.release()
+    await expect(saving).rejects.toThrow('No note is open')
   })
 })

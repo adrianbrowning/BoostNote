@@ -1,5 +1,6 @@
 // @vitest-environment happy-dom
 import { CompletionContext } from '@codemirror/autocomplete'
+import { undo } from '@codemirror/commands'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 const mermaidMock = vi.hoisted(() => ({
@@ -32,6 +33,7 @@ function mount(doc: string, overrides: Partial<Parameters<typeof createLivePrevi
     onChange,
     resolveAssetUrl: (relPath) => `asset:${relPath}`,
     saveAsset: async (file) => `./note.assets/${file.name}`,
+    assetPlace: () => 'note.md',
     onOpenLink: vi.fn(),
     ...overrides,
   })
@@ -204,6 +206,91 @@ describe('createLivePreviewEditor', () => {
     expect(editor.view.state.selection.main.head).toBe(14)
     editor.setDoc('other')
     expect(editor.view.state.selection.main.head).toBe(0)
+  })
+
+  it('setDoc with preserveSelection changes only what differs: the cursor and undo between two changed links stay', () => {
+    const { editor } = mount('[a](./a.md) middle [b](./b.md)\n')
+    const at = '[a](./a.md) mid'.length
+    editor.view.dispatch({ changes: { from: at, insert: 'X' }, selection: { anchor: at + 1 }, userEvent: 'input.type' })
+    editor.setDoc('[a](../a.md) midXdle [b](../b.md)\n', { preserveSelection: true })
+    expect(editor.view.state.selection.main.head).toBe('[a](../a.md) midX'.length)
+    undo(editor.view)
+    expect(editor.view.state.doc.toString()).toBe('[a](../a.md) middle [b](../b.md)\n')
+  })
+
+  it('setDoc with preserveSelection keeps the cursor and undo between two changed links of a long note', () => {
+    const filler = 'Some text that stays as it is.\n'.repeat(200)
+    const note = (dir: string, middle: string) => `[a](${dir}a.md)\n${filler}${middle}\n${filler}[b](${dir}b.md)\n`
+    const { editor } = mount(note('./', 'middle'))
+    const at = `[a](./a.md)\n${filler}mid`.length
+    editor.view.dispatch({ changes: { from: at, insert: 'X' }, selection: { anchor: at + 1 }, userEvent: 'input.type' })
+    editor.setDoc(note('../', 'midXdle'), { preserveSelection: true })
+    expect(editor.view.state.selection.main.head).toBe(at + 2)
+    undo(editor.view)
+    expect(editor.view.state.doc.toString()).toBe(note('../', 'middle'))
+  })
+
+  it('setDoc with preserveSelection keeps the cursor and undo between two changed links far apart on one line', () => {
+    const filler = 'Some text that stays as it is. '.repeat(40)
+    const note = (dir: string, middle: string) => `[a](${dir}a.md) ${filler}${middle} ${filler}[b](${dir}b.md)\n`
+    const { editor } = mount(note('./', 'middle'))
+    const at = `[a](./a.md) ${filler}mid`.length
+    editor.view.dispatch({ changes: { from: at, insert: 'X' }, selection: { anchor: at + 1 }, userEvent: 'input.type' })
+    editor.setDoc(note('../', 'midXdle'), { preserveSelection: true })
+    expect(editor.view.state.selection.main.head).toBe(at + 2)
+    undo(editor.view)
+    expect(editor.view.state.doc.toString()).toBe(note('../', 'middle'))
+  })
+
+  it('setDoc with preserveSelection keeps the cursor and undo between links of a line with more than a thousand rebased characters', () => {
+    // 400 links moved three folders deeper: 2400 characters inserted on one line, more than one diff pass takes.
+    const links = (dir: string, from: number, to: number) =>
+      Array.from({ length: to - from }, (_, i) => `[n${from + i}](${dir}n${from + i}.md)`).join(' · ')
+    const note = (dir: string, middle: string) => `${links(dir, 0, 200)} ${middle} ${links(dir, 200, 400)}\n`
+    const { editor } = mount(note('./', 'middle'))
+    const at = `${links('./', 0, 200)} mid`.length
+    editor.view.dispatch({ changes: { from: at, insert: 'X' }, selection: { anchor: at + 1 }, userEvent: 'input.type' })
+    editor.setDoc(note('../../../', 'midXdle'), { preserveSelection: true })
+    expect(editor.view.state.selection.main.head).toBe(`${links('../../../', 0, 200)} midX`.length)
+    undo(editor.view)
+    expect(editor.view.state.doc.toString()).toBe(note('../../../', 'middle'))
+  })
+
+  it('setDoc with preserveSelection of an outside edit that shifts lines keeps undo to the typed text', () => {
+    const { editor } = mount('one\ntwo\nthree\nfour\nfive\n')
+    const at = 'one\ntwo\nth'.length
+    editor.view.dispatch({ changes: { from: at, insert: 'X' }, selection: { anchor: at + 1 }, userEvent: 'input.type' })
+    // Another editor inserted a line at the top and deleted "five": as many lines, each shifted down one.
+    editor.setDoc('zero\none\ntwo\nthXree\nfour\n', { preserveSelection: true })
+    expect(editor.view.state.selection.main.head).toBe('zero\none\ntwo\nthX'.length)
+    undo(editor.view)
+    expect(editor.view.state.doc.toString()).toBe('zero\none\ntwo\nthree\nfour\n')
+  })
+
+  it('setDoc with preserveSelection keeps undo to the typed text when the outside edit shifts lines by more than one line diff pass takes', () => {
+    const lines = (prefix: string, from: number, to: number) =>
+      Array.from({ length: to - from }, (_, i) => `${prefix} ${from + i}\n`).join('')
+    const typed = (prefix: string, line: string) =>
+      `${prefix}${lines('line', 0, 500)}${line}\n${lines('line', 501, 900)}`
+    const { editor } = mount(`${typed('', 'line 500')}${lines('line', 900, 2000)}`)
+    const at = `${lines('line', 0, 500)}line`.length
+    editor.view.dispatch({ changes: { from: at, insert: 'X' }, selection: { anchor: at + 1 }, userEvent: 'input.type' })
+    // Another editor added 1100 lines at the top and removed the last 1100: 2200 line edits shifting every line.
+    editor.setDoc(typed(lines('new', 0, 1100), 'lineX 500'), { preserveSelection: true })
+    expect(editor.view.state.selection.main.head).toBe(`${lines('new', 0, 1100)}${lines('line', 0, 500)}lineX`.length)
+    undo(editor.view)
+    expect(editor.view.state.doc.toString()).toBe(typed(lines('new', 0, 1100), 'line 500'))
+  })
+
+  it('setDoc with preserveSelection takes a CRLF note’s text with the editor’s line breaks, adding no blank lines', () => {
+    const { editor, onChange } = mount('a\r\n[b](./b.md)\r\nc')
+    editor.view.dispatch({ selection: { anchor: 'a\n[b](./b.md)\nc'.length } })
+    editor.setDoc('a\r\n[b](../b.md)\r\nc', { preserveSelection: true })
+    expect(editor.view.state.selection.main.head).toBe('a\n[b](../b.md)\nc'.length)
+    expect(editor.view.state.doc.toString()).toBe('a\n[b](../b.md)\nc')
+    expect(editor.view.state.doc.lines).toBe(3)
+    editor.view.dispatch({ changes: { from: 0, insert: 'X' }, userEvent: 'input.type' })
+    expect(onChange).toHaveBeenLastCalledWith('Xa\n[b](../b.md)\nc')
   })
 
   it('toggles a task when its checkbox is clicked', () => {

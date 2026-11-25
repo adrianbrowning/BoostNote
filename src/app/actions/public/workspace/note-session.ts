@@ -1,5 +1,6 @@
 import { TypedEventTarget } from 'remix/component'
 
+import { parentOf } from '../../../../shared/vault-ids.ts'
 import { ApiError, type NoteApi } from './api.ts'
 import type { JsonValue, NoteDocument } from './types.ts'
 
@@ -76,11 +77,38 @@ export class NoteSession extends TypedEventTarget<{ change: Event; doc: DocEvent
   #inflight: Promise<SaveOutcome> | undefined
   #frontmatter: Record<string, JsonValue> | undefined
   readonly #api: NoteApi
+  /**
+   * Counts the times the session took a document from scratch (`#reset`: opening or closing a note, and Load
+   * theirs); a relocation keeps the count (`saveAsset`).
+   */
+  #opened = 0
 
   /** `api`: the page's `client`, or one over the router in tests (`createClient`). */
   constructor(api: NoteApi) {
     super()
     this.#api = api
+  }
+
+  /**
+   * Saves an image pasted or dropped into the open note (`POST /api/assets`) and resolves with the link to insert,
+   * relative to the note. When the note was renamed or moved while the image was saved (`relocated`), it is saved
+   * again for the note's new place (assets are stored by content hash, so that is the same file) until the note
+   * stays put, and the last link is the one returned. Rejects with "No note is open" when no note is open, or the
+   * note closed meanwhile. When another note replaced it meanwhile, it resolves with the link for the note it was
+   * saved for (the editor drops that insert). The editor also checks the place right before the insert
+   * (`EditorHost.assetPlace`), for a relocation that lands after this resolved.
+   */
+  async saveAsset(file: File): Promise<string> {
+    const opened = this.#opened
+    let id = this.note?.id
+    if (id === undefined) throw new Error('No note is open')
+    for (;;) {
+      const { href } = await this.#api.uploadAsset(id, file)
+      const now: string | undefined = this.note?.id
+      if (now === undefined) throw new Error('No note is open')
+      if (this.#opened !== opened || now === id) return href
+      id = now
+    }
   }
 
   open(note: NoteDocument): void {
@@ -95,11 +123,31 @@ export class NoteSession extends TypedEventTarget<{ change: Event; doc: DocEvent
     this.#changed()
   }
 
-  /** The note was renamed/moved/restored by the app: same content, new id and hash. */
+  /**
+   * The app renamed or moved the open note, or rewrote its links: it takes the vault's `note` (its new id, hash
+   * and text), and the editor keeps its cursor, selection and undo history. Callers save the note first and hold
+   * it (`Navigation.hold`); text not yet saved is kept as it is, to be saved over the new hash.
+   */
   relocated(note: NoteDocument): void {
     if (!this.note) return
     this.note = note
+    if (this.state === 'saved' && note.body !== this.body) {
+      this.body = note.body
+      this.dispatchEvent(new DocEvent(note.body, true))
+    }
     this.dispatchEvent(new SavedEvent(note))
+    this.#changed()
+  }
+
+  /**
+   * The app moved the open note to `id` and has not read it there yet (`relocated` takes that read): it follows with
+   * the hash and text it had, so when the read fails its next save goes to the new place and conflicts (instead of
+   * overwriting) when the vault changed the file meanwhile. No `saved` event: the lists learn the new place from
+   * their next refresh.
+   */
+  retarget(id: string): void {
+    if (!this.note) return
+    this.note = { ...this.note, id, folder: parentOf(id) }
     this.#changed()
   }
 
@@ -229,6 +277,7 @@ export class NoteSession extends TypedEventTarget<{ change: Event; doc: DocEvent
 
   #reset(note: NoteDocument | null): void {
     clearTimeout(this.#timer)
+    this.#opened++
     this.note = note
     this.body = note?.body ?? ''
     this.state = 'saved'

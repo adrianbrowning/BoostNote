@@ -57,11 +57,9 @@ export function EditorPane(handle: Handle<{ model: WorkspaceModel }>) {
         const id = session().note?.id
         return id === undefined ? relPath : vaultAssetUrl(id, relPath)
       },
-      saveAsset: async (file) => {
-        const id = session().note?.id
-        if (id === undefined) throw new Error('No note is open')
-        return (await client.uploadAsset(id, file)).href
-      },
+      saveAsset: (file) => session().saveAsset(file),
+      // An image pending while the note is renamed or moved is saved again for its new place.
+      assetPlace: () => session().note?.id,
       onOpenLink,
     })
     scheme.addEventListener('change', () => instance.setTheme(pageTheme()), { signal })

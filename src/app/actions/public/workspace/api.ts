@@ -80,10 +80,12 @@ export interface NoteSaveInput {
   frontmatter?: Record<string, JsonValue>
 }
 
-/** A client's note read and save calls (all `NoteSession` uses); `createClient` types its own with these. */
+/** A client's note calls (all `NoteSession` uses: reads, saves, image uploads); `createClient` types its own with these. */
 export interface NoteApi {
   readNote: (id: string) => Promise<NoteDocument>
   saveNote: (input: NoteSaveInput) => Promise<NoteDocument>
+  /** Stores an image next to note `noteId`; `href` is the link to it, relative to the note. */
+  uploadAsset: (noteId: string, file: File) => Promise<{ href: string }>
 }
 
 function withQuery(href: string, params: Record<string, string>): string {
@@ -118,6 +120,14 @@ export function createClient(transport: Transport) {
 
   const readNote: NoteApi['readNote'] = (id) => request(withQuery(api.noteRead.href(), { id }))
   const saveNote: NoteApi['saveNote'] = (input) => post(api.noteSave.href(), input)
+  const uploadAsset: NoteApi['uploadAsset'] = (noteId, file) => {
+    const ext = /\.([a-z0-9]+)$/i.exec(file.name)?.[1] ?? file.type.split('/')[1]?.replace(/\+.*$/, '') ?? 'bin'
+    return request<{ href: string }>(withQuery(api.assetUpload.href(), { note: noteId, ext }), {
+      method: 'POST',
+      headers: { 'Content-Type': file.type || 'application/octet-stream' },
+      body: file,
+    })
+  }
 
   return {
     workspace: () => request<WorkspaceData>(api.workspace.href()),
@@ -151,14 +161,7 @@ export function createClient(transport: Transport) {
     restore: (id: string) => post<{ id: string } & AssetsLeftBehind>(api.trashRestore.href(), { id }),
     emptyTrash: () => post<unknown>(api.trashEmpty.href()),
 
-    uploadAsset: (noteId: string, file: File) => {
-      const ext = /\.([a-z0-9]+)$/i.exec(file.name)?.[1] ?? file.type.split('/')[1]?.replace(/\+.*$/, '') ?? 'bin'
-      return request<{ href: string }>(withQuery(api.assetUpload.href(), { note: noteId, ext }), {
-        method: 'POST',
-        headers: { 'Content-Type': file.type || 'application/octet-stream' },
-        body: file,
-      })
-    },
+    uploadAsset,
 
     importCandidates: () => request<ImportCandidate[]>(api.importCandidates.href()),
     pickImportFolder: (purpose: 'source' | 'target') =>
