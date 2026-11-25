@@ -120,8 +120,8 @@ describe('inline date/time slash commands', () => {
   })
 
   it('does not open inside code, math or links', () => {
-    expect(complete('`/date‸`')).toBeNull()
-    expect(complete('$/time‸$')).toBeNull()
-    expect(complete('[x](/datetime‸)')).toBeNull()
+    expect(complete('`a /date‸`')).toBeNull()
+    expect(complete('$a /time‸$')).toBeNull()
+    expect(complete('[a /datetime‸](u)')).toBeNull()
   })
 })
