@@ -243,6 +243,22 @@ describe('vault notes', () => {
     expect(await read('archive/Other.assets/a.png')).toBe('A')
   })
 
+  it('gives a second trashed .mdx note and a restore over a new .mdx note their own " 2" slots', async () => {
+    await put('doc.mdx', 'first')
+    vault = await openVault(root)
+    const first = await vault.deleteNote('doc.mdx')
+    await put('doc.mdx', 'second')
+    await vault.refresh()
+    const second = await vault.deleteNote('doc.mdx')
+    expect([first.id, second.id]).toEqual(['doc.mdx', 'doc 2.mdx'])
+    expect(await read('.trash/doc.mdx')).toBe('first')
+    await put('doc.mdx', 'third')
+    await vault.refresh()
+    expect(await vault.restore(first.id)).toEqual({ id: 'doc 2.mdx', kind: 'note' })
+    expect(await read('doc.mdx')).toBe('third')
+    expect(await read('doc 2.mdx')).toBe('first')
+  })
+
   it('keeps a note’s own extension on rename, stripping a note extension from the name', async () => {
     await put('doc.mdx', 'x')
     await put('plain.md', 'y')
