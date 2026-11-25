@@ -2,6 +2,7 @@ import { cp, mkdir, mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/p
 import { tmpdir } from 'node:os'
 import * as path from 'node:path'
 import { test as base, type ElectronApplication, _electron as electron, type Page } from '@playwright/test'
+import type { Menu } from 'electron'
 
 import type { Settings, UiPatch, UiPreferences } from '../../src/main/settings.ts'
 
@@ -270,6 +271,45 @@ export async function holdRequests(page: Page, pathname: string): Promise<HeldRe
   return {
     held: () => page.evaluate(() => window.heldRequests?.held ?? 0),
     release: () => page.evaluate(() => window.heldRequests?.release()),
+  }
+}
+
+/** Main-process state of `captureContextMenus`: each menu `Menu.prototype.popup` was called on. */
+type MenuCapture = { poppedMenus?: Menu[] }
+
+/** Controls of the native menus `captureContextMenus` captures. */
+export interface CapturedMenus {
+  /** The item labels of each menu popped up since the capture began, `---` for a separator. */
+  labels(): Promise<string[][]>
+  /** Clicks the item labelled `label` in the last menu popped up, as choosing it in the menu does. */
+  click(label: string): Promise<void>
+}
+
+/**
+ * Replaces `Menu.prototype.popup` in main, so native menus (the editable-field context menu) are
+ * recorded instead of shown; Playwright cannot drive a native menu.
+ */
+export async function captureContextMenus(electronApp: ElectronApplication): Promise<CapturedMenus> {
+  await electronApp.evaluate(({ Menu }) => {
+    const popped: Menu[] = []
+    ;(globalThis as MenuCapture).poppedMenus = popped
+    Menu.prototype.popup = function popup(this: Menu) {
+      popped.push(this)
+    }
+  })
+  return {
+    labels: () =>
+      electronApp.evaluate(() =>
+        ((globalThis as MenuCapture).poppedMenus ?? []).map((menu) =>
+          menu.items.map((item) => (item.type === 'separator' ? '---' : item.label)),
+        ),
+      ),
+    click: (label) =>
+      electronApp.evaluate((_electron, itemLabel) => {
+        const item = (globalThis as MenuCapture).poppedMenus?.at(-1)?.items.find((i) => i.label === itemLabel)
+        if (!item) throw new Error(`No popped-up menu item ${itemLabel}`)
+        item.click()
+      }, label),
   }
 }
 
