@@ -121,6 +121,7 @@ describe('/api/scratch', () => {
     `../${'a'.repeat(32)}`,
     'A'.repeat(32),
     'a'.repeat(33),
+    '',
     '0123456789abcdef0123456789abcdef', // well-formed, no file
   ])('answers 404 for read, write and discard of %j and touches nothing', async (id) => {
     const outside = path.join(app.dir, 'userData', 'x.md')
