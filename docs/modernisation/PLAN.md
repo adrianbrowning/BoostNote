@@ -442,7 +442,7 @@ delivers files through `open-file` (also before `ready`), Windows/Linux through 
 or `second-instance` argv. Main queues the file (`VaultSession.requestOpen`) and pushes SSE
 `open-request`; the workspace takes requests (`POST /api/open-request`) until the queue is empty,
 after hydrating and on that event. `takeOpenRequest` resolves the file's real path and drops files
-that are gone or not `.md` (any case). A file inside the open vault, else inside a recent vault
+that are gone or are no note file (`.md` in any case, or lowercase `.mdx`). A file inside the open vault, else inside a recent vault
 (roots compared as real paths), is that vault's note (`work/plan.md` for a subfolder): the workspace
 saves the open note, switches vaults when needed, and opens the note in a new tab (or its existing
 tab). Any other file (outside every known vault, in a hidden or `*.assets` folder of one, or named
@@ -589,10 +589,11 @@ The file name **is** the note's name (as in Obsidian/Hubble); the first `# H1` i
   so renames can refuse it). Names are unique per folder ignoring case, with ` 2`, ` 3`, …
   (also for moves, trash slots and restores). `createNote` makes `Untitled.md`, `Untitled 2.md`, … with an
   empty body. Link paths encode space, `#`, `%`, `(`, `)`, `<`, `>`.
-- **Extension case:** a note file ends in `.md` of any case (`splitNoteExtension` / `noteStem`,
-  `src/shared/vault-ids.ts`). New notes get `.md`; rename, title renames, moves, trash, restore and
+- **Extension case:** a note file ends in `.md` of any case or in lowercase `.mdx` (`isNoteFileName`,
+  `splitNoteExtension` / `noteStem`, `src/shared/vault-ids.ts`); `.MDX` and `.Mdx` files are no notes. New notes get `.md`; rename, title renames, moves, trash, restore and
   HTML export (`Plan.MD` → `Plan.html`) follow the note's own extension (`Plan.MD` renamed to Roadmap is `Roadmap.MD`, its `Plan.assets`
-  follows), and a typed `.md` of any case is dropped from a new name. `x.md` and `x.MD` count as the
+  follows), and a typed `.md` of any case or `.mdx` is dropped from a new name, so a rename never switches a note
+  between `.md` and `.mdx` (`doc.mdx` renamed to `Other.mdx` is `Other.mdx`; `doc.md` renamed to `x.mdx` is `x.md`). `x.md` and `x.MD` count as the
   same name. Two notes that differ only in extension case (`a.md` beside `a.MD`, on case-sensitive
   file systems) share `a.assets`: trashing, renaming or moving one leaves the folder for the other
   and the result says so (`assetsLeftBehind: 'work/a.assets'`, kept in the trash entry so `restore`

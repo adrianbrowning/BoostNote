@@ -168,7 +168,7 @@ export function normalizeFolder(folder: string): string {
 }
 
 /**
- * The note id `input` names: an exact id (with or without `.md`, in any case), else a bare name matching one
+ * The note id `input` names: an exact id (with or without its `.md` in any case or `.mdx`), else a bare name matching one
  * note's file name or title (exactly, then ignoring case). Several matches is an error listing them.
  */
 export async function resolveNoteId(vault: Vault, input: string): Promise<string> {

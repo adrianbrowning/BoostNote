@@ -182,7 +182,11 @@ export function createMcpServer(vault: Vault): McpServer {
       title: 'Rename a note',
       description:
         "Rename a note's file (its name); its assets follow and links to it in other notes are updated unless updateLinks is false. Reports how many links changed.",
-      inputSchema: { id, name: z.string().min(1).describe('New name, without .md'), updateLinks },
+      inputSchema: {
+        id,
+        name: z.string().min(1).describe('New name, without .md or .mdx (the note keeps its extension)'),
+        updateLinks,
+      },
       annotations: additive,
     },
     ({ id, name, updateLinks }) => respond(() => renameNote(vault, id, name, { updateLinks })),

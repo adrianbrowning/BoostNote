@@ -11,7 +11,7 @@ describe('markdownFilesIn', () => {
   beforeEach(async () => {
     cwd = await mkdtemp(path.join(tmpdir(), 'argv-'))
     await mkdir(path.join(cwd, 'dir.md'))
-    for (const name of ['Plan.MD', 'b.Md', 'c.md', 'd.mdx', 'e.markdown', '.md']) {
+    for (const name of ['Plan.MD', 'b.Md', 'c.md', 'd.mdx', 'f.MDX', 'e.markdown', '.md']) {
       await writeFile(path.join(cwd, name), '# x\n')
     }
   })
@@ -28,6 +28,7 @@ describe('markdownFilesIn', () => {
       'b.Md',
       path.join(cwd, 'c.md'),
       'd.mdx',
+      'f.MDX',
       'e.markdown',
       '.md',
       'dir.md',
@@ -37,6 +38,7 @@ describe('markdownFilesIn', () => {
       path.join(cwd, 'Plan.MD'),
       path.join(cwd, 'b.Md'),
       path.join(cwd, 'c.md'),
+      path.join(cwd, 'd.mdx'),
     ])
   })
 })

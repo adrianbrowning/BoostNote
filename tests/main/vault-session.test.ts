@@ -348,11 +348,14 @@ describe('VaultSession', () => {
         expect(await session.takeOpenRequest()).toEqual({ kind: 'note', vault: vault.root, id: 'NOTES.MD' })
         expect(await session.takeOpenRequest()).toBeUndefined()
       }
-      // `.mdx` and `.markdown` files are not notes and are dropped.
+      // A lowercase `.mdx` is a note of its vault; `.MDX` and `.markdown` files are not notes and are dropped.
       await writeFile(path.join(vault.root, 'a.mdx'), '# x\n')
+      await writeFile(path.join(vault.root, 'c.MDX'), '# x\n')
       await writeFile(path.join(vault.root, 'b.markdown'), '# x\n')
-      session.requestOpen(path.join(vault.root, 'a.mdx'))
+      session.requestOpen(path.join(vault.root, 'c.MDX'))
       session.requestOpen(path.join(vault.root, 'b.markdown'))
+      session.requestOpen(path.join(vault.root, 'a.mdx'))
+      expect(await session.takeOpenRequest()).toEqual({ kind: 'note', vault: vault.root, id: 'a.mdx' })
       expect(await session.takeOpenRequest()).toBeUndefined()
       expect(session.current?.root).toBe(vault.root)
       await session.dispose()
