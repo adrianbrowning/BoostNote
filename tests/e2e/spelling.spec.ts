@@ -36,31 +36,34 @@ test('a spelling suggestion from the native menu replaces the word, is saved and
   await page.keyboard.type('\nThe wrod is here. ')
   await expect.poll(() => readFile(file, 'utf8'), { timeout: 10_000 }).toContain('\nThe wrod is here.')
 
-  // Marking runs after the typing, so right-click until the menu leads with a suggestion (Cut first
-  // means Chromium marked no word).
+  // Marking runs after the typing, so right-click until a menu pops up that does not lead with Cut
+  // (an editable-field menu without spelling items: Chromium marked no word yet).
   const word = await wordCentre(page, 'wrod')
-  let suggestion: string | undefined
+  // The first item of the last menu popped up, read after a right-click; undefined while one runs.
+  let first: string | undefined
   try {
     await expect
       .poll(
         async () => {
+          first = undefined
           await page.mouse.click(word.x, word.y, { button: 'right' })
-          const first = (await menus.labels()).at(-1)?.[0]
-          suggestion = first === 'Cut' || first === 'No suggestions' ? undefined : first
-          return suggestion
+          first = (await menus.labels()).at(-1)?.[0]
+          return first !== undefined && first !== 'Cut'
         },
         { timeout: 10_000 },
       )
-      .toBeDefined()
+      .toBe(true)
   } catch (error) {
-    // macOS always has the system checker; elsewhere Chromium may have no dictionary to mark with.
+    // Skip only on a seen menu without spelling items: macOS always has the system checker, elsewhere
+    // Chromium may have no dictionary to mark with. Any other failure fails the test.
     test.skip(
-      process.platform !== 'darwin',
+      process.platform !== 'darwin' && first === 'Cut',
       `Chromium marks no misspelled word on ${process.platform}: no spellcheck dictionary (manual check in PLAN.md)`,
     )
     throw error
   }
-  if (suggestion === undefined) throw new Error('unreachable: the poll above found a suggestion')
+  if (first === undefined || first === 'No suggestions') throw new Error(`no spelling suggestion: ${first}`)
+  const suggestion = first
 
   await menus.click(suggestion)
   await expect(editor(page)).toContainText(`The ${suggestion} is here.`)
