@@ -63,7 +63,7 @@ export function imageMarkdown(fileName: string, path: string): string {
 const addPending = StateEffect.define<{ id: number; pos: number }>()
 const removePending = StateEffect.define<number>()
 
-/** Insertion points of images still being saved, mapped through edits made meanwhile. */
+/** Pending insertion points (images being picked or saved, a /table size being picked), mapped through edits made meanwhile. */
 const pendingImages = StateField.define<ReadonlyMap<number, number>>({
   create: () => new Map(),
   update(pending, tr) {
@@ -98,7 +98,7 @@ const wakeWhenEditable = EditorView.updateListener.of((update) => {
   for (const wake of waiters) wake()
 })
 
-/** Where a pending image goes (`trackInsertion`). */
+/** Where a pending insertion goes (`trackInsertion`): a pasted/dropped or /image image, or a /table grid. */
 export interface PendingInsertion {
   at(): number | undefined
   whenEditable(): Promise<number | undefined>
@@ -106,7 +106,7 @@ export interface PendingInsertion {
 }
 
 /**
- * Tracks `pos` while an image is picked or saved, through edits made meanwhile. `at()` is where it is now, or
+ * Tracks `pos` while an image is picked or saved or a /table size is picked, through edits made meanwhile. `at()` is where it is now, or
  * `undefined` once the document was replaced (another note): then nothing is saved or inserted. While the editor
  * is read-only (a transition holds the note) `whenEditable()` waits until it takes edits again, then gives `at()`.
  * `done()` stops tracking.
