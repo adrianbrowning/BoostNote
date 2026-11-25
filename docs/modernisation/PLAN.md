@@ -603,7 +603,11 @@ The file name **is** the note's name (as in Obsidian/Hubble); the first `# H1` i
   follows), and a typed `.md` of any case or `.mdx` is dropped from a new name, so a rename never switches a note
   between `.md` and `.mdx` (`doc.mdx` renamed to `Other.mdx` is `Other.mdx`; `doc.md` renamed to `x.mdx` is `x.md`). `x.md` and `x.MD` count as the
   same name. Two notes whose stems are equal by `nameKey` while their extensions differ (stem twins: `a.md`
-  beside `a.MD` on case-sensitive file systems, or `a.md` beside `a.mdx` anywhere) share `a.assets`:
+  beside `a.MD` on case-sensitive file systems, or `a.md` beside `a.mdx` anywhere) share an assets folder only
+  when their `<stem>.assets` paths are one directory: always for identical stems (`a.md` beside `a.mdx` or
+  `a.MD`), and for stems that differ only in letter case or Unicode normalization (`a.md` beside `A.mdx`) only
+  on a case-insensitive or normalizing file system; on a case-sensitive disk each keeps its own
+  `a.assets` / `A.assets`, which moves with it. When shared,
   trashing, renaming or moving one leaves the folder for the other and the result says so
   (`assetsLeftBehind: 'work/a.assets'`, kept in the trash entry so `restore` says it too, while the
   folder still exists); rename, move and restore keep the note's links on the folder's real place.

@@ -8,7 +8,11 @@
  * lowercase `.md`. Two notes in one folder whose stems are equal ignoring letter case and Unicode normalization while their note extensions differ
  * (stem twins: `a.md` and `a.MD`, possible on case-sensitive filesystems, or `a.md` and `a.mdx`,
  * possible anywhere) share the stem `a`: a new, moved, restored or imported note skips a stem either
- * extension (or its `.assets` folder) takes. Stem twins share the asset folder `a.assets`; this is an
+ * extension (or its `.assets` folder) takes. Stem twins share the asset folder only when their
+ * `<stem>.assets` paths are one directory: always for identical stems (`a.md` beside `a.mdx` or
+ * `a.MD`), and for stems that differ only in letter case or Unicode normalization (`a.md` beside
+ * `A.mdx`) only on a case-insensitive or normalizing file system; on a case-sensitive disk each keeps
+ * its own `a.assets` / `A.assets`, which moves with it. A shared folder is an
  * accepted limit (trashing, renaming or moving one leaves the folder for the other). The
  * check only sees twins present now: once one twin has been renamed, moved or trashed away from the
  * shared folder, a later rename, move or trash of the remaining twin carries the folder, and the
