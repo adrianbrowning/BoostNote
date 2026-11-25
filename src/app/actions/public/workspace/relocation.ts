@@ -287,9 +287,10 @@ export class Relocation {
    * The open note `id` takes the vault's document there (`NoteSession.relocated`). Resolves with the read's error
    * message when it failed: the note then keeps the hash and text it had, so its next save conflicts (instead of
    * overwriting) when the vault changed its text meanwhile. Nothing is taken, nor a failure reported, once the note
-   * is no longer open there (another note opened, another relocation moved it again, or another vault shows), or a
-   * later read of the note (a live reload's too) or a document it took replaced it (`NoteSession.readTicket`): this
-   * read may be older than that one.
+   * is no longer open there (another note opened, another relocation moved it again, or another vault shows), or
+   * once a later read of the note started (a live reload's too) or the note took a document since this one
+   * (`NoteSession.readTicket`): this read may be older than that one's, so it is dropped even when the later read
+   * fails.
    */
   async #reread(id: string): Promise<string | undefined> {
     const current = this.#navigation.token()

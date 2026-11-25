@@ -55,10 +55,15 @@ describe('docChanges', () => {
     }
     const text = (alphabet: string) =>
       Array.from({ length: Math.floor(random() * 14) }, () => alphabet[Math.floor(random() * alphabet.length)]).join('')
+    // 1-5 lines of 1-6 characters each: no empty line, so every common line has characters a change must leave alone.
+    const lines = () =>
+      Array.from({ length: 1 + Math.floor(random() * 5) }, () =>
+        Array.from({ length: 1 + Math.floor(random() * 6) }, () => (random() < 0.5 ? 'a' : 'b')).join(''),
+      ).join('\n')
     for (let n = 0; n < 3000; n++) {
       // A pair of single lines is diffed character by character, with the fewest edits. With newlines, lines are
-      // matched first, which can cost more characters than the fewest but keeps every line of a longest common run
-      // of lines whole.
+      // matched first, which can cost more characters than the fewest but keeps whole at least as many lines as the
+      // longest common subsequence of the two documents' lines.
       const alphabet = n % 2 === 0 ? 'ab' : 'ab\n'
       const from = text(alphabet)
       const to = text(alphabet)
@@ -68,6 +73,14 @@ describe('docChanges', () => {
         expect(edits(changes)).toBe(from.length + to.length - 2 * commonLength(from, to))
       }
       expect(untouchedLines(from, changes)).toBeGreaterThanOrEqual(commonLength(from.split('\n'), to.split('\n')))
+      // An empty line always counts as untouched (no change can delete a character of it): these pairs have none.
+      const fromLines = lines()
+      const toLines = lines()
+      const lineChanges = docChanges(fromLines, toLines)
+      expect(apply(fromLines, lineChanges)).toBe(toLines)
+      expect(untouchedLines(fromLines, lineChanges)).toBeGreaterThanOrEqual(
+        commonLength(fromLines.split('\n'), toLines.split('\n')),
+      )
     }
   })
 

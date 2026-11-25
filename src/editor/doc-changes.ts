@@ -7,16 +7,17 @@ export interface DocChange {
 
 /**
  * Most characters (or lines) one pass of the diff inserts and deletes together. A pass that needs more keeps the
- * path that got furthest and diffs the rest in another pass, so a pass costs at most this squared plus the text it
- * walks, and no unchanged text ends up inside a replaced span (within `DIFF_ROUNDS`).
+ * path that got furthest and diffs the rest in another pass, so a pass visits at most about this squared diagonals,
+ * plus the matching text they walk, and no unchanged text ends up inside a replaced span (within `DIFF_ROUNDS`).
  */
 const MAX_EDITS = 1024
 
 /**
  * Most diff rounds (one line or character inserted or deleted each) one `docChanges` call runs, its line and
- * character passes together, so adopting a very different or many-line outside edit costs at most about this times
- * `MAX_EDITS` steps. Once they are spent, the lines not yet diffed become one run, and each run not yet diffed
- * character by character becomes one change (without its common start and end).
+ * character passes together, so adopting a very different or many-line outside edit visits at most about this times
+ * `MAX_EDITS` diagonals. The bound covers the rounds only: the matching text each diagonal walks comes on top (each
+ * diagonal walks any stretch of the text at most once). Once the rounds are spent, the lines not yet diffed become
+ * one run, and each run not yet diffed character by character becomes one change (without its common start and end).
  */
 export const DIFF_ROUNDS = 4 * MAX_EDITS
 

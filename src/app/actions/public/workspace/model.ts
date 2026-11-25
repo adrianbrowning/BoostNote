@@ -180,8 +180,13 @@ export class WorkspaceModel extends TypedEventTarget<{
   #openRequests: Promise<void> = Promise.resolve()
   /** An "Update links?" question waiting for the dialog over it to close (`#showDialog`). */
   #parked: Dialog | null = null
-  /** Counts the list refreshes started (`refresh`): only the latest one's lists show. */
+  /** Counts the requests that return the lists (`refresh`, `#snapshot`), in the order they started. */
   #refreshes = 0
+  /**
+   * The `#refreshes` count of the latest-started request whose lists showed: refreshes started before it are
+   * dropped when they return.
+   */
+  #listsShown = 0
 
   constructor(initial: WorkspaceData, preferences: PreferencesState, { api, store }: WorkspaceOptions) {
     super()
@@ -443,7 +448,7 @@ export class WorkspaceModel extends TypedEventTarget<{
         })
         if (folder === null || !(await this.navigation.leave())) return
         await this.attempt(async () => {
-          const { report, workspace } = await this.#api.importReader(tab.ticket, folder)
+          const { report, workspace } = await this.#snapshot(() => this.#api.importReader(tab.ticket, folder))
           this.#showData(workspace)
           await this.#reportImport(report, folder, (id) => this.navigation.readerImported(key, id))
         })
@@ -485,6 +490,19 @@ export class WorkspaceModel extends TypedEventTarget<{
    */
   saveNow(): Promise<boolean> {
     return this.#saving.saveNow()
+  }
+
+  /**
+   * Saves an image pasted, dropped or picked into the open note (`NoteSession.saveAsset`). A failure is shown as an
+   * error notice and rejects too, so the editor inserts no link.
+   */
+  async saveAsset(file: File): Promise<string> {
+    try {
+      return await this.session.saveAsset(file)
+    } catch (error) {
+      this.fail(error)
+      throw error
+    }
   }
 
   /** Conflict bar "Retry" (a save that failed). */
@@ -935,7 +953,7 @@ export class WorkspaceModel extends TypedEventTarget<{
     if (!root) return
     if (root !== this.data.vault?.root) {
       await this.attempt(async () => {
-        this.data = await this.#api.closeVault(root)
+        this.data = await this.#snapshot(() => this.#api.closeVault(root))
         this.changed()
       })
       return
@@ -950,7 +968,7 @@ export class WorkspaceModel extends TypedEventTarget<{
 
   async forgetVault(path: string): Promise<void> {
     await this.attempt(async () => {
-      this.data = await this.#api.forgetVault(path)
+      this.data = await this.#snapshot(() => this.#api.forgetVault(path))
       this.changed()
     })
   }
@@ -980,15 +998,29 @@ export class WorkspaceModel extends TypedEventTarget<{
 
   /**
    * Re-reads the lists (after a mutation, or when the vault changed on disk). Lists that return once another vault
-   * shows are dropped: they are the vault left's; so are lists that return once a later refresh started: they may
-   * be older than its (an earlier relocation's refresh returning after a later one's).
+   * shows are dropped: they are the vault left's; so are lists that return once the lists of a request started
+   * after this one showed (a later refresh, a reader import, a vault closed or forgotten: `#snapshot`): they may be
+   * older than those. A later refresh that fails drops nothing, so this one's lists still show.
    */
   async refresh(): Promise<void> {
     clearTimeout(this.#refreshTimer)
     const sameVault = this.navigation.vaultToken()
     const at = ++this.#refreshes
     const data = await this.#api.workspace()
-    if (sameVault() && at === this.#refreshes) this.#showData(data)
+    if (!sameVault() || at < this.#listsShown) return
+    this.#listsShown = at
+    this.#showData(data)
+  }
+
+  /**
+   * Runs `request`, which returns lists the caller shows at once: refreshes started before it are dropped when they
+   * return after it (`refresh`).
+   */
+  async #snapshot<T>(request: () => Promise<T>): Promise<T> {
+    const at = ++this.#refreshes
+    const result = await request()
+    this.#listsShown = Math.max(this.#listsShown, at)
+    return result
   }
 
   /** Shows the open vault's lists as `data` has them (same vault): selection and tabs follow. */

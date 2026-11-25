@@ -1,4 +1,4 @@
-import { readFile, realpath } from 'node:fs/promises'
+import { readFile, realpath, rm } from 'node:fs/promises'
 import * as path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import type { Client } from '../../src/app/actions/public/workspace/api.ts'
@@ -242,6 +242,51 @@ describe('WorkspaceModel operations that change the open note after a request', 
     ])
   })
 
+  it('shows an earlier relocation’s lists when a later refresh fails before they return', async () => {
+    let first = true
+    net.hold(
+      (url) => {
+        if (url.pathname !== '/api/workspace' || !first) return undefined
+        first = false
+        return 'refresh'
+      },
+      { answered: true },
+    )
+    const moving = workspace.moveNote('meeting.md', 'g')
+    await expect.poll(() => net.held.length).toBe(1)
+    net.fail = (url) => url.pathname === '/api/workspace'
+    await expect(workspace.refresh()).rejects.toThrow('Disk full')
+    net.fail = null
+    net.held[0]?.release()
+    await moving
+    const ids = workspace.data.notes.map((note) => note.id)
+    expect(ids).toContain('g/meeting.md')
+    expect(ids).not.toContain('meeting.md')
+  })
+
+  it('keeps a reader file added to the vault, and its tab, when a refresh started before the import returns after it', async () => {
+    const outside = path.join(await folderWith(app, 'outside', { 'outside.md': '# Outside\n' }), 'outside.md')
+    const ticket = await app.vaults.readers.grant(await realpath(outside))
+    if (ticket === undefined) throw new Error('No reader ticket for outside.md')
+    await workspace.navigation.openReader(ticket, 'outside.md')
+    const key = workspace.tabs.active?.key
+    if (key === undefined) throw new Error('No reader tab')
+    net.hold(onPath('/api/workspace'), { answered: true })
+    const refreshing = workspace.refresh()
+    await expect.poll(() => net.held.length).toBe(1)
+    net.hold(null)
+    const adding = workspace.addReaderToVault(key)
+    await expect.poll(() => workspace.dialog?.kind).toBe('choose')
+    const dialog = workspace.dialog
+    if (dialog?.kind === 'choose') dialog.resolve('')
+    await adding
+    expect(workspace.tabs.active).toMatchObject({ kind: 'note', path: 'outside.md' })
+    net.held[0]?.release()
+    await refreshing
+    expect(workspace.data.notes.map((note) => note.id)).toContain('outside.md')
+    expect(workspace.tabs.active).toMatchObject({ kind: 'note', path: 'outside.md' })
+  })
+
   it('keeps the selected folder and the expanded folders, at their new place, when a folder moves', async () => {
     await api.createFolder('f', 's')
     await workspace.refresh()
@@ -251,6 +296,16 @@ describe('WorkspaceModel operations that change the open note after a request', 
     await workspace.moveFolder('f', 'g')
     expect(workspace.selection).toEqual({ kind: 'folder', id: 'g/f' })
     expect([...workspace.expanded].sort()).toEqual(['g/f', 'g/f/s'])
+  })
+
+  it('shows why an image could not be saved into the open note as an error notice, and still refuses it', async () => {
+    await workspace.openNote('meeting.md')
+    await rm(path.join(app.dir, 'vault', 'meeting.md'))
+    workspace.session.externalRemoval()
+    const image = new File([new Uint8Array([1, 2, 3])], 'p.png', { type: 'image/png' })
+    const text = 'Save your copy of the note first, then add the image'
+    await expect(workspace.saveAsset(image)).rejects.toThrow(text)
+    expect(workspace.notice).toEqual({ kind: 'error', text })
   })
 })
 

@@ -175,6 +175,33 @@ describe('Relocation: the open note after it moved', () => {
     expect(navigation.tabs.active).toMatchObject({ kind: 'note', path: 'k/h/g/x.md' })
     expect(notices).toEqual([])
   })
+
+  it('keeps the open note at its new place when a live reload’s read of its old place returns 404 after the folder moved', async () => {
+    await writeFile(path.join(vault, 'g/z.md'), '# Z\n')
+    data = await api.workspace()
+    await navigation.open('g/x.md')
+    net.fail = (url) => url.searchParams.get('id') === 'g/z.md'
+    await navigation.open('g/z.md', { newTab: true })
+    net.fail = null
+    // An outside edit: the live reload's read of g/x.md (held[0]) is out when g moves; the move's load of the active
+    // tab at h/g/z.md (held[1]) is out after the open note followed to h/g/x.md.
+    await writeFile(path.join(vault, 'g/x.md'), '# X, edited\n\n[b](../b.md)\n')
+    net.hold((url) => {
+      const id = url.searchParams.get('id')
+      return url.pathname === '/api/notes/read' && (id === 'g/x.md' || id === 'h/g/z.md') ? id : undefined
+    })
+    const reloading = session.externalChange()
+    await expect.poll(() => net.held.length).toBe(1)
+    const moving = relocation.moveFolder('g', 'h')
+    await expect.poll(() => net.held.length).toBe(2)
+    expect(session.note?.id).toBe('h/g/x.md')
+    net.held[0]?.release()
+    await reloading
+    net.held[1]?.release('Disk full')
+    await moving
+    expect(session.state).not.toBe('removed')
+    expect(session.note).toMatchObject({ id: 'h/g/x.md', body: '# X, edited\n\n[b](../../b.md)\n' })
+  })
 })
 
 describe('Relocation: link questions', () => {

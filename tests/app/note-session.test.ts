@@ -1,4 +1,4 @@
-import { access, readFile, writeFile } from 'node:fs/promises'
+import { access, readFile, rm, writeFile } from 'node:fs/promises'
 import * as path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createClient, type NoteApi } from '../../src/app/actions/public/workspace/api.ts'
@@ -392,5 +392,13 @@ describe('NoteSession.saveAsset', () => {
     session.close()
     net.held[0]?.release()
     await expect(saving).rejects.toThrow('No note is open')
+  })
+
+  it('refuses with a notice-ready message while the note is removed, writing no assets folder', async () => {
+    const note = await openNote('start\n')
+    await rm(path.join(vault.root, note.id))
+    session.externalRemoval()
+    await expect(session.saveAsset(image())).rejects.toThrow('Save your copy of the note first, then add the image')
+    await expect(access(path.join(vault.root, `${note.id.replace(/\.md$/, '')}.assets`))).rejects.toThrow()
   })
 })

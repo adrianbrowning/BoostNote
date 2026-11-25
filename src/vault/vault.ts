@@ -835,8 +835,9 @@ export class Vault {
   /**
    * Stores `bytes` as `<stem>.assets/<sha256-12>.<ext>` next to the note (identical content is
    * stored once) and returns the link to insert, relative to the note: `./<stem>.assets/<file>`.
-   * `NOT_FOUND`, writing nothing, when the note does not exist (it was renamed or moved meanwhile):
-   * no assets folder, nor the note's folder, is made where it no longer is.
+   * `NOT_FOUND`, writing nothing, when the note does not exist (it was renamed or moved meanwhile, or
+   * deleted or moved outside the app): no assets folder, nor the note's folder, is made where it no
+   * longer is.
    */
   saveAsset(noteId: string, bytes: Uint8Array, ext: string): Promise<string> {
     return this.#exclusive(async () => {

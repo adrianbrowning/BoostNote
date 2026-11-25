@@ -175,7 +175,8 @@ export interface HeldClient {
   client: Client
   /**
    * Requests that `match` names (by the id it returns; `undefined`: not held) wait in `held` until released.
-   * With `answered`, the router answers them first and the answer waits (it returns late, as it was then).
+   * With `answered`, the router answers them at once and the response is held until released, so it returns late with
+   * the vault as it was when the request came.
    * `null` holds none from now on; requests already held stay in `held`.
    */
   hold(match: ((url: URL) => string | undefined) | null, options?: { answered?: boolean }): void
