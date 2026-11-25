@@ -339,7 +339,7 @@ SSR props carry `{ ui, hotkeyRegistered }`.
 | `tableWidth` (`line` default, `full`, or 400–2000 px) | `--table-max-width` on the workspace root: the line width for `line`, `none` for `full`, the larger of the px value and the line width for px, `none` whenever `lineWidth` is `0`. Top-level tables in the reader pane and the live preview use it instead of the line width (shrink-to-fit, centred, within the pane); tables in lists or blockquotes keep their container's width; export and print are unchanged |
 | `spellcheck` | `session.defaultSession.setSpellCheckerEnabled`; while on, right-clicking a misspelled word in an editable field lists spelling suggestions and "Add to Dictionary" in the native context menu (see "Menus and shortcuts") |
 | `confirmDelete` | ask before moving notes/folders to the Trash |
-| `outsideFile` (`reader` default, `vault`) | "Opening a .md outside a vault": Read only (reader tab) or Open its folder as vault (see "Opening `.md` files") |
+| `outsideFile` (`reader` default, `vault`) | "Opening a .md or .mdx outside a vault": Read only (reader tab) or Open its folder as vault (see "Opening `.md` files") |
 | `globalHotkey` (default `CommandOrControl+Shift+Space`; `''` = off) | recorded by key capture; main registers it with `globalShortcut.register` before storing it. If the OS refuses (another app has it) the route answers `409 HOTKEY_UNAVAILABLE`, the previous hotkey stays registered and nothing is stored. The hotkey hides the app when it is focused, else shows and focuses the window |
 | `panes` | sidebar/list widths, sidebar/list collapsed, properties open |
 
@@ -452,7 +452,7 @@ saves the open note, switches vaults when needed, and opens the note in a new ta
 tab). Any other file (outside every known vault, in a hidden or `*.assets` folder of one, or named
 so it can be no note: a dot-name) opens read-only in a **reader
 tab** and no vault is opened, so Recent and `lastVault` stay as they were. The preference "Opening a
-.md outside a vault" (`ui.outsideFile`: `reader`, the default, or `vault` = "Open its folder as
+.md or .mdx outside a vault" (`ui.outsideFile`: `reader`, the default, or `vault` = "Open its folder as
 vault") changes only that case: with `vault` the file is a note of its own folder opened as the
 vault, as before reader tabs existed, unless its name can be no note (a dot-name), which still
 opens read-only. A request made before the window exists is therefore not lost,

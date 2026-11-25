@@ -254,7 +254,7 @@ export function PreferencesDialog(handle: Handle<{ model: WorkspaceModel }>) {
           </label>
 
           <label mix={rowStyle}>
-            <span>Opening a .md outside a vault</span>
+            <span>Opening a .md or .mdx outside a vault</span>
             <select
               name="outsideFile"
               mix={[
