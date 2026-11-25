@@ -5,6 +5,7 @@ import * as path from 'node:path'
 import { type Client, createClient } from '../../src/app/actions/public/workspace/api.ts'
 import { DropGrants } from '../../src/app/drop-grants.ts'
 import { type AppRouter, createAppRouter } from '../../src/app/router.ts'
+import { ScratchStore } from '../../src/app/scratch-store.ts'
 import type { FolderPickerOptions, PreferenceServices, SaveFileOptions } from '../../src/app/services.ts'
 import { createEventHub, type EventHub } from '../../src/main/events.ts'
 import { SettingsStore, type UiPreferences } from '../../src/main/settings.ts'
@@ -21,6 +22,8 @@ export class TestApp {
   readonly events: EventHub = createEventHub()
   readonly settings: SettingsStore
   readonly vaults: VaultSession
+  /** `<dir>/userData/scratch`: the scratch notes' folder. */
+  readonly scratchDir: string
   readonly router: AppRouter
   /** Answers of the next folder pickers (`undefined` = cancelled). */
   readonly picks: Array<string | undefined> = []
@@ -59,6 +62,7 @@ export class TestApp {
     this.dir = dir
     this.settings = new SettingsStore(path.join(dir, 'userData', 'settings.json'))
     this.vaults = new VaultSession({ settings: this.settings, events: this.events, debounceMs: 20 })
+    this.scratchDir = path.join(dir, 'userData', 'scratch')
     const preferences = {
       registeredHotkey: undefined as string | undefined,
       apply: (ui: UiPreferences) => {
@@ -88,6 +92,7 @@ export class TestApp {
       },
       findLegacyStorages: async () => this.legacyStorages,
       drops: this.drops,
+      scratch: new ScratchStore(this.scratchDir),
       updates: this.updates,
       exports: {
         saveFile: async (options) => {

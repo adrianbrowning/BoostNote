@@ -17,6 +17,8 @@ import type {
   ReaderFolderResult,
   ReaderImportResult,
   SaveConflictBody,
+  ScratchNote,
+  ScratchSummary,
   TitleRename,
   TitleRenamePlan,
   TitleRenameReport,
@@ -188,6 +190,13 @@ export function createClient(transport: Transport) {
     /** Main imports the reader tab's file into `folder` of the open vault and revokes the ticket once a note came in. */
     importReader: (ticket: string, folder: string) =>
       post<ReaderImportResult>(api.readerImport.href({ ticket }), { folder }),
+
+    /** Scratch notes (outside every vault; they work with no vault open). */
+    listScratch: () => request<ScratchSummary[]>(api.scratchList.href()),
+    createScratch: () => post<ScratchNote>(api.scratchCreate.href()),
+    readScratch: (id: string) => request<ScratchNote>(withQuery(api.scratchRead.href(), { id })),
+    writeScratch: (id: string, text: string) => post<ScratchNote>(api.scratchWrite.href(), { id, text }),
+    discardScratch: (id: string) => post<unknown>(api.scratchDiscard.href(), { id }),
   }
 }
 

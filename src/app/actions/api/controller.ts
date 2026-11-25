@@ -433,6 +433,25 @@ export function createApiController(services: AppServices) {
         )
         return json(result, { status: 201 })
       }),
+
+      scratchList: guarded(async () => json(await services.scratch.list())),
+
+      scratchCreate: guarded(async () => json(await services.scratch.create(), { status: 201 })),
+
+      scratchRead: guarded(async ({ url }: { url: URL }) =>
+        json(await services.scratch.read(requireString(url.searchParams.get('id'), 'id'))),
+      ),
+
+      scratchWrite: guarded(async ({ request }: { request: Request }) => {
+        const body = await readJsonObject(request)
+        const id = requireString(body.id, 'id')
+        return json(await services.scratch.write(id, requireString(body.text, 'text', { allowEmpty: true })))
+      }),
+
+      scratchDiscard: guarded(async ({ request }: { request: Request }) => {
+        await services.scratch.discard(requireString((await readJsonObject(request)).id, 'id'))
+        return json({ ok: true })
+      }),
     },
   })
 }

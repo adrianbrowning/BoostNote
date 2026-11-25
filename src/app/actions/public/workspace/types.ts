@@ -108,6 +108,23 @@ export interface ReaderImportResult {
   workspace: WorkspaceData
 }
 
+/** A scratch note in the scratch list (`GET /api/scratch`): no text, never a path. */
+export interface ScratchSummary {
+  /** 32 lowercase hex characters. */
+  id: string
+  /** `scratchTitle` of its text and `created` (`src/shared/scratch.ts`). */
+  title: string
+  /** ISO-8601. */
+  created: string
+  /** ISO-8601; the file's last write. */
+  updated: string
+}
+
+/** `POST /api/scratch/create`, `GET /api/scratch/read?id=`, `POST /api/scratch/write`: a scratch note and its text as typed. */
+export interface ScratchNote extends ScratchSummary {
+  text: string
+}
+
 export interface FolderSummary {
   /** `''` for the vault root. */
   id: string
