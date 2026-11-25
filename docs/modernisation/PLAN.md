@@ -145,6 +145,12 @@ returns `{ view, setDoc(doc, { preserveSelection }), setReadOnly, setTheme, focu
   it removes the `/query` and inserts the block after the current top-level block (Hubble semantics).
   The inline commands `/date` (`YYYY-MM-DD`), `/time` (`HH:mm`) and `/datetime` (`YYYY-MM-DD HH:mm`) insert the
   current local time (24-hour, zero-padded) in place of the `/query` only, cursor after it, as one undoable edit.
+  `/table` removes the `/query` and opens a size grid at the cursor (dialog 'Table size', 1–10 columns × 1–10 body
+  rows, default 2 × 1, the size shown as a status such as '3 × 4'): hover or arrows (clamped, no wrap) move the
+  highlight, click or Enter inserts the table (`tableTemplate`: header `Column 1…N`, `---` separator, empty body
+  cells) by the rules above with the cursor in the first header cell, Esc or a click outside inserts nothing.
+  Picking and Esc return focus to the editor; like `/image`, the insert goes where the `/query` maps to after edits
+  made meanwhile (`trackInsertion`).
   Mod-B/I/E/Shift-X toggle `**`/`*`/`` ` ``/`~~`, Mod-K links, Enter continues lists/tasks/quotes and
   ends the list on an empty item, Tab/Shift-Tab nest list items by the sibling's marker width,
   `( [ { "` auto-close, `` ` * _ ~ `` wrap a selection, Mod-F search. Pasted/dropped images go

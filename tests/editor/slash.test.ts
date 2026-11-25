@@ -2,28 +2,35 @@ import { CompletionContext } from '@codemirror/autocomplete'
 import { describe, expect, it } from 'vitest'
 
 import {
+  type BlockTemplate,
   filterSlashCommands,
   formatSlashDateTime,
   slashCommands,
   slashCommandTransaction,
   slashCompletionSource,
   slashInlineTransaction,
+  tableTemplate,
 } from '../../src/editor/slash.ts'
 import { docWithSelection, markdownState } from './helpers.ts'
 
 const command = (id: string) => {
   const found = slashCommands.find((candidate) => candidate.id === id)
-  if (!found || found.template === 'image' || 'inline' in found.template) throw new Error(`no template command ${id}`)
+  if (!found || typeof found.template === 'string' || 'inline' in found.template) {
+    throw new Error(`no template command ${id}`)
+  }
   return found.template
 }
 
-/** Runs `/query` ending at the cursor through the slash command with `id`. */
-const run = (doc: string, id: string) => {
+/** Runs `/query` ending at the cursor through slashCommandTransaction with `block`. */
+const runBlock = (doc: string, block: BlockTemplate) => {
   const state = markdownState(doc)
   const to = state.selection.main.head
   const from = state.sliceDoc(0, to).lastIndexOf('/')
-  return docWithSelection(state.update(slashCommandTransaction(state, from, to, command(id))).state)
+  return docWithSelection(state.update(slashCommandTransaction(state, from, to, block)).state)
 }
+
+/** Runs `/query` ending at the cursor through the slash command with `id`. */
+const run = (doc: string, id: string) => runBlock(doc, command(id))
 
 const complete = (doc: string) => {
   const state = markdownState(doc)
@@ -43,7 +50,22 @@ describe('slash commands', () => {
     expect(run('Intro\n\n/h2‸\n\nOutro', 'h2')).toBe('Intro\n\n## ‸\n\nOutro')
     expect(run('/task‸', 'task')).toBe('- [ ] ‸')
     expect(run('/code‸', 'code')).toBe('```\n‸\n```')
-    expect(run('/table‸', 'table')).toBe('| ‸Column 1 | Column 2 |\n| --- | --- |\n|  |  |')
+    expect(runBlock('/table‸', tableTemplate(2, 1))).toBe('| ‸Column 1 | Column 2 |\n| --- | --- |\n|  |  |')
+  })
+
+  it('builds a table of the picked size: header cells Column 1…N, a separator, empty body rows', () => {
+    expect(tableTemplate(2, 1)).toEqual({ text: '| Column 1 | Column 2 |\n| --- | --- |\n|  |  |', cursor: 2 })
+    expect(tableTemplate(3, 4)).toEqual({
+      text: '| Column 1 | Column 2 | Column 3 |\n| --- | --- | --- |\n|  |  |  |\n|  |  |  |\n|  |  |  |\n|  |  |  |',
+      cursor: 2,
+    })
+    expect(tableTemplate(1, 1).text).toBe('| Column 1 |\n| --- |\n|  |')
+  })
+
+  it('places a table of the picked size after the current block when the line has other text', () => {
+    expect(runBlock('Intro /table‸\n\nNext', tableTemplate(1, 2))).toBe(
+      'Intro \n\n| ‸Column 1 |\n| --- |\n|  |\n|  |\n\nNext',
+    )
   })
 
   it('inserts a mermaid starter with the cursor on the diagram source', () => {
@@ -77,7 +99,8 @@ describe('inline date/time slash commands', () => {
     const to = state.selection.main.head
     const from = state.sliceDoc(0, to).lastIndexOf('/')
     const found = slashCommands.find((candidate) => candidate.id === id)
-    if (!found || found.template === 'image' || !('inline' in found.template)) throw new Error(`no inline ${id}`)
+    if (!found || typeof found.template === 'string' || !('inline' in found.template))
+      throw new Error(`no inline ${id}`)
     const spec = slashInlineTransaction(state, from, to, formatSlashDateTime(found.template.inline, now))
     expect(spec.userEvent).toBe('input.slash')
     return docWithSelection(state.update(spec).state)
