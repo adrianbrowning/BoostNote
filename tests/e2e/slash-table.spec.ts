@@ -152,6 +152,17 @@ test('in a narrow window the size grid is clamped so its right edge stays inside
     },
   })
   const box = await gridBox(page)
+  // Where the grid would open unclamped: the end of the prefix on the last line, where the cursor sits.
+  const cursorLeft = await page
+    .locator('[data-editor] .cm-line')
+    .last()
+    .evaluate((line) => {
+      const range = document.createRange()
+      range.selectNodeContents(line)
+      return range.getBoundingClientRect().right
+    })
+  expect(cursorLeft + (box.right - box.left)).toBeGreaterThan(box.width)
   expect(box.left).toBeGreaterThanOrEqual(0)
+  expect(box.left).toBeLessThan(cursorLeft)
   expect(box.right).toBeLessThanOrEqual(box.width)
 })
