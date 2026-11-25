@@ -15,6 +15,7 @@ export type MenuModel = Pick<
   | 'selectTab'
   | 'newNote'
   | 'newFolder'
+  | 'newScratchNote'
   | 'setTitleRenamesOpen'
   | 'revealNote'
   | 'reopenTab'
@@ -33,6 +34,7 @@ type MenuHandlers = {
 const HANDLERS = {
   'new-note': (model) => void model.newNote(),
   'new-folder': (model) => void model.newFolder(),
+  'new-scratch-note': (model) => void model.newScratchNote(),
   'open-folder': (model) => void model.pickVault(),
   'import-storage': (model) => model.setImportOpen(true),
   'rename-from-titles': (model) => model.setTitleRenamesOpen(true),

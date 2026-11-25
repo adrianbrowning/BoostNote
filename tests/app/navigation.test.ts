@@ -758,3 +758,89 @@ describe('Navigation', () => {
     expect(session.note?.id).toBe('a.md')
   })
 })
+
+describe('Navigation of scratch tabs', () => {
+  /** Opens a.md, then a new scratch note in a tab after it; resolves with the scratch note's id. */
+  async function scratchAfterA(): Promise<string> {
+    await navigation.open('a.md')
+    const created = await navigation.newScratch()
+    expect(created?.shown).toBe(true)
+    return created?.scratch.id ?? ''
+  }
+
+  const tab = (index: number) => navigation.tabs.tabs[index]?.key ?? -1
+
+  it('saves the scratch tab’s text before another tab shows; the scratch read route then answers it', async () => {
+    const id = await scratchAfterA()
+    expect(navigation.tabs.active).toMatchObject({ kind: 'scratch', id })
+    expect(session.scratch?.id).toBe(id)
+    session.edit('# Idea\n\nTyped in the scratch tab.\n')
+
+    await navigation.activate(tab(0))
+    expect(session.note?.id).toBe('a.md')
+    expect(session.scratch).toBeNull()
+    expect((await api.readScratch(id)).text).toBe('# Idea\n\nTyped in the scratch tab.\n')
+
+    // Shown again, it is read back with its text.
+    await navigation.activate(tab(1))
+    expect(session.scratch?.id).toBe(id)
+    expect(session.body).toBe('# Idea\n\nTyped in the scratch tab.\n')
+    expect(saved()).toEqual({ tabs: ['a.md'], active: -1, closed: [] })
+    expect(notices).toEqual([])
+  })
+
+  it('keeps the scratch tab, with its text, while that text cannot be saved', async () => {
+    const id = await scratchAfterA()
+    session.edit('Mine.\n')
+    net.fail = (url) => url.pathname === '/api/scratch/write'
+    await navigation.activate(tab(0))
+    expect(navigation.tabs.active).toMatchObject({ kind: 'scratch', id })
+    expect(session.scratch?.id).toBe(id)
+    expect(session.body).toBe('Mine.\n')
+    expect(session.state).toBe('error')
+    expect(notices).toEqual([UNSAVED])
+  })
+
+  it('keeps the open scratch tab and its text, without reloading it, when the vault switches and closes', async () => {
+    const other = await folderWith(app, 'other', { 'x.md': '# X\n' })
+    const id = await scratchAfterA()
+    const first = data.vault?.root ?? ''
+    session.edit('Kept.\n')
+    const docs: string[] = []
+    session.addEventListener('doc', (event) => docs.push(event.body))
+
+    expect(await navigation.switchVault(async () => (await api.openVault(other)).workspace)).toBe(true)
+    const second = data.vault?.root ?? ''
+    expect(navigation.tabs.tabs).toEqual([{ key: tab(0), kind: 'scratch', id }])
+    expect(navigation.tabs.active?.kind).toBe('scratch')
+    expect(session.scratch?.id).toBe(id)
+    expect(session.body).toBe('Kept.\n')
+    expect((await api.readScratch(id)).text).toBe('Kept.\n')
+
+    session.edit('Kept.\n\nAfter the switch.\n')
+    // Closing the vault on screen shows the first one again; closing that one leaves no vault.
+    expect(await navigation.switchVault(() => api.closeVault(second))).toBe(true)
+    expect(data.vault?.root).toBe(first)
+    expect(navigation.tabs.tabs.map((item) => item.kind)).toEqual(['note', 'scratch'])
+    expect(await navigation.switchVault(() => api.closeVault(first))).toBe(true)
+    expect(data.vault).toBeNull()
+    expect(navigation.tabs.tabs).toEqual([{ key: tab(0), kind: 'scratch', id }])
+    expect(navigation.tabs.active?.kind).toBe('scratch')
+    expect(session.scratch?.id).toBe(id)
+    expect(session.body).toBe('Kept.\n\nAfter the switch.\n')
+    expect((await api.readScratch(id)).text).toBe('Kept.\n\nAfter the switch.\n')
+    expect(docs).toEqual([])
+    expect(notices).toEqual([])
+  })
+
+  it('closes a scratch tab whose scratch note is gone when it is shown, with the notice', async () => {
+    const id = await scratchAfterA()
+    await navigation.activate(tab(0))
+    await api.discardScratch(id)
+    await navigation.activate(tab(1))
+    expect(notices).toEqual(['This scratch note no longer exists'])
+    expect(navigation.tabs.tabs.map((item) => item.kind)).toEqual(['note'])
+    expect(session.note?.id).toBe('a.md')
+    expect(session.locked).toBe(false)
+  })
+})

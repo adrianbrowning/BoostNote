@@ -1,5 +1,6 @@
 import { TypedEventTarget } from 'remix/component'
 
+import { scratchTitle } from '../../../../shared/scratch.ts'
 import { isAtOrUnder, lastSegment, noteStem, parentOf, toMeta } from '../../../../shared/vault-ids.ts'
 import { ApiError, type Client, setPageVault } from './api.ts'
 import type { DropTicket } from './drop-import.ts'
@@ -187,6 +188,13 @@ export class WorkspaceModel extends TypedEventTarget<{
    * dropped when they return.
    */
   #listsShown = 0
+  /**
+   * The editor focus asked for that no editor pane took yet (`takeEditorFocus`): with no vault open, the pane
+   * mounts only after the first tab opened, after the request.
+   */
+  #focusWanted: FocusEditorEvent | null = null
+  /** Scratch notes' titles by id, as last shown in the editor (`scratchTabTitle`). */
+  readonly #scratchTitles = new Map<string, string>()
 
   constructor(initial: WorkspaceData, preferences: PreferencesState, { api, store }: WorkspaceOptions) {
     super()
@@ -234,7 +242,11 @@ export class WorkspaceModel extends TypedEventTarget<{
     this.hotkeyRegistered = preferences.hotkeyRegistered
     this.update = preferences.update
     this.session.addEventListener('saved', (event) => this.#putSummary(event.note))
-    this.session.addEventListener('change', () => this.changed())
+    this.session.addEventListener('change', () => {
+      const scratch = this.session.scratch
+      if (scratch) this.#scratchTitles.set(scratch.id, scratchTitle(this.session.body, scratch.created))
+      this.changed()
+    })
   }
 
   changed(): void {
@@ -254,6 +266,27 @@ export class WorkspaceModel extends TypedEventTarget<{
   /** The file of the active reader tab as last read (`null` unless a reader tab is active). */
   get reader() {
     return this.navigation.reader
+  }
+
+  /**
+   * The tab title of scratch note `id` (`scratchTitle`): the open scratch note's follows its text as typed; another
+   * one keeps the title it had when it was last open.
+   */
+  scratchTabTitle(id: string): string {
+    return this.#scratchTitles.get(id) ?? 'Scratch note'
+  }
+
+  /** Takes the editor focus asked for that no editor pane took yet (`null`: none); the pane calls this as it mounts. */
+  takeEditorFocus(): FocusEditorEvent | null {
+    const wanted = this.#focusWanted
+    this.#focusWanted = null
+    return wanted
+  }
+
+  /** Moves keyboard focus into the editor (`focus-editor`), or into the editor pane that mounts next. */
+  #focusEditor(atEnd: boolean): void {
+    this.#focusWanted = new FocusEditorEvent(atEnd)
+    this.dispatchEvent(this.#focusWanted)
   }
 
   /** The note list for the current selection, search and sort; pinned notes first, in that order. */
@@ -546,8 +579,19 @@ export class WorkspaceModel extends TypedEventTarget<{
         this.setQuery('')
       }
       this.#putSummary(created.note)
-      if (created.shown) this.dispatchEvent(new FocusEditorEvent(true))
+      if (created.shown) this.#focusEditor(true)
       await this.refresh()
+    })
+  }
+
+  /**
+   * File › New Scratch Note: after the gate, a new scratch note in a new scratch tab, the cursor in the editor. It
+   * is kept outside every vault, so this works with no vault open too.
+   */
+  async newScratchNote(): Promise<void> {
+    await this.attempt(async () => {
+      const created = await this.navigation.newScratch()
+      if (created?.shown) this.#focusEditor(true)
     })
   }
 

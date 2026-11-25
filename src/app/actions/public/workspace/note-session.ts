@@ -2,7 +2,7 @@ import { TypedEventTarget } from 'remix/component'
 
 import { parentOf } from '../../../../shared/vault-ids.ts'
 import { ApiError, type NoteApi } from './api.ts'
-import type { JsonValue, NoteDocument } from './types.ts'
+import type { JsonValue, NoteDocument, ScratchNote } from './types.ts'
 
 /** Quiet period after the last keystroke before the note is written. */
 export const AUTOSAVE_DELAY_MS = 500
@@ -55,11 +55,17 @@ export class SavedEvent extends Event {
  * (every save sends the hash it is based on; the server answers 409 when the file changed), live
  * reload of external edits, and conflict handling that never drops either version silently.
  * Frontmatter is kept apart from the body and only sent when it is edited (`setFrontmatter`).
+ *
+ * The editor can show a scratch note instead (`openScratch`; `note` is then `null`): its text autosaves
+ * as typed through `POST /api/scratch/write`, with no hash, frontmatter or live reload (last write
+ * wins), and a failed save, a scratch note gone included, is an `error` (retried like a note's).
  */
 export class NoteSession extends TypedEventTarget<{ change: Event; doc: DocEvent; saved: SavedEvent }> {
-  /** What is on disk, as of the last read or save. */
+  /** What is on disk, as of the last read or save (`null` with no note, or while a scratch note is open). */
   note: NoteDocument | null = null
-  /** The editor's current body. */
+  /** The open scratch note as of its last read or save (`null` unless one is open; `note` is then `null`). */
+  scratch: ScratchNote | null = null
+  /** The editor's current body (a scratch note's whole text). */
   body = ''
   state: SaveState = 'saved'
   /** The disk version while `state` is `conflict`. */
@@ -148,6 +154,13 @@ export class NoteSession extends TypedEventTarget<{ change: Event; doc: DocEvent
     this.#changed()
   }
 
+  /** Shows scratch note `scratch` in the editor in place of the open note (or scratch note). */
+  openScratch(scratch: ScratchNote): void {
+    this.#reset(null, scratch)
+    this.dispatchEvent(new DocEvent(scratch.text, false))
+    this.#changed()
+  }
+
   close(): void {
     this.#reset(null)
     this.dispatchEvent(new DocEvent('', false))
@@ -204,7 +217,7 @@ export class NoteSession extends TypedEventTarget<{ change: Event; doc: DocEvent
 
   /** The user edited the body. */
   edit(body: string): void {
-    if (!this.note || this.locked || body === this.body) return
+    if ((!this.note && !this.scratch) || this.locked || body === this.body) return
     this.body = body
     if (this.state !== 'conflict' && this.state !== 'removed') {
       this.state = 'dirty'
@@ -224,7 +237,7 @@ export class NoteSession extends TypedEventTarget<{ change: Event; doc: DocEvent
   /** Writes pending edits now (blur, note switch, quit). Resolves `true` when nothing unsaved remains. */
   async flush(): Promise<boolean> {
     await this.#flush()
-    return this.state === 'saved' || this.note === null
+    return this.state === 'saved' || (this.note === null && this.scratch === null)
   }
 
   /** Error bar "Retry": `flush`, resolving to how its own save ended (later flushes may already be saving). */
@@ -324,12 +337,13 @@ export class NoteSession extends TypedEventTarget<{ change: Event; doc: DocEvent
     return { state }
   }
 
-  #reset(note: NoteDocument | null): void {
+  #reset(note: NoteDocument | null, scratch: ScratchNote | null = null): void {
     clearTimeout(this.#timer)
     this.#opened++
     this.#generation++
     this.note = note
-    this.body = note?.body ?? ''
+    this.scratch = scratch
+    this.body = note?.body ?? scratch?.text ?? ''
     this.state = 'saved'
     this.theirs = null
     this.error = ''
@@ -343,45 +357,22 @@ export class NoteSession extends TypedEventTarget<{ change: Event; doc: DocEvent
 
   #save(): Promise<SaveOutcome> {
     const note = this.note
-    if (!note) return Promise.resolve({ state: 'saved' })
+    const scratch = this.scratch
     const body = this.body
     const frontmatter = this.#frontmatter
+    const write = note
+      ? () => this.#saveNote(note, body, frontmatter)
+      : scratch
+        ? () => this.#saveScratch(scratch.id, body)
+        : undefined
+    if (!write) return Promise.resolve({ state: 'saved' })
     this.state = this.state === 'error' ? 'retrying' : 'saving'
     this.#changed()
     const run = (async (): Promise<SaveOutcome> => {
-      // `#inflight` is set before the request starts, even when `saveNote` throws before it sends anything.
+      // `#inflight` is set before the request starts, even when the save throws before it sends anything.
       await undefined
       try {
-        const saved = await this.#api.saveNote({
-          id: note.id,
-          body,
-          // `''` marks a note removed on disk: it must not exist when we write our copy back.
-          baseHash: note.hash === '' ? null : note.hash,
-          ...(frontmatter ? { frontmatter } : {}),
-        })
-        if (this.note?.id !== note.id) return { state: 'saved' }
-        this.#generation++
-        this.note = saved
-        this.error = ''
-        if (this.#frontmatter === frontmatter) this.#frontmatter = undefined
-        this.state = this.body === body && this.#frontmatter === undefined ? 'saved' : 'dirty'
-        if (this.state === 'dirty') this.#schedule()
-        this.dispatchEvent(new SavedEvent(saved))
-        return { state: this.state }
-      } catch (error) {
-        const conflict = error instanceof ApiError ? error.conflict : undefined
-        const outcome: SaveOutcome = conflict
-          ? { state: 'conflict' }
-          : error instanceof ApiError && error.status === 404
-            ? { state: 'removed' }
-            : { state: 'error', error: error instanceof Error ? error.message : String(error) }
-        if (this.note?.id !== note.id) return outcome
-        // A read taken out before this save is older than the disk version or the removal it found.
-        if (outcome.state !== 'error') this.#generation++
-        if (conflict) this.theirs = conflict
-        if (outcome.state === 'error') this.error = outcome.error
-        this.state = outcome.state
-        return outcome
+        return await write()
       } finally {
         this.#inflight = undefined
         this.#changed()
@@ -389,6 +380,66 @@ export class NoteSession extends TypedEventTarget<{ change: Event; doc: DocEvent
     })()
     this.#inflight = run
     return run
+  }
+
+  /** Saves the open note's `body` (and new `frontmatter`) over the hash it was read or last saved with. */
+  async #saveNote(
+    note: NoteDocument,
+    body: string,
+    frontmatter: Record<string, JsonValue> | undefined,
+  ): Promise<SaveOutcome> {
+    try {
+      const saved = await this.#api.saveNote({
+        id: note.id,
+        body,
+        // `''` marks a note removed on disk: it must not exist when we write our copy back.
+        baseHash: note.hash === '' ? null : note.hash,
+        ...(frontmatter ? { frontmatter } : {}),
+      })
+      if (this.note?.id !== note.id) return { state: 'saved' }
+      this.#generation++
+      this.note = saved
+      this.error = ''
+      if (this.#frontmatter === frontmatter) this.#frontmatter = undefined
+      this.state = this.body === body && this.#frontmatter === undefined ? 'saved' : 'dirty'
+      if (this.state === 'dirty') this.#schedule()
+      this.dispatchEvent(new SavedEvent(saved))
+      return { state: this.state }
+    } catch (error) {
+      const conflict = error instanceof ApiError ? error.conflict : undefined
+      const outcome: SaveOutcome = conflict
+        ? { state: 'conflict' }
+        : error instanceof ApiError && error.status === 404
+          ? { state: 'removed' }
+          : { state: 'error', error: error instanceof Error ? error.message : String(error) }
+      if (this.note?.id !== note.id) return outcome
+      // A read taken out before this save is older than the disk version or the removal it found.
+      if (outcome.state !== 'error') this.#generation++
+      if (conflict) this.theirs = conflict
+      if (outcome.state === 'error') this.error = outcome.error
+      this.state = outcome.state
+      return outcome
+    }
+  }
+
+  /** Saves the open scratch note's text `body` as typed (last write wins); any failure is an `error`. */
+  async #saveScratch(id: string, body: string): Promise<SaveOutcome> {
+    try {
+      const saved = await this.#api.writeScratch(id, body)
+      if (this.scratch?.id !== id) return { state: 'saved' }
+      this.scratch = saved
+      this.error = ''
+      this.state = this.body === body ? 'saved' : 'dirty'
+      if (this.state === 'dirty') this.#schedule()
+      return { state: this.state }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      if (this.scratch?.id === id) {
+        this.error = message
+        this.state = 'error'
+      }
+      return { state: 'error', error: message }
+    }
   }
 
   #changed(): void {
