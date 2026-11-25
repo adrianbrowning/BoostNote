@@ -1,6 +1,7 @@
 import * as path from 'node:path'
 import { BrowserWindow, nativeTheme, screen, shell } from 'electron'
 
+import { installEditContextMenu } from './context-menu.ts'
 import { APP_ORIGIN } from './protocol.ts'
 import type { SettingsStore, WindowBounds } from './settings.ts'
 
@@ -49,6 +50,7 @@ export function createMainWindow({ settings, isQuitting }: MainWindowOptions): B
     },
   })
 
+  installEditContextMenu(window.webContents, window.webContents.session, window)
   window.once('ready-to-show', () => window.show())
 
   window.webContents.setWindowOpenHandler(({ url }) => {
