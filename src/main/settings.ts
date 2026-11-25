@@ -36,7 +36,7 @@ export interface UiPreferences {
   fontSize: number
   /** Maximum width of the editor text column in px; `0` fills the pane. */
   lineWidth: number
-  /** Maximum width of top-level reader-pane tables (`--table-max-width`); never below the line width. */
+  /** Maximum width of top-level reader-pane tables, exposed as `--table-max-width`; the workspace root never applies a px value below the line width. */
   tableWidth: TableWidthPreference
   spellcheck: boolean
   /** Ask before moving notes and folders to the Trash. */
