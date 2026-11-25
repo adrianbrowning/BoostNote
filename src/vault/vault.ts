@@ -32,11 +32,12 @@ import { type Frontmatter, keepUnchangedValues, parseNoteText, serializeNoteText
 import { type ImportFilesReport, type ImportOptions, planImport } from './import-files.ts'
 import { checkMoves, type LinkMove, rebaseNoteLinks, rewriteMovedLinks } from './links.ts'
 import {
-  entryKeyCounts,
-  hasStemTwin,
+  type FolderNames,
   isExtensionCaseTwin,
   lowerCaseEntries,
   nameKey,
+  readFolderNames,
+  stemShared,
   stemTaken,
   takeStem,
   uniqueStem,
@@ -426,7 +427,7 @@ export class Vault {
   createNote(folder: string, title = 'Untitled', options: CreateNoteOptions = {}): Promise<Note> {
     return this.#exclusive(async () => {
       const dir = await this.#existingFolder(folder)
-      const stem = await uniqueStem(dir, noteFileName(title))
+      const stem = await uniqueStem(dir, noteFileName(title), '.md')
       const id = joinId(folder, `${stem}.md`)
       const now = new Date().toISOString()
       const frontmatter = { ...options.frontmatter, created: now, updated: now }
@@ -468,14 +469,15 @@ export class Vault {
    * them before file names became note names (`slugify(title)`, maybe with a `-2` suffix), where
    * `title` is the frontmatter `title`, else the first H1. Each gets `noteFileName(title)`, made
    * unique in its folder by `stemTaken` (no `.md` or `.mdx` note or `.assets` folder of that stem,
-   * by `nameKey`); the note's own stem counts as free only when no stem twin (`a.MD`, `a.mdx`) sits
-   * beside it. Files named some other way (by the user) are skipped.
+   * by `nameKey`); the note's own stem counts as free only when no other entry shares it
+   * (`stemShared`: a stem twin `a.MD` or `a.mdx`; a non-note `a.MDX` only beside `a.mdx`). Files
+   * named some other way (by the user) are skipped.
    */
   planTitleRenames(): Promise<TitleRenamePlan> {
     return this.#exclusive(async () => {
       const plan: TitleRenamePlan = { renames: [], skipped: [] }
-      // Per folder, from one read: the name keys in use (plus earlier picks) and how many entries share each.
-      const folders = new Map<string, { names: Set<string>; counts: Map<string, number> }>()
+      // Per folder, from one read: the names in use, plus earlier picks.
+      const folders = new Map<string, FolderNames>()
       // `x.md` before `x-2.md` before `x-10.md`, so the importer's original keeps the plain name.
       const order = (id: string) =>
         splitNoteExtension(id).base.replace(/-(\d+)$/, (_match, n: string) => `\uffff${n.padStart(9, '0')}`)
@@ -495,21 +497,22 @@ export class Vault {
           plan.skipped.push({ id, reason: `file name was not made from the title “${title}”` })
           continue
         }
-        let entries = folders.get(note.folder)
-        if (!entries) {
-          const counts = await entryKeyCounts(await resolveInside(this.root, folderSegments(note.folder)))
-          entries = { names: new Set(counts.keys()), counts }
-          folders.set(note.folder, entries)
+        let names = folders.get(note.folder)
+        if (!names) {
+          names = await readFolderNames(await resolveInside(this.root, folderSegments(note.folder)))
+          folders.set(note.folder, names)
         }
-        const { names, counts } = entries
-        // The note's own names are free (a case-only rename) unless another note file in the folder
-        // has the same stem by name key (a stem twin: `a.MD`, `a.mdx` or an NFD name beside it, which
-        // `nameTaken` would refuse or which shares its assets folder); the others' names and earlier
-        // picks are not.
-        const own = hasStemTwin(counts, stem) ? undefined : nameKey(stem)
-        const toStem = uniqueName(target, (candidate) => nameKey(candidate) !== own && stemTaken(names, candidate))
-        takeStem(names, toStem)
-        plan.renames.push({ from: id, to: joinId(note.folder, `${toStem}${splitNoteExtension(id).extension}`), title })
+        const { extension } = splitNoteExtension(id)
+        // The note's own names are free (a case-only rename) unless another entry in the folder
+        // shares its stem (a stem twin: `a.MD`, `a.mdx` or an NFD name beside it, which `nameTaken`
+        // would refuse or which shares its assets folder); the others' names and earlier picks are not.
+        const own = stemShared(names, lastSegment(id)) ? undefined : nameKey(stem)
+        const toStem = uniqueName(
+          target,
+          (candidate) => nameKey(candidate) !== own && stemTaken(names, candidate, extension),
+        )
+        takeStem(names, toStem, extension)
+        plan.renames.push({ from: id, to: joinId(note.folder, `${toStem}${extension}`), title })
       }
       return plan
     })
@@ -619,9 +622,9 @@ export class Vault {
 
   /**
    * Moves a note into `folder`, keeping its file name (extension case too) unless its stem is taken
-   * there (`uniqueStem`: by a `.md` or `.mdx` note or `.assets` folder; then ` 2`, …); its assets
-   * folder follows unless a stem twin (`a.MD` or `a.mdx` beside `a.md`) shares it. Other notes' links
-   * follow with `links: 'apply'`.
+   * there (`uniqueStem`: by a `.md` or `.mdx` note, an `.assets` folder or an entry of its file name;
+   * then ` 2`, …); its assets folder follows unless a stem twin (`a.MD` or `a.mdx` beside `a.md`)
+   * shares it. Other notes' links follow with `links: 'apply'`.
    */
   moveNote(
     id: string,
@@ -633,7 +636,8 @@ export class Vault {
     return this.#exclusive(async () => {
       if (parentOf(id) === folder) return this.#withLinks({ note: await this.readNote(id), moves: [] }, options)
       const dir = await this.#existingFolder(folder)
-      const toId = joinId(folder, `${await uniqueStem(dir, noteStem(id))}${splitNoteExtension(id).extension}`)
+      const { extension } = splitNoteExtension(id)
+      const toId = joinId(folder, `${await uniqueStem(dir, noteStem(id), extension)}${extension}`)
       return this.#withLinks(await this.#relocateNote(id, toId), options)
     })
   }
@@ -654,8 +658,9 @@ export class Vault {
       if (!(await isFile(file))) throw new VaultError('NOT_FOUND', `Note not found: ${id}`)
       const trashDir = await resolveInside(this.root, [TRASH_DIR, ...folderSegments(parentOf(id))])
       await mkdir(trashDir, { recursive: true })
-      const trashStem = await uniqueStem(trashDir, noteStem(id))
-      const trashName = `${trashStem}${splitNoteExtension(id).extension}`
+      const { extension } = splitNoteExtension(id)
+      const trashStem = await uniqueStem(trashDir, noteStem(id), extension)
+      const trashName = `${trashStem}${extension}`
       const trashId = joinId(parentOf(id), trashName)
       const assetsLeftBehind = await sharedAssetsOf(id, file)
       await rename(file, path.join(trashDir, trashName))
@@ -715,8 +720,9 @@ export class Vault {
       let restoredId: string
       if (entry.kind === 'note') {
         noteSegments(entry.originalPath)
-        const stem = await uniqueStem(parentDir, noteStem(entry.originalPath))
-        restoredId = joinId(parent, `${stem}${splitNoteExtension(entry.originalPath).extension}`)
+        const { extension } = splitNoteExtension(entry.originalPath)
+        const stem = await uniqueStem(parentDir, noteStem(entry.originalPath), extension)
+        restoredId = joinId(parent, `${stem}${extension}`)
         const target = path.join(this.root, ...restoredId.split('/'))
         await rename(source, target)
         if (assetsLeftBehind === undefined) await renameIfExists(assetsDirOf(source), assetsDirOf(target))

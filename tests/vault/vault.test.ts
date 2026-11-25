@@ -670,6 +670,59 @@ describe('stem twins (a.md beside a.mdx)', () => {
     ])
     expect((await readdir(path.join(root, 'work'))).sort()).toEqual(['Plan 2.md', 'plan.assets', 'plan.mdx'])
   })
+
+  it('creates a note a beside a non-note a.MDX file as a.md', async () => {
+    await put('work/a.MDX', 'other\n')
+    vault = await openVault(root)
+    expect((await vault.createNote('work', 'a')).id).toBe('work/a.md')
+    expect(await read('work/a.MDX')).toBe('other\n')
+  })
+
+  it('title-renames a.md beside a non-note a.MDX file to A.md', async () => {
+    await put('work/a.md', '# A\n')
+    await put('work/a.MDX', 'other\n')
+    vault = await openVault(root)
+    const plan = await vault.planTitleRenames()
+    expect(plan.renames).toEqual([{ from: 'work/a.md', to: 'work/A.md', title: 'A' }])
+    expect((await vault.applyTitleRenames(plan)).renamed).toEqual(plan.renames)
+    expect((await readdir(path.join(root, 'work'))).sort()).toEqual(['A.md', 'a.MDX'])
+  })
+
+  it('title-renames a.mdx beside a non-note a.MDX file past its own stem, on a case-sensitive disk', async (ctx) => {
+    await put('work/a.mdx', '# A\n')
+    await put('work/a.MDX', 'other\n')
+    if ((await readdir(path.join(root, 'work'))).length !== 2) ctx.skip() // a.mdx and a.MDX are one file
+    vault = await openVault(root)
+    expect((await vault.planTitleRenames()).renames).toEqual([{ from: 'work/a.mdx', to: 'work/A 2.mdx', title: 'A' }])
+  })
+
+  it('moves an .mdx note beside a non-note a.MDX file as a 2.mdx, overwriting nothing', async () => {
+    await put('from/a.mdx', 'mdx\n')
+    await put('to/a.MDX', 'other\n')
+    vault = await openVault(root)
+    expect((await vault.moveNote('from/a.mdx', 'to')).note.id).toBe('to/a 2.mdx')
+    expect(await read('to/a.MDX')).toBe('other\n')
+    expect(await read('to/a 2.mdx')).toBe('mdx\n')
+  })
+
+  it('trashes an .mdx note past a non-note a.MDX file in the trash, overwriting nothing', async () => {
+    await put('work/a.mdx', 'mdx\n')
+    await put('.trash/work/a.MDX', 'other\n')
+    vault = await openVault(root)
+    expect((await vault.deleteNote('work/a.mdx')).id).toBe('work/a 2.mdx')
+    expect(await read('.trash/work/a.MDX')).toBe('other\n')
+    expect(await read('.trash/work/a 2.mdx')).toBe('mdx\n')
+  })
+
+  it('restores a trashed .mdx note past a non-note a.MDX file now in its folder, overwriting nothing', async () => {
+    await put('work/a.mdx', 'mdx\n')
+    vault = await openVault(root)
+    const entry = await vault.deleteNote('work/a.mdx')
+    await put('work/a.MDX', 'other\n')
+    expect(await vault.restore(entry.id)).toEqual({ id: 'work/a 2.mdx', kind: 'note' })
+    expect(await read('work/a.MDX')).toBe('other\n')
+    expect(await read('work/a 2.mdx')).toBe('mdx\n')
+  })
 })
 
 describe('writeNote frontmatter', () => {

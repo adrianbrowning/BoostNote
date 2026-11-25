@@ -588,11 +588,14 @@ The file name **is** the note's name (as in Obsidian/Hubble); the first `# H1` i
   (`CON` → `CON-`, `con.txt` → `con-.txt`); empty → `Untitled` (`sanitizeFileName` returns `''`
   so renames can refuse it). Names are unique per folder ignoring case, with ` 2`, ` 3`, …
   (also for moves, trash slots and restores). A note stem counts as taken when a `.md` (any case) or
-  `.mdx` note of that stem or its `.assets` folder is in the folder (by `nameKey`; one check,
-  `stemTaken` in `src/vault/names.ts`, for create, move, trash, restore, title renames and drop
-  import), so `a.md` and `a.mdx` never overwrite each other: a new note `a` beside `a.mdx` is
-  `a 2.md`, `a.mdx` moved or restored beside `a.md` is `a 2.mdx`, a dropped `a.md` is `a 2.md`, and
-  HTML export gives them `a.html` and `a 2.html`. `createNote` makes `Untitled.md`, `Untitled 2.md`, … with an
+  `.mdx` note of that stem or its `.assets` folder is in the folder, or any entry with the placed
+  note's file name (by `nameKey`; one check, `stemTaken` in `src/vault/names.ts`, for create, move,
+  trash, restore, title renames and drop import), so `a.md` and `a.mdx` never overwrite each other:
+  a new note `a` beside `a.mdx` is `a 2.md`, `a.mdx` moved or restored beside `a.md` is `a 2.mdx`, a
+  dropped `a.md` is `a 2.md`, and HTML export gives them `a.html` and `a 2.html`. A non-note `a.MDX`
+  takes no stem from an `.md` note (a new note `a` beside it is `a.md`), but an `.mdx` note placed
+  beside it is `a 2.mdx`, since `a.mdx` and `a.MDX` are one file on a case-insensitive disk.
+  `createNote` makes `Untitled.md`, `Untitled 2.md`, … with an
   empty body. Link paths encode space, `#`, `%`, `(`, `)`, `<`, `>`.
 - **Extension case:** a note file ends in `.md` of any case or in lowercase `.mdx` (`isNoteFileName`,
   `splitNoteExtension` / `noteStem`, `src/shared/vault-ids.ts`); `.MDX` and `.Mdx` files are no notes. New notes get `.md`; rename, title renames, moves, trash, restore and

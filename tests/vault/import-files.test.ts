@@ -114,6 +114,18 @@ describe('importFiles', () => {
     expect(await read('work/a 2.md')).toBe('md')
   })
 
+  it('imports a dropped a.md beside a non-note a.MDX file as a.md', async () => {
+    await put(root, 'work/a.MDX', 'other')
+    await vault.refresh()
+    const file = await put(src, 'a.md', 'md')
+
+    const report = await vault.importFiles([file], 'work')
+
+    expect(report.notes.map((note) => note.id)).toEqual(['work/a.md'])
+    expect(await read('work/a.MDX')).toBe('other')
+    expect(await read('work/a.md')).toBe('md')
+  })
+
   it('copies linked images into the note’s assets folder and rewrites only those links', async () => {
     await put(src, 'my image.png', 'PNG1')
     await put(src, 'img/b.gif', 'GIF')
