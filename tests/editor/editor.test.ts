@@ -93,6 +93,26 @@ afterEach(() => {
 })
 
 describe('createLivePreviewEditor', () => {
+  it('picking /datetime inserts the time at run time, and one undo restores the /query', () => {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(new Date(2026, 10, 5, 14, 32))
+    try {
+      const { editor } = mount('At /datetime')
+      const { state } = editor.view
+      editor.view.dispatch({ selection: { anchor: state.doc.length } })
+      const result = slashCompletionSource(new CompletionContext(editor.view.state, state.doc.length, false))
+      const option = result?.options.find((candidate) => candidate.label === '/datetime')
+      if (typeof option?.apply !== 'function') throw new Error('no /datetime command')
+      option.apply(editor.view, option, result?.from ?? 0, state.doc.length)
+      expect(editor.view.state.doc.toString()).toBe('At 2026-11-05 14:32')
+      expect(editor.view.state.selection.main.head).toBe('At 2026-11-05 14:32'.length)
+      undo(editor.view)
+      expect(editor.view.state.doc.toString()).toBe('At /datetime')
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it('reports user edits through onChange but not setDoc', () => {
     const { editor, onChange } = mount('# Hello')
     editor.view.dispatch({ changes: { from: 7, insert: ' world' } })
