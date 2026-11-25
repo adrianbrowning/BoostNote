@@ -55,16 +55,17 @@ export function PropertiesPanel(handle: Handle<{ model: WorkspaceModel }>) {
 
   const current = () => handle.props.model.session.note?.frontmatter ?? {}
 
-  const write = (frontmatter: Record<string, JsonValue>) => {
+  /** `false` when the change was refused (the note is locked) or not saved. */
+  const write = (frontmatter: Record<string, JsonValue>): Promise<boolean> => {
     error = ''
-    void handle.props.model.setFrontmatter(frontmatter)
+    return handle.props.model.setFrontmatter(frontmatter)
   }
 
   const setValue = (key: string, value: JsonValue) => write({ ...current(), [key]: value })
 
   const remove = (key: string) => {
     const { [key]: _removed, ...rest } = current()
-    write(rest)
+    void write(rest)
   }
 
   const fail = (message: string) => {
@@ -78,33 +79,38 @@ export function PropertiesPanel(handle: Handle<{ model: WorkspaceModel }>) {
     if (name === from) return
     if (name === '') return fail('A property needs a name.')
     if (name in current() || RESERVED_KEYS[name]) return fail(`There already is a property “${name}”.`)
-    write(Object.fromEntries(Object.entries(current()).map(([key, value]) => [key === from ? name : key, value])))
+    void write(Object.fromEntries(Object.entries(current()).map(([key, value]) => [key === from ? name : key, value])))
   }
 
-  const addProperty = () => {
+  const addProperty = async () => {
     const name = newKey.trim()
     if (name === '') return fail('A property needs a name.')
     if (name in current() || RESERVED_KEYS[name]) return fail(`There already is a property “${name}”.`)
-    newKey = ''
-    setValue(name, initialValue(newKind))
+    // The typed name stays until the property is written: a refused change keeps it to try again.
+    if (!(await setValue(name, initialValue(newKind)))) return
+    if (newKey.trim() === name) newKey = ''
+    void handle.update()
   }
 
   const tags = () => handle.props.model.session.note?.tags ?? []
 
-  const addTag = (text: string) => {
+  const addTag = async (text: string) => {
     const tag = text.trim().replace(/^#/, '')
     tagDraft = ''
-    if (tag === '' || tags().includes(tag)) {
+    // The input empties now, so a blur while the save is out cannot add the same tag again.
+    void handle.update()
+    if (tag === '' || tags().includes(tag)) return
+    // A refused tag goes back into the input (unless something else was typed there meanwhile).
+    if (!(await setValue('tags', [...tags(), tag])) && tagDraft === '') {
+      tagDraft = text
       void handle.update()
-      return
     }
-    setValue('tags', [...tags(), tag])
   }
 
   const removeTag = (tag: string) => {
     const next = tags().filter((item) => item !== tag)
     if (next.length === 0) remove('tags')
-    else setValue('tags', next)
+    else void setValue('tags', next)
   }
 
   const valueEditor = (key: string, value: JsonValue, kind: Kind, noteId: string) => {
@@ -115,7 +121,7 @@ export function PropertiesPanel(handle: Handle<{ model: WorkspaceModel }>) {
           id={id}
           type="checkbox"
           checked={value === true}
-          mix={on('change', (event) => setValue(key, event.currentTarget.checked))}
+          mix={on('change', (event) => void setValue(key, event.currentTarget.checked))}
         />
       )
     }
@@ -130,7 +136,7 @@ export function PropertiesPanel(handle: Handle<{ model: WorkspaceModel }>) {
             input,
             on('change', (event) => {
               const number = Number(event.currentTarget.value)
-              if (event.currentTarget.value.trim() !== '' && Number.isFinite(number)) setValue(key, number)
+              if (event.currentTarget.value.trim() !== '' && Number.isFinite(number)) void setValue(key, number)
             }),
           ]}
         />
@@ -146,20 +152,20 @@ export function PropertiesPanel(handle: Handle<{ model: WorkspaceModel }>) {
           placeholder="Comma-separated"
           mix={[
             input,
-            on('change', (event) =>
-              setValue(
+            on('change', (event) => {
+              void setValue(
                 key,
                 event.currentTarget.value
                   .split(',')
                   .map((item) => item.trim())
                   .filter((item) => item !== ''),
-              ),
-            ),
+              )
+            }),
           ]}
         />
       )
     }
-    const commit = on<HTMLInputElement, 'change'>('change', (event) => setValue(key, event.currentTarget.value))
+    const commit = on<HTMLInputElement, 'change'>('change', (event) => void setValue(key, event.currentTarget.value))
     const text = value === null ? '' : String(value)
     return kind === 'date' ? (
       <input id={id} key={`${noteId}:${key}:${text}`} type="date" defaultValue={text} mix={[input, commit]} />
@@ -187,182 +193,185 @@ export function PropertiesPanel(handle: Handle<{ model: WorkspaceModel }>) {
             ×
           </button>
         </div>
-        {invalidYaml ? (
-          <p mix={[muted, hintStyle]}>
-            The frontmatter at the top of this note is not valid YAML, so it is shown as text in the editor.
-          </p>
-        ) : null}
+        {/* While the note is locked (`Navigation.hold`) it takes no edits: every control here is disabled too. */}
+        <fieldset mix={controlsStyle} disabled={model.session.locked} data-properties-controls>
+          {invalidYaml ? (
+            <p mix={[muted, hintStyle]}>
+              The frontmatter at the top of this note is not valid YAML, so it is shown as text in the editor.
+            </p>
+          ) : null}
 
-        <div mix={fieldStyle}>
-          <label for="property-tags" mix={labelStyle}>
-            Tags
-          </label>
-          <div mix={chipsStyle} data-tags>
-            {note.tags.map((tag) => (
-              <span key={tag} mix={chipStyle} data-tag-chip={tag}>
-                #{tag}
-                <button
-                  type="button"
-                  mix={[chipRemoveStyle, on('click', () => removeTag(tag))]}
-                  aria-label={`Remove tag ${tag}`}
-                >
-                  ×
-                </button>
-              </span>
-            ))}
+          <div mix={fieldStyle}>
+            <label for="property-tags" mix={labelStyle}>
+              Tags
+            </label>
+            <div mix={chipsStyle} data-tags>
+              {note.tags.map((tag) => (
+                <span key={tag} mix={chipStyle} data-tag-chip={tag}>
+                  #{tag}
+                  <button
+                    type="button"
+                    mix={[chipRemoveStyle, on('click', () => removeTag(tag))]}
+                    aria-label={`Remove tag ${tag}`}
+                  >
+                    ×
+                  </button>
+                </span>
+              ))}
+              <input
+                id="property-tags"
+                list="property-tag-suggestions"
+                placeholder={note.tags.length === 0 ? 'Add a tag' : ''}
+                value={tagDraft}
+                autocomplete="off"
+                mix={[
+                  chipInputStyle,
+                  on('input', (event) => {
+                    const value = event.currentTarget.value
+                    // Picking a datalist suggestion fires `input` as a replacement of the whole text.
+                    const picked = event instanceof InputEvent && event.inputType === 'insertReplacementText'
+                    if (value.endsWith(',') || (picked && suggestions.includes(value))) {
+                      void addTag(value.replace(/,$/, ''))
+                    } else {
+                      // Controlled input: re-render with the new value or Remix restores the old one.
+                      tagDraft = value
+                      void handle.update()
+                    }
+                  }),
+                  on('keydown', (event) => {
+                    if (event.key === 'Enter') {
+                      event.preventDefault()
+                      void addTag(event.currentTarget.value)
+                    } else if (event.key === 'Backspace' && event.currentTarget.value === '') {
+                      const last = note.tags[note.tags.length - 1]
+                      if (last !== undefined) removeTag(last)
+                    }
+                  }),
+                  on('blur', (event) => {
+                    if (event.currentTarget.value.trim() !== '') void addTag(event.currentTarget.value)
+                  }),
+                ]}
+              />
+              <datalist id="property-tag-suggestions">
+                {suggestions.map((tag) => (
+                  <option key={tag} value={tag} />
+                ))}
+              </datalist>
+            </div>
+          </div>
+
+          <div mix={[fieldStyle, inlineFieldStyle]}>
+            <label for="property-starred" mix={labelStyle}>
+              Starred
+            </label>
             <input
-              id="property-tags"
-              list="property-tag-suggestions"
-              placeholder={note.tags.length === 0 ? 'Add a tag' : ''}
-              value={tagDraft}
-              autocomplete="off"
+              id="property-starred"
+              type="checkbox"
+              checked={note.starred}
+              mix={on('change', () => void model.toggleFlag('starred'))}
+            />
+          </div>
+
+          <div mix={[fieldStyle, inlineFieldStyle]}>
+            <label for="property-pinned" mix={labelStyle}>
+              Pinned
+            </label>
+            <input
+              id="property-pinned"
+              type="checkbox"
+              checked={note.pinned}
+              mix={on('change', () => void model.toggleFlag('pinned'))}
+            />
+          </div>
+
+          <dl mix={datesStyle}>
+            <dt mix={labelStyle}>Created</dt>
+            <dd data-created>{formatTimestamp(note.created)}</dd>
+            <dt mix={labelStyle}>Updated</dt>
+            <dd data-updated>{formatTimestamp(note.updated)}</dd>
+          </dl>
+
+          {entries.map(([key, value]) => {
+            const kind = kindOf(value)
+            return (
+              <div key={`${note.id}:${key}`} mix={fieldStyle} data-property={key}>
+                <div mix={keyRowStyle}>
+                  <input
+                    key={`${note.id}:${key}`}
+                    defaultValue={key}
+                    aria-label={`Name of property ${key}`}
+                    mix={[keyInputStyle, on('change', (event) => renameKey(key, event.currentTarget.value))]}
+                  />
+                  <button
+                    type="button"
+                    mix={[iconButton, on('click', () => remove(key))]}
+                    aria-label={`Remove property ${key}`}
+                    title="Remove property"
+                  >
+                    ×
+                  </button>
+                </div>
+                {kind ? (
+                  valueEditor(key, value, kind, note.id)
+                ) : (
+                  <>
+                    <pre mix={readonlyStyle}>{JSON.stringify(value, null, 2)}</pre>
+                    <p mix={[muted, hintStyle]}>Nested YAML can't be edited here; edit the file to change it.</p>
+                  </>
+                )}
+              </div>
+            )
+          })}
+
+          <form
+            mix={[
+              addFormStyle,
+              on('submit', (event) => {
+                event.preventDefault()
+                void addProperty()
+              }),
+            ]}
+            aria-label="Add property"
+          >
+            <input
+              placeholder="New property"
+              aria-label="New property name"
+              value={newKey}
               mix={[
-                chipInputStyle,
+                input,
                 on('input', (event) => {
-                  const value = event.currentTarget.value
-                  // Picking a datalist suggestion fires `input` as a replacement of the whole text.
-                  const picked = event instanceof InputEvent && event.inputType === 'insertReplacementText'
-                  if (value.endsWith(',') || (picked && suggestions.includes(value))) {
-                    addTag(value.replace(/,$/, ''))
-                  } else {
-                    // Controlled input: re-render with the new value or Remix restores the old one.
-                    tagDraft = value
-                    void handle.update()
-                  }
-                }),
-                on('keydown', (event) => {
-                  if (event.key === 'Enter') {
-                    event.preventDefault()
-                    addTag(event.currentTarget.value)
-                  } else if (event.key === 'Backspace' && event.currentTarget.value === '') {
-                    const last = note.tags[note.tags.length - 1]
-                    if (last !== undefined) removeTag(last)
-                  }
-                }),
-                on('blur', (event) => {
-                  if (event.currentTarget.value.trim() !== '') addTag(event.currentTarget.value)
+                  newKey = event.currentTarget.value
+                  void handle.update()
                 }),
               ]}
             />
-            <datalist id="property-tag-suggestions">
-              {suggestions.map((tag) => (
-                <option key={tag} value={tag} />
+            <select
+              aria-label="New property type"
+              mix={[
+                input,
+                on('change', (event) => {
+                  const value = event.currentTarget.value
+                  const kind = (Object.keys(KIND_LABELS) as Kind[]).find((item) => item === value)
+                  if (kind) newKind = kind
+                }),
+              ]}
+            >
+              {(Object.entries(KIND_LABELS) as Array<[Kind, string]>).map(([kind, label]) => (
+                <option key={kind} value={kind} selected={kind === newKind}>
+                  {label}
+                </option>
               ))}
-            </datalist>
-          </div>
-        </div>
-
-        <div mix={[fieldStyle, inlineFieldStyle]}>
-          <label for="property-starred" mix={labelStyle}>
-            Starred
-          </label>
-          <input
-            id="property-starred"
-            type="checkbox"
-            checked={note.starred}
-            mix={on('change', () => void model.toggleFlag('starred'))}
-          />
-        </div>
-
-        <div mix={[fieldStyle, inlineFieldStyle]}>
-          <label for="property-pinned" mix={labelStyle}>
-            Pinned
-          </label>
-          <input
-            id="property-pinned"
-            type="checkbox"
-            checked={note.pinned}
-            mix={on('change', () => void model.toggleFlag('pinned'))}
-          />
-        </div>
-
-        <dl mix={datesStyle}>
-          <dt mix={labelStyle}>Created</dt>
-          <dd data-created>{formatTimestamp(note.created)}</dd>
-          <dt mix={labelStyle}>Updated</dt>
-          <dd data-updated>{formatTimestamp(note.updated)}</dd>
-        </dl>
-
-        {entries.map(([key, value]) => {
-          const kind = kindOf(value)
-          return (
-            <div key={`${note.id}:${key}`} mix={fieldStyle} data-property={key}>
-              <div mix={keyRowStyle}>
-                <input
-                  key={`${note.id}:${key}`}
-                  defaultValue={key}
-                  aria-label={`Name of property ${key}`}
-                  mix={[keyInputStyle, on('change', (event) => renameKey(key, event.currentTarget.value))]}
-                />
-                <button
-                  type="button"
-                  mix={[iconButton, on('click', () => remove(key))]}
-                  aria-label={`Remove property ${key}`}
-                  title="Remove property"
-                >
-                  ×
-                </button>
-              </div>
-              {kind ? (
-                valueEditor(key, value, kind, note.id)
-              ) : (
-                <>
-                  <pre mix={readonlyStyle}>{JSON.stringify(value, null, 2)}</pre>
-                  <p mix={[muted, hintStyle]}>Nested YAML can't be edited here; edit the file to change it.</p>
-                </>
-              )}
-            </div>
-          )
-        })}
-
-        <form
-          mix={[
-            addFormStyle,
-            on('submit', (event) => {
-              event.preventDefault()
-              addProperty()
-            }),
-          ]}
-          aria-label="Add property"
-        >
-          <input
-            placeholder="New property"
-            aria-label="New property name"
-            value={newKey}
-            mix={[
-              input,
-              on('input', (event) => {
-                newKey = event.currentTarget.value
-                void handle.update()
-              }),
-            ]}
-          />
-          <select
-            aria-label="New property type"
-            mix={[
-              input,
-              on('change', (event) => {
-                const value = event.currentTarget.value
-                const kind = (Object.keys(KIND_LABELS) as Kind[]).find((item) => item === value)
-                if (kind) newKind = kind
-              }),
-            ]}
-          >
-            {(Object.entries(KIND_LABELS) as Array<[Kind, string]>).map(([kind, label]) => (
-              <option key={kind} value={kind} selected={kind === newKind}>
-                {label}
-              </option>
-            ))}
-          </select>
-          <button type="submit" mix={button}>
-            Add
-          </button>
-        </form>
-        {error ? (
-          <p role="alert" mix={errorStyle}>
-            {error}
-          </p>
-        ) : null}
+            </select>
+            <button type="submit" mix={button}>
+              Add
+            </button>
+          </form>
+          {error ? (
+            <p role="alert" mix={errorStyle}>
+              {error}
+            </p>
+          ) : null}
+        </fieldset>
       </aside>
     )
   }
@@ -382,6 +391,9 @@ const panelStyle = css({
 })
 
 const headingRowStyle = css({ display: 'flex', alignItems: 'center', justifyContent: 'space-between' })
+
+/** Groups the panel's controls only to disable them together; no box of its own. */
+const controlsStyle = css({ display: 'contents', border: 0, margin: 0, padding: 0, minWidth: 0 })
 
 const fieldStyle = css({ display: 'grid', gap: '4px' })
 

@@ -1,7 +1,8 @@
-import { mkdir, mkdtemp, rm } from 'node:fs/promises'
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import * as os from 'node:os'
 import * as path from 'node:path'
 
+import { type Client, createClient } from '../../src/app/actions/public/workspace/api.ts'
 import { DropGrants } from '../../src/app/drop-grants.ts'
 import { type AppRouter, createAppRouter } from '../../src/app/router.ts'
 import type { FolderPickerOptions, PreferenceServices, SaveFileOptions } from '../../src/app/services.ts'
@@ -146,4 +147,73 @@ export class TestApp {
     this.events.close()
     await rm(this.dir, { recursive: true, force: true })
   }
+}
+
+/** Writes `files` into a new folder `name` of the test app's temp dir. */
+export async function folderWith(app: TestApp, name: string, files: Record<string, string>): Promise<string> {
+  const dir = path.join(app.dir, name)
+  for (const [id, body] of Object.entries(files)) {
+    await mkdir(path.dirname(path.join(dir, id)), { recursive: true })
+    await writeFile(path.join(dir, id), body)
+  }
+  return dir
+}
+
+/** A request `HeldClient.hold` keeps waiting. */
+export interface HeldRequest {
+  /** What the hold's `match` named it. */
+  id: string
+  /** Lets the request go on, or fails it with `failure` as its error message. */
+  release(failure?: string): void
+}
+
+/**
+ * An API client over `app`'s router whose requests the test can hold, fail or answer as gone. Like the page's
+ * client, a request names the vault active when it is sent, even when it is held past a vault switch.
+ */
+export interface HeldClient {
+  client: Client
+  /**
+   * Requests that `match` names (by the id it returns; `undefined`: not held) wait in `held` until released.
+   * `null` holds none from now on; requests already held stay in `held`.
+   */
+  hold(match: ((url: URL) => string | undefined) | null): void
+  /** Held requests, oldest first (emptied by each `hold` with a match). */
+  readonly held: HeldRequest[]
+  /** Requests it matches fail at once with "Disk full" (`null`: none). */
+  fail: ((url: URL) => boolean) | null
+  /** Note ids whose reads answer `404 NOT_FOUND`, as if deleted on disk after the vault listed them. */
+  readonly gone: Set<string>
+}
+
+export function heldClient(app: TestApp): HeldClient {
+  let match: ((url: URL) => string | undefined) | null = null
+  const held: HeldRequest[] = []
+  const gone = new Set<string>()
+  const controls: HeldClient = {
+    client: createClient(async (href, init) => {
+      const url = new URL(href, origin)
+      const root = app.vaults.current?.root
+      if (root && !url.searchParams.has('vault')) url.searchParams.set('vault', root)
+      if (controls.fail?.(url)) throw new Error('Disk full')
+      const id = match?.(url)
+      if (id !== undefined) {
+        const { promise, resolve, reject } = Promise.withResolvers<void>()
+        held.push({ id, release: (failure) => (failure === undefined ? resolve() : reject(new Error(failure))) })
+        await promise
+      }
+      if (url.pathname === '/api/notes/read' && gone.has(url.searchParams.get('id') ?? '')) {
+        return Response.json({ error: 'NOT_FOUND', message: 'Note not found' }, { status: 404 })
+      }
+      return app.fetch(`${url.pathname}${url.search}`, init)
+    }),
+    hold(next) {
+      match = next
+      if (next) held.length = 0
+    },
+    held,
+    fail: null,
+    gone,
+  }
+  return controls
 }

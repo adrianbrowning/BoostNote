@@ -64,7 +64,10 @@ function inVault(href: string): string {
   return `${href}${href.includes('?') ? '&' : '?'}${new URLSearchParams({ vault: pageVault })}`
 }
 
-/** Sends a request to this app's own router: the page's `fetch`, or the router itself in tests. */
+/**
+ * Sends a request to this app's own router and names the vault it is for: the page's `fetch` with the page's
+ * vault added, or the router itself in tests (which adds the test app's vault).
+ */
 export type Transport = (href: string, init?: RequestInit) => Promise<Response>
 
 /** A note save: the body, the hash it is based on (`null`: no note may exist there yet), and new frontmatter. */
@@ -96,7 +99,7 @@ const api = routes.api
 export function createClient(transport: Transport) {
   /** Fetches a route of this app's own (in-process, typed) router; non-2xx responses throw `ApiError`. */
   async function request<T>(href: string, init?: RequestInit): Promise<T> {
-    const response = await transport(inVault(href), init)
+    const response = await transport(href, init)
     const data: unknown = await response.json().catch(() => null)
     if (!response.ok) throw new ApiError(response.status, data)
     const typed = data as T
@@ -183,5 +186,14 @@ export function createClient(transport: Transport) {
   }
 }
 
+/** The typed client of every `/api` route (`createClient`): the page's `client`, or one over the router in tests. */
+export type Client = ReturnType<typeof createClient>
+
+/** A client's calls `Navigation` uses (notes it opens, creates and deletes; reader tabs). */
+export type NavigationApi = Pick<
+  Client,
+  'readNote' | 'saveNote' | 'createNote' | 'deleteNote' | 'deleteFolder' | 'readReader' | 'closeReader'
+>
+
 /** The page's client of the `/api` routes. */
-export const client = createClient((href, init) => fetch(href, init))
+export const client = createClient((href, init) => fetch(inVault(href), init))

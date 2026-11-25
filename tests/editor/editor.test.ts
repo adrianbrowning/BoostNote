@@ -1,4 +1,5 @@
 // @vitest-environment happy-dom
+import { CompletionContext } from '@codemirror/autocomplete'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 const mermaidMock = vi.hoisted(() => ({
@@ -15,6 +16,7 @@ import { continueMarkup } from '../../src/editor/language.ts'
 import { linkAt } from '../../src/editor/links.ts'
 import { setEditorFocused } from '../../src/editor/live-preview/selection.ts'
 import { renderMermaid } from '../../src/editor/render/mermaid.ts'
+import { slashCompletionSource } from '../../src/editor/slash.ts'
 import { docWithSelection, markdownState, runCommand } from './helpers.ts'
 
 let editor: LivePreviewEditor | undefined
@@ -46,12 +48,46 @@ function pasteText(editor: LivePreviewEditor, text: string, html?: string) {
   if (!event.defaultPrevented) editor.view.dispatch(editor.view.state.replaceSelection(text))
 }
 
+/** Fakes the `/image` command's file picker: `run` opens it at the end of the document, `pick` answers it. */
+function imagePicker() {
+  const pickers: HTMLInputElement[] = []
+  vi.spyOn(HTMLInputElement.prototype, 'click').mockImplementation(function (this: HTMLInputElement) {
+    pickers.push(this)
+  })
+  return {
+    /** Runs `/image` at the end of the document, opening the (fake) file picker. */
+    run(editor: LivePreviewEditor) {
+      const { state } = editor.view
+      editor.view.dispatch({ selection: { anchor: state.doc.length } })
+      const result = slashCompletionSource(new CompletionContext(editor.view.state, state.doc.length, false))
+      const option = result?.options.find((candidate) => candidate.label === '/image')
+      if (typeof option?.apply !== 'function') throw new Error('no /image command')
+      option.apply(editor.view, option, result?.from ?? 0, state.doc.length)
+    },
+    /**
+     * The user picks `name` in the last opened picker; resolves once the command's reaction to it (a chain of
+     * promise continuations, no timers) has run.
+     */
+    async pick(name: string) {
+      const input = pickers.at(-1)
+      if (!input) throw new Error('no picker opened')
+      Object.defineProperty(input, 'files', { value: [new File(['png'], name, { type: 'image/png' })] })
+      input.dispatchEvent(new Event('change'))
+      // A macrotask runs only after every queued microtask, so the command has checked and saved (or not) by then.
+      const { promise, resolve } = Promise.withResolvers<void>()
+      setTimeout(resolve, 0)
+      await promise
+    },
+  }
+}
+
 afterEach(() => {
   editor?.destroy()
   editor = undefined
   document.body.replaceChildren()
   mermaidMock.render.mockClear()
   mermaidMock.initialize.mockClear()
+  vi.restoreAllMocks()
 })
 
 describe('createLivePreviewEditor', () => {
@@ -64,6 +100,101 @@ describe('createLivePreviewEditor', () => {
     editor.setDoc('# Fresh')
     expect(onChange).not.toHaveBeenCalled()
     expect(editor.view.state.doc.toString()).toBe('# Fresh')
+  })
+
+  it('takes no changes while read-only: pastes (HTML, URL, image), drops, a late image save and dispatched edits', async () => {
+    const saved = Promise.withResolvers<string>()
+    const saveAsset = vi.fn(() => saved.promise)
+    const { editor, onChange } = mount('see ', { saveAsset })
+    editor.view.dispatch({ selection: { anchor: 4 } })
+    const image = () => {
+      const data = new DataTransfer()
+      data.items.add(new File(['png'], 'shot.png', { type: 'image/png' }))
+      return data
+    }
+    // An image save that started before the editor went read-only finishes while it is.
+    editor.view.contentDOM.dispatchEvent(new ClipboardEvent('paste', { clipboardData: image(), cancelable: true }))
+    expect(saveAsset).toHaveBeenCalledOnce()
+    editor.setReadOnly(true)
+
+    const html = new DataTransfer()
+    html.setData('text/html', '<p>Hello <strong>world</strong></p>')
+    html.setData('text/plain', 'Hello world')
+    editor.view.contentDOM.dispatchEvent(new ClipboardEvent('paste', { clipboardData: html, cancelable: true }))
+    pasteText(editor, 'https://example.com/cat.png')
+    editor.view.contentDOM.dispatchEvent(new ClipboardEvent('paste', { clipboardData: image(), cancelable: true }))
+    editor.view.contentDOM.dispatchEvent(new DragEvent('drop', { dataTransfer: image(), cancelable: true }))
+    // No image save starts while read-only (it would go to whichever vault the page names by then).
+    expect(saveAsset).toHaveBeenCalledOnce()
+    // The early save finishes while read-only: its insert waits for the editor to be editable again.
+    saved.resolve('./note.assets/shot.png')
+    await saved.promise
+    editor.view.dispatch({ changes: { from: 4, insert: 'typed' } })
+    expect(editor.view.state.doc.toString()).toBe('see ')
+    expect(onChange).not.toHaveBeenCalled()
+
+    // The app's own updates still show while read-only, and a full reset (another note) stays read-only and
+    // drops the waiting insert.
+    editor.setDoc('see', { preserveSelection: true })
+    expect(editor.view.state.doc.toString()).toBe('see')
+    editor.setDoc('see you')
+    editor.view.dispatch({ changes: { from: 7, insert: '?' } })
+    expect(editor.view.state.doc.toString()).toBe('see you')
+    editor.setReadOnly(false)
+    editor.view.dispatch({ changes: { from: 7, insert: '!' } })
+    // Editable again, the waiting insert wakes in a later microtask. It must insert nothing, so there is no
+    // signal to await: one zero-delay macrotask lets it run before the document is checked.
+    const { promise, resolve } = Promise.withResolvers<void>()
+    setTimeout(resolve, 0)
+    await promise
+    expect(editor.view.state.doc.toString()).toBe('see you!')
+    expect(onChange).toHaveBeenLastCalledWith('see you!')
+  })
+
+  it('inserts an image whose save finished while the editor was read-only once it is editable again', async () => {
+    const saved = Promise.withResolvers<string>()
+    const { editor } = mount('see ', { saveAsset: vi.fn(() => saved.promise) })
+    editor.view.dispatch({ selection: { anchor: 4 } })
+    const data = new DataTransfer()
+    data.items.add(new File(['png'], 'shot.png', { type: 'image/png' }))
+    editor.view.contentDOM.dispatchEvent(new ClipboardEvent('paste', { clipboardData: data, cancelable: true }))
+    // A transition holds the note (another note is deleted, say) while the save is out; the note stays.
+    editor.setReadOnly(true)
+    saved.resolve('./note.assets/shot.png')
+    await saved.promise
+    expect(editor.view.state.doc.toString()).toBe('see ')
+    editor.setReadOnly(false)
+    await vi.waitFor(() => expect(editor.view.state.doc.toString()).toBe('see ![shot](./note.assets/shot.png)'))
+  })
+
+  it('inserts nothing from an image picked after the note was replaced, and saves one picked while locked once unlocked', async () => {
+    const saveAsset = vi.fn(async (file: File) => `./note.assets/${file.name}`)
+    const { editor } = mount('/image', { saveAsset })
+    const picker = imagePicker()
+
+    picker.run(editor)
+    editor.setDoc('Another note')
+    await picker.pick('late.png')
+    expect(saveAsset).not.toHaveBeenCalled()
+    editor.setDoc('/image')
+    picker.run(editor)
+    editor.setReadOnly(true)
+    await picker.pick('locked.png')
+    // Picked while a transition holds the note: nothing is saved until the editor takes edits again.
+    expect(saveAsset).not.toHaveBeenCalled()
+    editor.setReadOnly(false)
+    await vi.waitFor(() => expect(editor.view.state.doc.toString()).toBe('![locked](./note.assets/locked.png)'))
+    expect(saveAsset.mock.calls.map(([file]) => file.name)).toEqual(['locked.png'])
+  })
+
+  it('inserts a picked /image where its position moved to through text typed while the picker is open', async () => {
+    const { editor } = mount('ab\n/image')
+    const picker = imagePicker()
+    picker.run(editor)
+    editor.view.dispatch({ changes: { from: 0, insert: 'XYZ\n\n' } })
+    await picker.pick('kept.png')
+    await vi.waitFor(() => expect(editor.view.state.doc.toString()).toContain('kept.png'))
+    expect(editor.view.state.doc.toString()).toMatch(/^XYZ\n\nab\n+!\[kept\]\(\.\/note\.assets\/kept\.png\)\n*$/)
   })
 
   it('setDoc with preserveSelection keeps the cursor on unchanged text', () => {

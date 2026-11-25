@@ -242,10 +242,12 @@ not open → 409 `NO_VAULT`.
   edits. External delete/move → "Save my copy" (writes with `baseHash: null`) or Close. While a
   conflict is unresolved the app refuses to leave the note, so neither side is lost silently.
 - Components never flush the session themselves: blur, a hidden window and quit call `model.saveNow()`
-  (no notice; its boolean decides "Quit Anyway?"), which also tries a failed save again. The error bar
-  stays up while a save started from the error state is in flight, so a focused Retry keeps focus. The
-  bar's Retry, Keep mine, Save my copy and Load theirs are model actions; a save they start that still
-  fails shows an error notice. `NoteSession` takes its API client (`createClient(transport)`), so
+  (no notice; its boolean decides "Quit Anyway?"), which also tries a failed save again. A save started
+  from the error state is its own state (`retrying`), so the error bar and a focused Retry stay up
+  meanwhile. The bar's Retry, Keep mine, Save my copy and Load theirs are model actions that call
+  `NoteSaving` (`note-saving.ts`, the save actions and their notice policy); a save they start that still
+  fails shows an error notice, following how that button's own save ended. `NoteSession` takes its API
+  client (`createClient(transport)`; the page's transport adds `?vault=`), so
   `tests/app/note-session.test.ts` drives it over the in-process router.
 - The note's name above the editor is its file name (or frontmatter `title`) and is renamed in place
   (see Note names (phase 7)). Relative `.md` links open inside the app, http(s) links open in the
@@ -259,9 +261,19 @@ not open → 409 `NO_VAULT`.
 
 `tabs.ts` (`Tabs`, pure state, unit-tested) follows Hubble: a tab is a note path plus its own
 back/forward trail. There is one editor and one `NoteSession`; the session always shows the active
-tab's note. Every tab transition goes through `WorkspaceModel.#switchTabs`: save the open note
-(refused while a conflict is unresolved, like any note switch), change the tabs, load the active
-tab's note from disk. Background tabs therefore never hold unsaved text.
+tab's note. `Navigation` (`navigation.ts`) is the one transition point: opening notes, selecting,
+closing and reopening tabs, back/forward, new notes, deleting the open note or a folder holding it, and
+vault switches. Each runs the leave-note gate (`Navigation.leave`) once: save the open note (refused
+with the unsaved-changes notice when the save fails or the note is in conflict or removed on disk;
+a refused delete trashes nothing), change the tabs, save them to the tab store, load the active tab's
+note from disk. From the gate until it is done the transition holds the open note (`Navigation.hold`):
+the session takes no edits and the editor is read-only while its requests are out, so nothing typed
+meanwhile is dropped when the note is replaced or closed. Operations that change the open note after
+a request (rename, move, folder rename/move, title renames) run through the same `hold`; export only
+needs it saved first and calls the gate. Background tabs therefore never hold unsaved text.
+`WorkspaceModel` keeps its tab actions and calls through; `tests/app/navigation.test.ts` drives
+`Navigation` over the in-process router with a memory tab store. Vault switches await the tab
+restore, so a restore that fails reaches the model's error notice.
 
 - Click in the note list (or a relative `.md` link, or ↑/↓ in the list) navigates the active tab,
   pushing onto its back trail; ⌘/Ctrl+click, middle-click or "Open in New Tab" open a new tab after
@@ -271,8 +283,8 @@ tab's note from disk. Background tabs therefore never hold unsaved text.
   state, the window stays); ⇧⌘W closes the window (macOS). ⇧⌘T reopens the most recently closed
   tab at its former position (40 remembered per vault). Ctrl+Tab / Ctrl+⇧Tab cycle, ⌘1…⌘8 pick by
   position, ⌘9 the last tab. Drag a tab to reorder; middle-click or × closes it.
-- Persisted per vault in `localStorage` under `boostnote.tabs:<vault root>`: ordered tab paths, the
-  active index and the closed-tab stack (`TabsSnapshot`); trails stay in memory. Restoring skips
+- Persisted per vault by the tab store (`localTabStore`: `localStorage` under `boostnote.tabs:<vault root>`):
+  ordered tab paths, the active index and the closed-tab stack (`TabsSnapshot`); trails stay in memory. Restoring skips
   notes that no longer exist. App renames/moves (notes and folders) rebase tabs, trails and closed
   tabs; app deletes close their tabs; after a list refresh, background tabs whose note vanished on
   disk are dropped (the active one keeps the "removed" bar until the user decides).

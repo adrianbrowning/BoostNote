@@ -1,10 +1,10 @@
 import { readFile, writeFile } from 'node:fs/promises'
 import * as path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { createClient } from '../../src/app/actions/public/workspace/api.ts'
+import { createClient, type NoteApi } from '../../src/app/actions/public/workspace/api.ts'
 import { NoteSession } from '../../src/app/actions/public/workspace/note-session.ts'
 import type { Vault } from '../../src/vault/index.ts'
-import { TestApp } from './helpers.ts'
+import { heldClient, TestApp } from './helpers.ts'
 
 let app: TestApp
 let vault: Vault
@@ -110,12 +110,10 @@ describe('NoteSession', () => {
     failing = false
     const retry = session.retry()
     // The error bar (with its message) stays up while Retry's own save is in flight.
-    expect(session.state).toBe('saving')
-    expect(session.retrying).toBe(true)
+    expect(session.state).toBe('retrying')
     expect(session.error).toBe('offline')
     expect(await retry).toEqual({ state: 'saved' })
     expect(session.state).toBe('saved')
-    expect(session.retrying).toBe(false)
     expect(session.error).toBe('')
     expect(await onDisk(note.id)).toMatch(/\nmine\n$/)
   })
@@ -133,52 +131,95 @@ describe('NoteSession', () => {
     expect(session.error).toBe('')
 
     const retry = session.retry()
-    expect(session.retrying).toBe(true)
+    expect(session.state).toBe('retrying')
     expect(await retry).toEqual({ state: 'error', error: '' })
-    expect(session.retrying).toBe(false)
+    expect(session.state).toBe('error')
 
     session.edit('mine again\n')
     const save = session.flush()
     expect(session.state).toBe('saving')
-    expect(session.retrying).toBe(false)
     expect(await save).toBe(false)
   })
 
-  it('Retry reports how its own save ended, even when a flush waiting on it has started the next save', async () => {
-    // Note saves wait here until the test settles them, in request order.
-    const held: Array<(fail: boolean) => void> = []
-    let hold = false
+  /** A note client whose saves, once `hold()` was called, wait until the test settles them in request order. */
+  interface HeldSaves {
+    client: NoteApi
+    hold(): void
+    /** Waits until `count` saves were sent. */
+    sent(count: number): Promise<void>
     /** Settles the `count`th held save (failing it with "offline" when `fail`), once it has been sent. */
-    const settle = async (count: number, fail: boolean) => {
-      await vi.waitFor(() => expect(held).toHaveLength(count))
-      held[count - 1]?.(fail)
+    settle(count: number, fail: boolean): Promise<void>
+  }
+
+  function heldSaves(): HeldSaves {
+    const net = heldClient(app)
+    return {
+      client: net.client,
+      hold: () => net.hold((url) => (url.pathname === '/api/notes/save' ? 'save' : undefined)),
+      sent: async (count) => {
+        await vi.waitFor(() => expect(net.held).toHaveLength(count))
+      },
+      settle: async (count, fail) => {
+        await vi.waitFor(() => expect(net.held).toHaveLength(count))
+        net.held[count - 1]?.release(fail ? 'offline' : undefined)
+      },
     }
-    session = new NoteSession(
-      createClient((href, init) => {
-        if (!hold || new URL(href, 'http://app').pathname !== '/api/notes/save') return app.fetch(href, init)
-        const { promise, resolve, reject } = Promise.withResolvers<Response>()
-        held.push((fail) => (fail ? reject(new Error('offline')) : resolve(app.fetch(href, init))))
-        return promise
-      }),
-    )
+  }
+
+  /** Opens a note whose saves `saves` holds, and puts it in the error state with an unsaved "mine". */
+  async function failedSave(saves: HeldSaves) {
+    session = new NoteSession(saves.client)
     const note = await openNote('start\n')
-    hold = true
+    saves.hold()
     session.edit('mine\n')
     const autosave = session.flush()
-    await settle(1, true)
+    await saves.settle(1, true)
     expect(await autosave).toBe(false)
     expect(session.state).toBe('error')
+    return note
+  }
+
+  it('Retry reports how its own save ended, even when a flush waiting on it has started the next save', async () => {
+    const saves = heldSaves()
+    const note = await failedSave(saves)
+    const { settle } = saves
 
     const retry = session.retry()
     // The editor's focusout save, waiting on the same request.
     const focusout = session.flush()
     await settle(2, true)
     expect(await retry).toEqual({ state: 'error', error: 'offline' })
-    expect(session.state).toBe('saving')
+    // The focusout flush started the next save from the error state.
+    expect(session.state).toBe('retrying')
 
     await settle(3, false)
     expect(await focusout).toBe(true)
     expect(await onDisk(note.id)).toMatch(/\nmine\n$/)
+  })
+
+  it('Retry queued behind another waiter resolves to a save that ran after it, never to the save in between', async () => {
+    const saves = heldSaves()
+    await failedSave(saves)
+    const { sent, settle } = saves
+
+    // A leftover autosave retries; the editor's focusout save, then Retry, wait on it, in that order.
+    void session.flush()
+    const focusout = session.flush()
+    let outcome: unknown
+    const retry = session.retry().then((result) => {
+      outcome = result
+      return result
+    })
+    await settle(2, true)
+    // The focusout flush has started the next save; Retry waits for that one too.
+    await sent(3)
+    expect(outcome).toBeUndefined()
+
+    await settle(3, true)
+    expect(await focusout).toBe(false)
+    // That save failed as well, so Retry sends its own.
+    await settle(4, true)
+    expect(await retry).toEqual({ state: 'error', error: 'offline' })
   })
 
   it('refuses to flush while in conflict or removed, writing nothing', async () => {
@@ -207,5 +248,21 @@ describe('NoteSession', () => {
     expect(session.state).toBe('removed')
     expect(await onDisk(note.id)).toBe('theirs\n')
     expect(saves).toBe(0)
+  })
+
+  it('a save that throws before it is sent fails like any other, and later flushes still settle', async () => {
+    const throwing: NoteApi = {
+      readNote: api.readNote,
+      saveNote: () => {
+        throw new Error('Not JSON')
+      },
+    }
+    session = new NoteSession(throwing)
+    session.open(await api.createNote(''))
+    session.edit('mine\n')
+    expect(await session.flush()).toBe(false)
+    expect(session.state).toBe('error')
+    // A save that threw before it was sent leaves no save in flight: this flush settles instead of waiting forever.
+    expect(await session.flush()).toBe(false)
   })
 })

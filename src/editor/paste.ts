@@ -86,27 +86,70 @@ const pendingImages = StateField.define<ReadonlyMap<number, number>>({
 
 let nextPendingId = 0
 
-/** Saves each image through the host and inserts `![…](path)` at `pos` (tracked while saving). */
-async function insertImages(view: EditorView, files: readonly File[], pos: number): Promise<void> {
+/** Per view, what waits for the editor to take edits again (`whenEditable`). */
+const editableWaiters = new WeakMap<EditorView, Array<() => void>>()
+
+/** Wakes the waiters of a view once it is no longer read-only. */
+const wakeWhenEditable = EditorView.updateListener.of((update) => {
+  if (update.state.readOnly) return
+  const waiters = editableWaiters.get(update.view)
+  if (!waiters) return
+  editableWaiters.delete(update.view)
+  for (const wake of waiters) wake()
+})
+
+/**
+ * Tracks `pos` while an image is picked or saved, through edits made meanwhile. `at()` is where it is now, or
+ * `undefined` once the document was replaced (another note): then nothing is saved or inserted. While the editor
+ * is read-only (a transition holds the note) `whenEditable()` waits until it takes edits again, then gives `at()`.
+ * `done()` stops tracking.
+ */
+export function trackInsertion(
+  view: EditorView,
+  pos: number,
+): { at(): number | undefined; whenEditable(): Promise<number | undefined>; done(): void } {
   const id = ++nextPendingId
   view.dispatch({ effects: addPending.of({ id, pos }) })
+  const at = () => view.state.field(pendingImages, false)?.get(id)
+  return {
+    at,
+    async whenEditable() {
+      while (view.state.readOnly && at() !== undefined) {
+        const { promise, resolve } = Promise.withResolvers<void>()
+        editableWaiters.set(view, [...(editableWaiters.get(view) ?? []), resolve])
+        await promise
+      }
+      return at()
+    },
+    done: () => view.dispatch({ effects: removePending.of(id) }),
+  }
+}
+
+/** Saves each image through the host and inserts `![…](path)` at `pos` (tracked while saving; see `trackInsertion`). */
+async function insertImages(view: EditorView, files: readonly File[], pos: number): Promise<void> {
+  const target = trackInsertion(view, pos)
   try {
-    const host = view.state.facet(editorHost)
     const links: string[] = []
-    for (const file of files) links.push(imageMarkdown(file.name, await host.saveAsset(file)))
-    const at = view.state.field(pendingImages).get(id)
+    for (const file of files) {
+      // Editable: the save starts right away (no await); read-only: it waits until the editor takes edits.
+      if ((view.state.readOnly ? await target.whenEditable() : target.at()) === undefined) return
+      links.push(imageMarkdown(file.name, await view.state.facet(editorHost).saveAsset(file)))
+    }
+    // Wait out read-only periods, then read the position right before the insert (nothing ran in between).
+    while (view.state.readOnly && (await target.whenEditable()) !== undefined) {}
+    const at = target.at()
     if (at === undefined) return
     const insert = links.join('\n')
     view.dispatch({
       changes: { from: at, insert },
       selection: { anchor: at + insert.length },
-      effects: removePending.of(id),
       userEvent: 'input.paste',
       scrollIntoView: true,
     })
   } catch (error) {
-    view.dispatch({ effects: removePending.of(id) })
     console.error('Saving image failed', error)
+  } finally {
+    target.done()
   }
 }
 
@@ -126,11 +169,20 @@ function nodeNamesAt(view: EditorView, pos: number): string[] {
   return names
 }
 
-/** Paste/drop: image files go through `saveAsset`; a lone URL becomes `![](url)`; rich HTML becomes markdown (plain text inside code). */
+/**
+ * Paste/drop: image files go through `saveAsset`; a lone URL becomes `![](url)`; rich HTML becomes markdown (plain
+ * text inside code). A read-only editor takes neither, and starts no image save; a save that is out when the
+ * editor goes read-only inserts its image once it is editable again (nothing when the note was replaced).
+ */
 export const pasteAndDrop = [
   pendingImages,
+  wakeWhenEditable,
   EditorView.domEventHandlers({
     paste(event, view) {
+      if (view.state.readOnly) {
+        event.preventDefault()
+        return true
+      }
       const data = event.clipboardData
       if (!data) return false
       const images = imageFiles(data.files)
@@ -169,6 +221,10 @@ export const pasteAndDrop = [
       return true
     },
     drop(event, view) {
+      if (view.state.readOnly) {
+        event.preventDefault()
+        return true
+      }
       const images = imageFiles(event.dataTransfer?.files)
       if (images.length === 0) return false
       event.preventDefault()
