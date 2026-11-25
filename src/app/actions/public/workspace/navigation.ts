@@ -549,24 +549,28 @@ export class Navigation {
   /**
    * Whether closing the notes `gone` matches can replace or close the open note: it is one of them, or the active
    * tab does not show it (its load is out, or failed), and closing always loads the active tab's note (the
-   * leave-note gate of deletes decides from this).
+   * leave-note gate of deletes decides from this). An open scratch note is replaced unless its own tab is active.
    */
   #replaces(gone: (path: string) => boolean): boolean {
+    const active = this.tabs.active
+    const scratch = this.#session.scratch
+    if (scratch) return active?.kind !== 'scratch' || active.id !== scratch.id
     const open = this.#session.note?.id
     if (open === undefined) return false
-    const active = this.tabs.active
     return gone(open) || active?.kind !== 'note' || active.path !== open
   }
 
   /**
    * Whether renaming or moving the notes `moved` matches can replace the open note: it is one of them, or the
    * active tab is a note tab that does not show it and its own note moves, so `rebase` loads that note over it
-   * (the leave-note gate of renames and moves in `Relocation` decides from this).
+   * (the leave-note gate of renames and moves in `Relocation` decides from this). An open scratch note is never
+   * moved, but is replaced the same way while a note tab is active (that tab's read failed).
    */
   relocationReplaces(moved: (path: string) => boolean): boolean {
+    const active = this.tabs.active
+    if (this.#session.scratch) return active?.kind === 'note' && moved(active.path)
     const open = this.#session.note?.id
     if (open === undefined) return false
-    const active = this.tabs.active
     return moved(open) || (active?.kind === 'note' && active.path !== open && moved(active.path))
   }
 

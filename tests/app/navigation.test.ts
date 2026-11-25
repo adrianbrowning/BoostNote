@@ -843,4 +843,37 @@ describe('Navigation of scratch tabs', () => {
     expect(session.note?.id).toBe('a.md')
     expect(session.locked).toBe(false)
   })
+
+  /**
+   * Opens a scratch note after a.md, then a.md's tab, whose read fails: the editor keeps the scratch note (and takes
+   * edits) while a.md's tab is active. Resolves with the scratch note's id.
+   */
+  async function scratchOverFailedA(): Promise<string> {
+    const id = await scratchAfterA()
+    net.hold(heldIds)
+    const reads = net.held
+    const toA = navigation.activate(tab(0))
+    await expect.poll(() => reads.length).toBe(1)
+    reads[0]?.release('Disk full')
+    await toA
+    net.hold(null)
+    expect(navigation.tabs.active).toMatchObject({ kind: 'note', path: 'a.md' })
+    expect(session.scratch?.id).toBe(id)
+    return id
+  }
+
+  it('saves the open scratch note before deleting another note loads the active tab’s note in its place (its read had failed)', async () => {
+    const id = await scratchOverFailedA()
+    session.edit('Typed after A failed.\n')
+    expect(await navigation.deleteNote('c.md')).not.toBeNull()
+    expect(session.note?.id).toBe('a.md')
+    expect((await api.readScratch(id)).text).toBe('Typed after A failed.\n')
+    expect(notices).toEqual(['Disk full'])
+  })
+
+  it('counts a move of the active tab’s note as replacing the open scratch note (its read had failed)', async () => {
+    await scratchOverFailedA()
+    expect(navigation.relocationReplaces((path) => path === 'a.md')).toBe(true)
+    expect(navigation.relocationReplaces((path) => path === 'c.md')).toBe(false)
+  })
 })
