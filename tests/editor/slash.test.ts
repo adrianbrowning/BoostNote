@@ -3,15 +3,17 @@ import { describe, expect, it } from 'vitest'
 
 import {
   filterSlashCommands,
+  formatSlashDateTime,
   slashCommands,
   slashCommandTransaction,
   slashCompletionSource,
+  slashInlineTransaction,
 } from '../../src/editor/slash.ts'
 import { docWithSelection, markdownState } from './helpers.ts'
 
 const command = (id: string) => {
   const found = slashCommands.find((candidate) => candidate.id === id)
-  if (!found || found.template === 'image') throw new Error(`no template command ${id}`)
+  if (!found || found.template === 'image' || 'inline' in found.template) throw new Error(`no template command ${id}`)
   return found.template
 }
 
@@ -63,5 +65,63 @@ describe('slash commands', () => {
     expect(complete('```\n/‸\n```')).toBeNull()
     expect(complete('`/‸`')).toBeNull()
     expect(complete('/zzz‸')).toBeNull()
+  })
+})
+
+describe('inline date/time slash commands', () => {
+  const clock = new Date(2026, 10, 5, 14, 32)
+
+  /** Runs `/query` ending at the cursor through the inline command with `id` at the fixed clock. */
+  const runInline = (doc: string, id: string, now = clock) => {
+    const state = markdownState(doc)
+    const to = state.selection.main.head
+    const from = state.sliceDoc(0, to).lastIndexOf('/')
+    const found = slashCommands.find((candidate) => candidate.id === id)
+    if (!found || found.template === 'image' || !('inline' in found.template)) throw new Error(`no inline ${id}`)
+    const spec = slashInlineTransaction(state, from, to, formatSlashDateTime(found.template.inline, now))
+    expect(spec.userEvent).toBe('input.slash')
+    return docWithSelection(state.update(spec).state)
+  }
+
+  it('inserts the date mid-line in place of the /query, keeping following text', () => {
+    expect(runInline('Today: /date‸ is here\nnext', 'date')).toBe('Today: 2026-11-05‸ is here\nnext')
+  })
+
+  it('inserts time and datetime on an empty line', () => {
+    expect(runInline('/time‸', 'time')).toBe('14:32‸')
+    expect(runInline('/datetime‸', 'datetime')).toBe('2026-11-05 14:32‸')
+  })
+
+  it('zero-pads and uses local time, not UTC', () => {
+    const early = new Date(2026, 0, 2, 3, 4)
+    expect(formatSlashDateTime('datetime', early)).toBe('2026-01-02 03:04')
+    expect(formatSlashDateTime('date', early)).toBe('2026-01-02')
+    expect(formatSlashDateTime('time', early)).toBe('03:04')
+    const local = {
+      getFullYear: () => 2026,
+      getMonth: () => 10,
+      getDate: () => 5,
+      getHours: () => 14,
+      getMinutes: () => 32,
+      getUTCFullYear: () => 2027,
+      getUTCMonth: () => 0,
+      getUTCDate: () => 1,
+      getUTCHours: () => 1,
+      getUTCMinutes: () => 1,
+      toISOString: () => '2027-01-01T01:01:00.000Z',
+    } as unknown as Date
+    expect(formatSlashDateTime('datetime', local)).toBe('2026-11-05 14:32')
+  })
+
+  it('finds the commands by keyword', () => {
+    expect(filterSlashCommands('today').map((c) => c.id)).toEqual(['date'])
+    expect(filterSlashCommands('clock').map((c) => c.id)).toEqual(['time'])
+    expect(filterSlashCommands('timestamp').map((c) => c.id)).toEqual(['datetime'])
+  })
+
+  it('does not open inside code, math or links', () => {
+    expect(complete('`/date‸`')).toBeNull()
+    expect(complete('$/time‸$')).toBeNull()
+    expect(complete('[x](/datetime‸)')).toBeNull()
   })
 })

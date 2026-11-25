@@ -143,6 +143,8 @@ returns `{ view, setDoc(doc, { preserveSelection }), setReadOnly, setTheme, focu
 - **Editing.** `/` at line start or after whitespace opens the slash menu (autocomplete, filterable,
   arrows/Enter/Esc). On an otherwise empty line the command converts the line in place; otherwise
   it removes the `/query` and inserts the block after the current top-level block (Hubble semantics).
+  The inline commands `/date` (`YYYY-MM-DD`), `/time` (`HH:mm`) and `/datetime` (`YYYY-MM-DD HH:mm`) insert the
+  current local time (24-hour, zero-padded) in place of the `/query` only, cursor after it, as one undoable edit.
   Mod-B/I/E/Shift-X toggle `**`/`*`/`` ` ``/`~~`, Mod-K links, Enter continues lists/tasks/quotes and
   ends the list on an empty item, Tab/Shift-Tab nest list items by the sibling's marker width,
   `( [ { "` auto-close, `` ` * _ ~ `` wrap a selection, Mod-F search. Pasted/dropped images go
