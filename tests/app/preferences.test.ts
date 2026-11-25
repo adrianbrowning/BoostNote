@@ -54,6 +54,11 @@ describe('preferences route', () => {
       { fontSize: 4 },
       { fontSize: '16' },
       { lineWidth: 100 },
+      { tableWidth: 'wide' },
+      { tableWidth: 300 },
+      { tableWidth: 2001 },
+      { tableWidth: 800.5 },
+      { tableWidth: 0 },
       { spellcheck: 'yes' },
       { editorFont: 'x; color: red' },
       { editorFont: 'Georgia /*' },
@@ -100,6 +105,24 @@ describe('preferences route', () => {
       panes: { ...DEFAULT_UI.panes, listWidth: 250 },
     })
     expect(normalizeUi('garbage')).toEqual(DEFAULT_UI)
+  })
+
+  it('keeps a valid tableWidth and replaces a missing or invalid one with line', () => {
+    for (const tableWidth of ['line', 'full', 400, 1200, 2000] as const) {
+      expect(normalizeUi({ tableWidth }).tableWidth, String(tableWidth)).toBe(tableWidth)
+    }
+    for (const tableWidth of [undefined, 'wide', 0, 399, 2001, 800.5, '900', null]) {
+      expect(normalizeUi({ tableWidth }).tableWidth, String(tableWidth)).toBe('line')
+    }
+  })
+
+  it('stores a valid tableWidth', async () => {
+    for (const tableWidth of ['full', 1200, 'line'] as const) {
+      const response = await app.post(api.preferencesSave.href(), { tableWidth })
+      expect(response.status).toBe(200)
+      expect((await readJson<PreferencesState>(response)).ui.tableWidth).toBe(tableWidth)
+      expect(JSON.parse(await readFile(app.settings.file, 'utf8')).ui.tableWidth).toBe(tableWidth)
+    }
   })
 
   it('drops a stored editorFont that could break out of its css() rule when settings.json loads', async () => {

@@ -16,6 +16,16 @@ const OUTSIDE_FILE: Array<[OutsideFilePreference, string]> = [
   ['vault', 'Open its folder as vault'],
 ]
 
+/** Table width choices; `custom` stands for a px value, edited in its own input. */
+const TABLE_WIDTHS: Array<['line' | 'full' | 'custom', string]> = [
+  ['line', 'Line width'],
+  ['full', 'Full pane width'],
+  ['custom', 'Custom'],
+]
+
+/** The px value a switch to Custom starts from. */
+const CUSTOM_TABLE_WIDTH = 1200
+
 const KEY_NAMES: Record<string, string> = {
   Space: 'Space',
   Enter: 'Enter',
@@ -62,7 +72,7 @@ export function acceleratorOf(event: KeyboardEvent, isMac: boolean): string | nu
 }
 
 /**
- * Preferences (⌘,): theme, editor font/size/line width, spellcheck, delete confirmation, how a
+ * Preferences (⌘,): theme, editor font/size/line width, table width, spellcheck, delete confirmation, how a
  * `.md` outside every vault opens, and the global show/hide hotkey. Every change is saved (and
  * applied) right away.
  */
@@ -172,6 +182,46 @@ export function PreferencesDialog(handle: Handle<{ model: WorkspaceModel }>) {
               mix={[input, on('change', (event) => void save({ lineWidth: Number(event.currentTarget.value) }))]}
             />
           </label>
+
+          <label mix={rowStyle}>
+            <span>Table width</span>
+            <select
+              name="tableWidth"
+              mix={[
+                input,
+                on('change', (event) => {
+                  const choice = TABLE_WIDTHS.find(([value]) => value === event.currentTarget.value)?.[0]
+                  if (choice === 'custom') void save({ tableWidth: Math.max(CUSTOM_TABLE_WIDTH, prefs.lineWidth) })
+                  else if (choice) void save({ tableWidth: choice })
+                }),
+              ]}
+            >
+              {TABLE_WIDTHS.map(([value, label]) => (
+                <option
+                  key={value}
+                  value={value}
+                  selected={typeof prefs.tableWidth === 'number' ? value === 'custom' : prefs.tableWidth === value}
+                >
+                  {label}
+                </option>
+              ))}
+            </select>
+          </label>
+
+          {typeof prefs.tableWidth === 'number' ? (
+            <label mix={rowStyle}>
+              <span>Table width (px)</span>
+              <input
+                name="tableWidthPx"
+                type="number"
+                min="400"
+                max="2000"
+                step="10"
+                defaultValue={String(prefs.tableWidth)}
+                mix={[input, on('change', (event) => void save({ tableWidth: Number(event.currentTarget.value) }))]}
+              />
+            </label>
+          ) : null}
 
           <label mix={checkRowStyle}>
             <input

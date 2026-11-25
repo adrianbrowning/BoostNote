@@ -142,6 +142,8 @@ const articleStyle = css({
   fontSize: 'var(--editor-font-size)',
   lineHeight: 1.65,
   '& > *': { maxWidth: 'var(--editor-max-width)', marginLeft: 'auto', marginRight: 'auto' },
+  // Top-level tables only: nested ones keep the width of their list or blockquote.
+  '& > table': { maxWidth: 'var(--table-max-width)' },
   '& h1, & h2, & h3, & h4, & h5, & h6': { lineHeight: 1.25, margin: '1.4em auto 0.6em' },
   '& p, & ul, & ol, & blockquote, & pre, & table, & .math-block, & .mermaid-diagram': { marginBottom: '1em' },
   '& a': { color: 'var(--accent)' },

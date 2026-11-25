@@ -223,7 +223,7 @@ export const Workspace = clientEntry(
     return () => {
       const { vault } = model.data
       const state = model.session.note ? model.session.state : undefined
-      const { panes, editorFont, fontSize, lineWidth } = model.preferences
+      const { panes, editorFont, fontSize, lineWidth, tableWidth } = model.preferences
       const sidebar = !panes.sidebarCollapsed
       const list = !panes.listCollapsed
       const variables = css({
@@ -233,6 +233,11 @@ export const Workspace = clientEntry(
         '--list-resizer': `${list ? 4 : 0}px`,
         '--editor-font-size': `${fontSize}px`,
         '--editor-max-width': lineWidth === 0 ? 'none' : `${lineWidth}px`,
+        // Tables are never limited to less than the text column.
+        '--table-max-width':
+          lineWidth === 0 || tableWidth === 'full'
+            ? 'none'
+            : `${tableWidth === 'line' ? lineWidth : Math.max(tableWidth, lineWidth)}px`,
         ...(editorFont ? { '--editor-font': editorFont } : {}),
       })
       return (
