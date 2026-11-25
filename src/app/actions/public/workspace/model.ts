@@ -1014,7 +1014,9 @@ export class WorkspaceModel extends TypedEventTarget<{
 
   /**
    * Runs `request`, which returns lists the caller shows at once: refreshes started before it are dropped when they
-   * return after it (`refresh`).
+   * return after it (`refresh`). Its own lists show even when a refresh started after it showed first: that refresh
+   * may have been answered before the vault did this request's work (an import's note would then be missing, and
+   * its tab closed), while these lists were made once that work was done.
    */
   async #snapshot<T>(request: () => Promise<T>): Promise<T> {
     const at = ++this.#refreshes
