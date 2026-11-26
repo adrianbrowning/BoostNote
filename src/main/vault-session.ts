@@ -164,13 +164,14 @@ export class VaultSession {
       let vault = this.#vaults.get(root)
       if (!vault) {
         const loaded = await this.#load(root).catch(async (error: unknown) => {
-          // `NOT_A_VAULT` means the folder went away meanwhile (`openVault`'s message would name its
-          // path) or overlaps the scratch notes' folder; only the first is "gone", the overlap keeps its message.
-          const missing = await stat(root).then(
+          // `NOT_A_VAULT` means the folder went away (or stopped being a folder) meanwhile, and
+          // `openVault`'s message would name its path, or it overlaps the scratch notes' folder. Only
+          // a folder that is still there keeps its message (the overlap); the rest is "gone".
+          const isFolder = await stat(root).then(
+            (stats) => stats.isDirectory(),
             () => false,
-            () => true,
           )
-          throw error instanceof VaultError && error.code === 'NOT_A_VAULT' && missing ? gone() : error
+          throw error instanceof VaultError && error.code === 'NOT_A_VAULT' && !isFolder ? gone() : error
         })
         // A parent folder swapped for a symlink while it loaded: that is another folder, not the granted one.
         if (loaded.root !== root) {
