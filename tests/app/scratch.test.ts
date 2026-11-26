@@ -283,6 +283,19 @@ describe('/api/scratch/save', () => {
     )
   })
 
+  it('keeps a block with a ten-digit array-index key after another key byte for byte', async () => {
+    const vault = await app.openVault()
+    const { id } = await create()
+    await write(id, '---\nz: x # c\ntags: [a,b]\n4294967294: 2\n---\n# Big\n')
+
+    expect((await app.post('/api/scratch/save', { id, folder: '' })).status).toBe(201)
+
+    const saved = await readFile(path.join(vault.root, 'Big.md'), 'utf8')
+    const stamp = /\ncreated: (\S+)\nupdated: \1\n---\n/.exec(saved)?.[1] ?? ''
+    expect(stamp).toMatch(/^\d{4}-\d{2}-\d{2}T/)
+    expect(saved).toBe(`---\nz: x # c\ntags: [a,b]\n4294967294: 2\ncreated: ${stamp}\nupdated: ${stamp}\n---\n# Big\n`)
+  })
+
   it('saves into the vault the request names, not the active one, and answers that vault’s lists', async () => {
     const first = await app.openVault('first')
     const second = await app.openVault('second')

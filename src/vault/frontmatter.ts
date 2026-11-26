@@ -35,8 +35,8 @@ export interface NoteText {
 
 const DEFAULT_FENCES = { open: '---\n', close: '---\n' }
 const STRINGIFY_OPTIONS = { lineWidth: 0 } as const
-/** Keys JS objects list first, in numeric order, whatever order they were set in (array-index strings). */
-const INTEGER_KEY = /^(?:0|[1-9]\d{0,8})$/
+/** Array-index keys (canonical integers below 2³² − 1) are the ones JS objects list first, whatever order they were set in. */
+const INTEGER_KEY = /^(?:0|[1-9]\d*)$/
 
 /**
  * Splits `raw` into frontmatter and body. A file only has frontmatter when it starts with a `---`
@@ -138,8 +138,14 @@ function spliceYaml(yaml: string, after: Frontmatter): string | undefined {
   }
   const beforeKeys = spans.map((span) => span.key)
   // JS lists integer-like keys first whatever the YAML order, so only the other kept keys can show a reorder.
-  const ordered = beforeKeys.filter((key) => key in after && !INTEGER_KEY.test(key))
-  if (!isDeepStrictEqual(Object.keys(after).filter((key) => ordered.includes(key)), ordered)) return undefined
+  const ordered = beforeKeys.filter((key) => key in after && !(INTEGER_KEY.test(key) && Number(key) < 2 ** 32 - 1))
+  if (
+    !isDeepStrictEqual(
+      Object.keys(after).filter((key) => ordered.includes(key)),
+      ordered,
+    )
+  )
+    return undefined
   const before = toMapping(doc.toJS())
   let text = yaml
   // Apply from the end so earlier offsets stay valid.
