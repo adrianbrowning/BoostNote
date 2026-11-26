@@ -332,6 +332,7 @@ SSR props carry `{ ui, hotkeyRegistered }`.
 | --- | --- |
 | `theme` `system`/`light`/`dark` | main sets `nativeTheme.themeSource`, which drives the renderer's `prefers-color-scheme`: `base.css` and the editor (`setTheme`, mermaid `dark`) switch without a reload |
 | `editorFont`, `fontSize`, `lineWidth` (`0` = full width) | `--editor-font`, `--editor-font-size`, `--editor-max-width` on the workspace root |
+| `tableWidth` (`line` default, `full`, or 400–2000 px) | `--table-max-width` on the workspace root: the line width for `line`, `none` for `full`, the larger of the px value and the line width for px, `none` whenever `lineWidth` is `0`. Top-level reader-pane tables use it instead of the line width (shrink-to-fit, centred); tables in lists or blockquotes keep their container's width; export and print are unchanged |
 | `spellcheck` | `session.defaultSession.setSpellCheckerEnabled`; while on, right-clicking a misspelled word in an editable field lists spelling suggestions and "Add to Dictionary" in the native context menu (see "Menus and shortcuts") |
 | `confirmDelete` | ask before moving notes/folders to the Trash |
 | `outsideFile` (`reader` default, `vault`) | "Opening a .md outside a vault": Read only (reader tab) or Open its folder as vault (see "Opening `.md` files") |

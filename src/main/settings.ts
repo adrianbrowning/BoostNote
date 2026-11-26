@@ -15,6 +15,9 @@ export type ThemePreference = 'system' | 'light' | 'dark'
 /** Opening a `.md` outside every known vault: a read-only reader tab, or its folder as the vault. */
 export type OutsideFilePreference = 'reader' | 'vault'
 
+/** Table width: `'line'` keeps the line width, `'full'` allows the whole pane, a number is px (400–2000). */
+export type TableWidthPreference = 'line' | 'full' | number
+
 /** Pane layout of the workspace window. */
 export interface PaneLayout {
   sidebarWidth: number
@@ -33,6 +36,8 @@ export interface UiPreferences {
   fontSize: number
   /** Maximum width of the editor text column in px; `0` fills the pane. */
   lineWidth: number
+  /** Maximum width of top-level reader-pane tables, exposed as `--table-max-width`; the workspace root never applies a px value below the line width. */
+  tableWidth: TableWidthPreference
   spellcheck: boolean
   /** Ask before moving notes and folders to the Trash. */
   confirmDelete: boolean
@@ -58,6 +63,7 @@ export const DEFAULT_UI: UiPreferences = {
   editorFont: '',
   fontSize: 16,
   lineWidth: 736,
+  tableWidth: 'line',
   spellcheck: true,
   confirmDelete: true,
   globalHotkey: DEFAULT_HOTKEY,
@@ -107,6 +113,7 @@ export const UI_FIELDS: { [K in keyof Omit<UiPreferences, 'panes'>]: (value: unk
   editorFont: (value) => typeof value === 'string' && value.length <= 200 && !/[;{}<>\\]|\/\*/.test(value),
   fontSize: intIn(10, 32),
   lineWidth: (value) => value === 0 || intIn(400, 2000)(value),
+  tableWidth: (value) => value === 'line' || value === 'full' || intIn(400, 2000)(value),
   spellcheck: isBoolean,
   confirmDelete: isBoolean,
   globalHotkey: (value) => typeof value === 'string' && (value === '' || isAccelerator(value)),
