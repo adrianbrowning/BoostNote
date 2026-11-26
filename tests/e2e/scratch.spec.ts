@@ -78,6 +78,27 @@ test('New Scratch Note works with no vault open: its tab shows in the editor and
   await expect(page.locator('[data-scratch-save-reason]')).toBeVisible()
 })
 
+test('closing a scratch tab with nothing typed removes its file; one with text keeps its file', async ({ app }) => {
+  const { page } = app
+  await expect(page.locator('[data-note="a.md"]')).toBeVisible()
+
+  await app.clickMenu('new-scratch-note')
+  await expect(scratchTab(page)).toHaveAttribute('aria-selected', 'true')
+  await expect.poll(async () => Object.keys(await scratchFiles(app)).length).toBe(1)
+  await app.clickMenu('close-tab')
+  await expect(scratchTab(page)).toHaveCount(0)
+  await expect.poll(() => scratchFiles(app)).toEqual({})
+
+  await app.clickMenu('new-scratch-note')
+  const tab = scratchTab(page)
+  await expect(editor(page)).toBeFocused()
+  await page.keyboard.type('Keep this')
+  const id = await tab.getAttribute('data-scratch-tab')
+  await app.clickMenu('close-tab')
+  await expect(tab).toHaveCount(0)
+  await expect.poll(() => scratchFiles(app)).toEqual({ [`${id}.md`]: 'Keep this' })
+})
+
 test('a scratch tab shows the vault-note banner and none of the note header buttons; its relative links are inert, http(s) links and Find work', async ({
   app,
 }) => {

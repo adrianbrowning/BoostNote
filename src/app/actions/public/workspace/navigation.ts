@@ -293,7 +293,10 @@ export class Navigation {
    * drops unsaved edits instead (the "Close" of a note removed on disk). A background tab closes
    * without the gate. A reader tab closes once main revoked its ticket (a `404` means it already
    * was); if revoking fails the tab stays open. A reader that is already closing or opening its
-   * folder as the vault is left to that action.
+   * folder as the vault is left to that action. A scratch tab's scratch note is discarded once its tab
+   * closed when its text (saved by the gate first, when active) is empty or whitespace only, and kept
+   * otherwise; when that read or discard fails, the tab stays closed, the scratch note is kept and the
+   * failure is reported.
    */
   async close(key = this.tabs.activeKey, options: { discard?: boolean } = {}): Promise<void> {
     await this.#close(key, options, this.#hostReport)
@@ -320,10 +323,30 @@ export class Navigation {
     if (key !== this.tabs.activeKey) {
       this.#edit((tabs) => tabs.close(key))
       this.#host.changed()
+      if (tab?.kind === 'scratch') await this.#discardBlank(tab.id, report)
       return
     }
     if (options.discard) this.#session.close()
     await this.#switch((tabs) => tabs.close(key), report)
+    // The tab stays open when the gate refused.
+    if (tab?.kind === 'scratch' && !this.tabs.tabs.some((item) => item.key === key)) {
+      await this.#discardBlank(tab.id, report)
+    }
+  }
+
+  /**
+   * Discards scratch note `id`, whose tab closed, when its text on disk is empty or whitespace only. Its text is the
+   * one on disk: the gate saved it before its active tab closed, and a background tab holds no unsaved text. The one
+   * exception, the session still holding it while a note tab whose read failed is active, keeps it (its text may be
+   * unsaved). A failed read or discard keeps it, reported to `report` (a `404`: it is gone already).
+   */
+  async #discardBlank(id: string, report: LoadReport): Promise<void> {
+    if (this.#session.scratch?.id === id) return
+    try {
+      if ((await this.#api.readScratch(id)).text.trim() === '') await this.#api.discardScratch(id)
+    } catch (error) {
+      if (!(error instanceof ApiError && error.status === 404)) report.fail(error)
+    }
   }
 
   /** Cmd+Shift+T: reopens the most recently closed tab whose note still exists. */

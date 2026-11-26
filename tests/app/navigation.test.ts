@@ -859,6 +859,59 @@ describe('Navigation of scratch tabs', () => {
     expect(session.locked).toBe(false)
   })
 
+  const scratchIds = async () => (await api.listScratch()).map((item) => item.id)
+
+  it('discards a scratch note whose text is blank when its tab closes, and keeps one with text', async () => {
+    const blank = await scratchAfterA()
+    session.edit('  \n')
+    const kept = (await navigation.newScratch())?.scratch.id ?? ''
+    expect(await scratchIds()).toEqual(expect.arrayContaining([blank, kept]))
+    session.edit('Keep me.\n')
+
+    await navigation.close()
+    expect(navigation.tabs.tabs.map((item) => (item.kind === 'scratch' ? item.id : item.kind))).toEqual(['note', blank])
+    expect(await scratchIds()).toEqual(expect.arrayContaining([blank, kept]))
+    expect((await api.readScratch(kept)).text).toBe('Keep me.\n')
+
+    await navigation.close()
+    expect(navigation.tabs.tabs.map((item) => item.kind)).toEqual(['note'])
+    expect(session.note?.id).toBe('a.md')
+    expect(await scratchIds()).toEqual([kept])
+    expect(navigation.tabs.closed).toEqual([])
+    expect(notices).toEqual([])
+  })
+
+  it('saves text typed just before the close, so closing right after typing keeps the scratch note', async () => {
+    const id = await scratchAfterA()
+    session.edit('Just typed.\n')
+    expect(session.state).not.toBe('saved')
+    await navigation.close()
+    expect(await scratchIds()).toEqual([id])
+    expect((await api.readScratch(id)).text).toBe('Just typed.\n')
+    expect(notices).toEqual([])
+  })
+
+  it('discards a blank scratch note when its background tab closes', async () => {
+    await scratchAfterA()
+    await navigation.activate(tab(0))
+    await navigation.close(tab(1))
+    expect(navigation.tabs.tabs.map((item) => item.kind)).toEqual(['note'])
+    expect(await scratchIds()).toEqual([])
+    expect(notices).toEqual([])
+  })
+
+  it('closes the tab and keeps the scratch file, with the failure, when discarding it fails', async () => {
+    const id = await scratchAfterA()
+    net.fail = (url) => url.pathname === '/api/scratch/discard'
+    await navigation.close()
+    net.fail = null
+    expect(navigation.tabs.tabs.map((item) => item.kind)).toEqual(['note'])
+    expect(session.note?.id).toBe('a.md')
+    expect(session.locked).toBe(false)
+    expect(await scratchIds()).toEqual([id])
+    expect(notices).toEqual(['Disk full'])
+  })
+
   /** A restart of the page: a new session and navigation over the same tab store, router and vault. */
   function restart(): void {
     session.close()
