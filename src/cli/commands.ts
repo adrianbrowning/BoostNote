@@ -318,7 +318,7 @@ export async function moveNote(
 
 /**
  * Moves the note and its assets folder to the vault's `.trash/` (the folder stays, and
- * `assetsLeftBehind` says so, when an extension-case twin shares it); nothing is deleted.
+ * `assetsLeftBehind` says so, when a stem twin such as `a.MD` or `a.mdx` shares it); nothing is deleted.
  */
 export async function trashNote(vault: Vault, input: string): Promise<TrashResult> {
   const entry = await vault.deleteNote(await resolveNoteId(vault, input))

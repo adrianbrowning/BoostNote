@@ -21,7 +21,7 @@ export interface LinkMove {
   from: string
   to: string
   kind: 'note' | 'folder'
-  /** Note moves: `false` when the note's assets folder stayed in place (shared with an extension-case twin). */
+  /** Note moves: `false` when the note's assets folder stayed in place (shared with a stem twin, `a.MD` or `a.mdx` beside `a.md`). */
   assets?: boolean
 }
 

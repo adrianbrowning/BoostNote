@@ -567,6 +567,164 @@ describe('extension-case twins (a.md beside a.MD)', () => {
   })
 })
 
+describe('stem twins (a.md beside a.mdx)', () => {
+  it('creates a new note past an .mdx note of the same stem', async () => {
+    await put('work/a.mdx', 'mdx\n')
+    vault = await openVault(root)
+    expect((await vault.createNote('work', 'a')).id).toBe('work/a 2.md')
+    expect(await read('work/a.mdx')).toBe('mdx\n')
+  })
+
+  it.each([
+    ['from/a.mdx', 'to/a.md', 'to/a 2.mdx'],
+    ['from/a.md', 'to/a.mdx', 'to/a 2.md'],
+  ])('moves %s beside %s as %s, overwriting neither', async (from, there, to) => {
+    await put(from, 'moved\n')
+    await put(there, 'there\n')
+    vault = await openVault(root)
+    expect((await vault.moveNote(from, 'to')).note.id).toBe(to)
+    expect(await read(there)).toBe('there\n')
+    expect(await read(to)).toBe('moved\n')
+  })
+
+  it('trashes an .mdx note beside an .md one, keeping the .md note intact', async () => {
+    await put('work/a.mdx', 'mdx\n')
+    await put('work/a.md', 'md\n')
+    vault = await openVault(root)
+    expect((await vault.deleteNote('work/a.mdx')).id).toBe('work/a.mdx')
+    expect(await readdir(path.join(root, 'work'))).toEqual(['a.md'])
+    expect(await read('work/a.md')).toBe('md\n')
+    expect(await read('.trash/work/a.mdx')).toBe('mdx\n')
+  })
+
+  it('restores a trashed .mdx note past an .md note now in its folder', async () => {
+    await put('work/a.mdx', 'mdx\n')
+    vault = await openVault(root)
+    const entry = await vault.deleteNote('work/a.mdx')
+    await put('work/a.md', 'md\n')
+    await vault.refresh()
+    expect(await vault.restore(entry.id)).toEqual({ id: 'work/a 2.mdx', kind: 'note' })
+    expect(await read('work/a 2.mdx')).toBe('mdx\n')
+    expect(await read('work/a.md')).toBe('md\n')
+  })
+
+  it('moves an .mdx note away from an .md one, leaving the shared assets folder in place', async () => {
+    await put('work/a.mdx', 'mdx ![x](./a.assets/x.png)\n')
+    await put('work/a.md', 'md ![x](./a.assets/x.png)\n')
+    await put('work/a.assets/x.png', 'X')
+    await mkdir(path.join(root, 'archive'))
+    vault = await openVault(root)
+    const moved = await vault.moveNote('work/a.mdx', 'archive')
+    expect(moved).toMatchObject({ note: { id: 'archive/a.mdx' }, assetsLeftBehind: 'work/a.assets' })
+    expect(moved.note.body).toBe('mdx ![x](../work/a.assets/x.png)\n')
+    expect(await readdir(path.join(root, 'archive'))).toEqual(['a.mdx'])
+    expect((await readdir(path.join(root, 'work'))).sort()).toEqual(['a.assets', 'a.md'])
+    expect(await read('work/a.assets/x.png')).toBe('X')
+  })
+
+  it('trashes an .mdx note beside an .md one, leaving the shared assets folder in place', async () => {
+    await put('work/a.mdx', 'mdx ![x](./a.assets/x.png)\n')
+    await put('work/a.md', 'md ![x](./a.assets/x.png)\n')
+    await put('work/a.assets/x.png', 'X')
+    vault = await openVault(root)
+    const entry = await vault.deleteNote('work/a.mdx')
+    expect(entry).toMatchObject({ id: 'work/a.mdx', assetsLeftBehind: 'work/a.assets' })
+    expect(await readdir(path.join(root, '.trash/work'))).toEqual(['a.mdx'])
+    expect((await readdir(path.join(root, 'work'))).sort()).toEqual(['a.assets', 'a.md'])
+    expect(await read('work/a.assets/x.png')).toBe('X')
+  })
+
+  it('trashes an A.mdx note beside a.md, leaving the assets folder both reach on a case-insensitive disk', async (ctx) => {
+    await put('work/A.mdx', 'mdx\n')
+    await put('work/a.md', 'md ![x](./a.assets/x.png)\n')
+    await put('work/a.assets/x.png', 'X')
+    // Needs a case-insensitive file system (default macOS): there `A.assets` is `a.assets`.
+    if ((await readFile(path.join(root, 'work/A.assets/x.png'), 'utf8').catch(() => null)) !== 'X') ctx.skip()
+    vault = await openVault(root)
+    const entry = await vault.deleteNote('work/A.mdx')
+    expect(entry).toMatchObject({ id: 'work/A.mdx', assetsLeftBehind: 'work/A.assets' })
+    expect(await read('work/a.assets/x.png')).toBe('X')
+  })
+
+  it('title-renames past a stem an .mdx note takes', async () => {
+    await put('work/meeting-notes.md', '---\ntitle: Meeting notes\n---\nbody\n')
+    await put('work/Meeting notes.mdx', 'other\n')
+    vault = await openVault(root)
+    const plan = await vault.planTitleRenames()
+    expect(plan.renames).toEqual([
+      { from: 'work/meeting-notes.md', to: 'work/Meeting notes 2.md', title: 'Meeting notes' },
+    ])
+    expect((await vault.applyTitleRenames(plan)).renamed).toEqual(plan.renames)
+    expect(await read('work/Meeting notes.mdx')).toBe('other\n')
+  })
+
+  it('title-renames a note with an .mdx stem twin away from its own stem, leaving the shared assets folder', async () => {
+    await put('work/plan.md', '# Plan\n')
+    await put('work/plan.mdx', 'twin\n')
+    await put('work/plan.assets/x.png', 'X')
+    vault = await openVault(root)
+    const plan = await vault.planTitleRenames()
+    expect(plan.renames).toEqual([{ from: 'work/plan.md', to: 'work/Plan 2.md', title: 'Plan' }])
+    expect((await vault.applyTitleRenames(plan)).renamed).toEqual([
+      { from: 'work/plan.md', to: 'work/Plan 2.md', title: 'Plan', assetsLeftBehind: 'work/plan.assets' },
+    ])
+    expect((await readdir(path.join(root, 'work'))).sort()).toEqual(['Plan 2.md', 'plan.assets', 'plan.mdx'])
+  })
+
+  it('creates a note a beside a non-note a.MDX file as a.md', async () => {
+    await put('work/a.MDX', 'other\n')
+    vault = await openVault(root)
+    expect((await vault.createNote('work', 'a')).id).toBe('work/a.md')
+    expect(await read('work/a.MDX')).toBe('other\n')
+  })
+
+  it('title-renames a.md beside a non-note a.MDX file to A.md', async () => {
+    await put('work/a.md', '# A\n')
+    await put('work/a.MDX', 'other\n')
+    vault = await openVault(root)
+    const plan = await vault.planTitleRenames()
+    expect(plan.renames).toEqual([{ from: 'work/a.md', to: 'work/A.md', title: 'A' }])
+    expect((await vault.applyTitleRenames(plan)).renamed).toEqual(plan.renames)
+    expect((await readdir(path.join(root, 'work'))).sort()).toEqual(['A.md', 'a.MDX'])
+  })
+
+  it('title-renames a.mdx beside a non-note a.MDX file past its own stem, on a case-sensitive disk', async (ctx) => {
+    await put('work/a.mdx', '# A\n')
+    await put('work/a.MDX', 'other\n')
+    if ((await readdir(path.join(root, 'work'))).length !== 2) ctx.skip() // a.mdx and a.MDX are one file
+    vault = await openVault(root)
+    expect((await vault.planTitleRenames()).renames).toEqual([{ from: 'work/a.mdx', to: 'work/A 2.mdx', title: 'A' }])
+  })
+
+  it('moves an .mdx note beside a non-note a.MDX file as a 2.mdx, overwriting nothing', async () => {
+    await put('from/a.mdx', 'mdx\n')
+    await put('to/a.MDX', 'other\n')
+    vault = await openVault(root)
+    expect((await vault.moveNote('from/a.mdx', 'to')).note.id).toBe('to/a 2.mdx')
+    expect(await read('to/a.MDX')).toBe('other\n')
+    expect(await read('to/a 2.mdx')).toBe('mdx\n')
+  })
+
+  it('trashes an .mdx note past a non-note a.MDX file in the trash, overwriting nothing', async () => {
+    await put('work/a.mdx', 'mdx\n')
+    await put('.trash/work/a.MDX', 'other\n')
+    vault = await openVault(root)
+    expect((await vault.deleteNote('work/a.mdx')).id).toBe('work/a 2.mdx')
+    expect(await read('.trash/work/a.MDX')).toBe('other\n')
+    expect(await read('.trash/work/a 2.mdx')).toBe('mdx\n')
+  })
+
+  it('restores a trashed .mdx note past a non-note a.MDX file now in its folder, overwriting nothing', async () => {
+    await put('work/a.mdx', 'mdx\n')
+    vault = await openVault(root)
+    const entry = await vault.deleteNote('work/a.mdx')
+    await put('work/a.MDX', 'other\n')
+    expect(await vault.restore(entry.id)).toEqual({ id: 'work/a 2.mdx', kind: 'note' })
+    expect(await read('work/a.MDX')).toBe('other\n')
+    expect(await read('work/a 2.mdx')).toBe('mdx\n')
+  })
+})
+
 describe('writeNote frontmatter', () => {
   it('keeps the YAML of values sent back unchanged after a JSON round trip and writes edited keys', async () => {
     await put(

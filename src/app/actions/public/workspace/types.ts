@@ -73,7 +73,7 @@ export interface NoteDocument extends NoteSummary {
 
 /**
  * `POST /api/notes/rename` and `/move`: the note at its new place, the moves to offer to
- * `/api/links/*` (empty when it stayed), and `assetsLeftBehind` when an extension-case twin kept the
+ * `/api/links/*` (empty when it stayed), and `assetsLeftBehind` when a stem twin (`a.MD` or `a.mdx`) kept the
  * shared assets folder.
  */
 export interface NoteRelocationResult extends AssetsLeftBehind {

@@ -78,7 +78,7 @@ const encodeHref = (relPath: string) => relPath.split('/').map(encodeURIComponen
  * when the folder has its own `index.md`; itself numbered past a folder of that name), gets the next free
  * ` N` suffix (` 2`, ` 3`...) in `vault.notes()` order. Clashes are compared by `nameKey` (letter
  * case and Unicode normalization ignored), so `A.md` and `a.md`, NFC and NFD `Café`, and
- * extension-case twins get distinct pages: `a.md`, `a.MD` → `a.html`, `a 2.html`; `_contents.md`
+ * stem twins get distinct pages: `a.md`, `a.MD` (or `a.mdx`) → `a.html`, `a 2.html`; `_contents.md`
  * beside `index.md` → `_contents 2.html`. Links to an exported note point at its page; a link to
  * a note outside the export, or to a missing exact id, stays as written. Returns the listing's
  * path and the page count.

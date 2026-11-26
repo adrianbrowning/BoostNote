@@ -417,8 +417,8 @@ to a missing id (including an extension-case variant such as `a.md` beside `a.MD
 leaves the vault stay as written. It also writes an `index.html` listing (`_contents.html` when the
 folder has its own `index.md` in any case, which then becomes `index.html` with its stem's case kept, so `INDEX.MD` → `INDEX.html`). A page name clashing,
 by `nameKey`, with one already given out, with a folder a note sits in (`a.html/`) or with the
-listing's gets ` 2`, ` 3`... in `vault.notes()` order, so case, NFC/NFD and extension-case twins get
-distinct pages (`a.md`, `a.MD` → `a.html`, `a 2.html`), each linked from its own note's links; `exportNoteMarkdown` copies the file and its
+listing's gets ` 2`, ` 3`... in `vault.notes()` order, so case, NFC/NFD and stem twins get
+distinct pages (`a.md`, `a.MD` or `a.mdx` → `a.html`, `a 2.html`), each linked from its own note's links; `exportNoteMarkdown` copies the file and its
 `<stem>.assets/` (renamed after the new file name, links rewritten).
 
 ### Mermaid, PDF and printing (`src/main/export.ts`)
@@ -587,18 +587,32 @@ The file name **is** the note's name (as in Obsidian/Hubble); the first `# H1` i
   120 characters / 200 UTF-8 bytes on a grapheme boundary, Windows device names suffixed with `-`
   (`CON` → `CON-`, `con.txt` → `con-.txt`); empty → `Untitled` (`sanitizeFileName` returns `''`
   so renames can refuse it). Names are unique per folder ignoring case, with ` 2`, ` 3`, …
-  (also for moves, trash slots and restores). `createNote` makes `Untitled.md`, `Untitled 2.md`, … with an
+  (also for moves, trash slots and restores). A note stem counts as taken when a `.md` (any case) or
+  `.mdx` note of that stem or its `.assets` folder is in the folder, or any entry with the placed
+  note's file name (by `nameKey`; one check, `stemTaken` in `src/vault/names.ts`, for create, move,
+  trash, restore, title renames and drop import), so `a.md` and `a.mdx` never overwrite each other:
+  a new note `a` beside `a.mdx` is `a 2.md`, `a.mdx` moved or restored beside `a.md` is `a 2.mdx`, a
+  dropped `a.md` is `a 2.md`, and HTML export gives them `a.html` and `a 2.html`. A non-note `a.MDX`
+  takes no stem from an `.md` note (a new note `a` beside it is `a.md`), but an `.mdx` note placed
+  beside it is `a 2.mdx`, since `a.mdx` and `a.MDX` are one file on a case-insensitive disk.
+  `createNote` makes `Untitled.md`, `Untitled 2.md`, … with an
   empty body. Link paths encode space, `#`, `%`, `(`, `)`, `<`, `>`.
 - **Extension case:** a note file ends in `.md` of any case or in lowercase `.mdx` (`isNoteFileName`,
   `splitNoteExtension` / `noteStem`, `src/shared/vault-ids.ts`); `.MDX` and `.Mdx` files are no notes. New notes get `.md`; rename, title renames, moves, trash, restore and
   HTML export (`Plan.MD` → `Plan.html`) follow the note's own extension (`Plan.MD` renamed to Roadmap is `Roadmap.MD`, its `Plan.assets`
   follows), and a typed `.md` of any case or `.mdx` is dropped from a new name, so a rename never switches a note
   between `.md` and `.mdx` (`doc.mdx` renamed to `Other.mdx` is `Other.mdx`; `doc.md` renamed to `x.mdx` is `x.md`). `x.md` and `x.MD` count as the
-  same name. Two notes that differ only in extension case (`a.md` beside `a.MD`, on case-sensitive
-  file systems) share `a.assets`: trashing, renaming or moving one leaves the folder for the other
-  and the result says so (`assetsLeftBehind: 'work/a.assets'`, kept in the trash entry so `restore`
-  says it too, while the folder still exists); rename, move and restore keep the note's links on the
-  folder's real place. The check only sees twins present now: once one twin was renamed, moved or
+  same name. Two notes whose stems are equal by `nameKey` while their extensions differ (stem twins: `a.md`
+  beside `a.MD` on case-sensitive file systems, or `a.md` beside `a.mdx` anywhere) share an assets folder only
+  when their `<stem>.assets` paths are one directory: always for identical stems (`a.md` beside `a.mdx` or
+  `a.MD`), and for stems that differ only in letter case or Unicode normalization (`a.md` beside `A.mdx`) only
+  on a case-insensitive or normalizing file system; on a case-sensitive disk each keeps its own
+  `a.assets` / `A.assets`, which moves with it. When shared,
+  trashing, renaming or moving one leaves the folder for the other and the result says so
+  (`assetsLeftBehind: 'work/a.assets'`, kept in the trash entry so `restore` says it too, while the
+  folder still exists); rename, move and restore keep the note's links on the folder's real place.
+  The title-rename planner treats such a note's own stem as taken (`plan.md` with `# Plan` beside
+  `plan.mdx` → `Plan 2.md`, not `Plan.md`). The check only sees twins present now: once one twin was renamed, moved or
   trashed away from the folder, a later rename, move or trash of the other carries the folder and
   the first note's links into it break (an accepted limit).
 - **Inline rename:** click the name in the editor header (or focus it and press F2/Enter); Enter or
@@ -651,8 +665,8 @@ Renaming or moving a note or folder asks each time whether to update links point
 style).
 
 - **Moves** (`LinkMove`, `src/vault/links.ts`): `{ from, to, kind: 'note' | 'folder', assets? }`, ids
-  before → after. A note move also covers its `<stem>.assets/` (unless `assets: false`: an
-  extension-case twin kept it); a folder move is a path-prefix map over every note, asset and subfolder
+  before → after. A note move also covers its `<stem>.assets/` (unless `assets: false`: a
+  stem twin such as `a.MD` or `a.mdx` kept it); a folder move is a path-prefix map over every note, asset and subfolder
   under it (`movedId`, `src/shared/vault-ids.ts`, the one prefix rule). The most specific (longest)
   prefix wins. The vault builds them: `renameNote`/`moveNote` return `{ note, moves, assetsLeftBehind? }`
   and `renameFolder`/`moveFolder` `{ folder, moves }` (empty `moves` when nothing moved); the
