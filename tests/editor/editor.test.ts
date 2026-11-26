@@ -413,6 +413,18 @@ describe('createLivePreviewEditor', () => {
     expect(saveAsset).toHaveBeenCalledOnce()
   })
 
+  it('replaces the selected text of a note with a pasted image', async () => {
+    const saveAsset = vi.fn(async (file: File) => `./note.assets/${file.name}`)
+    const { editor } = mount('a cat here', { saveAsset })
+    editor.view.dispatch({ selection: { anchor: 2, head: 5 } })
+    const data = new DataTransfer()
+    data.items.add(new File(['png'], 'shot.png', { type: 'image/png' }))
+    editor.view.contentDOM.dispatchEvent(
+      new ClipboardEvent('paste', { clipboardData: data, bubbles: true, cancelable: true }),
+    )
+    await vi.waitFor(() => expect(editor.view.state.doc.toString()).toBe('a ![shot](./note.assets/shot.png) here'))
+  })
+
   it('converts pasted HTML to markdown', () => {
     const { editor } = mount('')
     const data = new DataTransfer()
