@@ -2,10 +2,11 @@
 // `BrowserWindow.show()`/`focus()` activate the app and make the window the key window, so a test app
 // took over the keyboard at launch and key presses meant for another app (letters, arrow keys,
 // shortcuts) landed in the test ('eWeekly plan'). Shown windows open inactive and can never become
-// the key window (hidden ones, such as the export windows, are left alone); Playwright drives the
+// the key window (hidden ones, such as the export windows, are left alone), and `app.focus()` (the global
+// hotkeys' bring-to-front) never activates the app; Playwright drives the
 // page over CDP, which needs neither, and `launchApp` turns on focus emulation so the page still
 // behaves as focused. Other platforms keep the real behaviour (Linux CI runs under xvfb).
-const { BrowserWindow } = require('electron')
+const { app, BrowserWindow } = require('electron')
 
 if (process.platform === 'darwin') {
   BrowserWindow.prototype.show = function show() {
@@ -13,4 +14,5 @@ if (process.platform === 'darwin') {
     this.showInactive()
   }
   BrowserWindow.prototype.focus = () => {}
+  app.focus = () => {}
 }

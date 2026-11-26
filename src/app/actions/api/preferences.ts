@@ -9,8 +9,19 @@ export function preferencesState(services: AppServices): PreferencesState {
   return {
     ui,
     hotkeyRegistered: ui.globalHotkey !== '' && services.preferences.registeredHotkey === ui.globalHotkey,
+    captureHotkeyRegistered:
+      ui.captureHotkey !== '' && services.preferences.registeredCaptureHotkey === ui.captureHotkey,
     update: isUpdateShown(services.updates.available, ui.dismissedUpdate) ? services.updates.available : null,
   }
+}
+
+/** The `409` of a hotkey the OS refused to register. */
+function refused(accelerator: string): HttpError {
+  return new HttpError(
+    409,
+    'HOTKEY_UNAVAILABLE',
+    `${accelerator} could not be registered. Another app may already use it.`,
+  )
 }
 
 function invalid(name: string): HttpError {
@@ -43,20 +54,38 @@ export function parseUiPatch(body: Record<string, unknown>): UiPatch {
 }
 
 /**
- * Merges `patch` into the stored preferences and applies them. A new global hotkey is registered
- * first; when the OS refuses it nothing is stored (`409 HOTKEY_UNAVAILABLE`).
+ * Merges `patch` into the stored preferences and applies them. A new show/hide or Quick capture
+ * hotkey is registered first; when the OS refuses it nothing is stored and the previous hotkeys stay
+ * registered (`409 HOTKEY_UNAVAILABLE`). The two hotkeys never share an accelerator: a patch that
+ * would make them equal is refused the same way before anything is registered.
  */
 export function savePreferences(services: AppServices, patch: UiPatch): PreferencesState {
   const current = services.settings.ui
   const next = { ...current, ...patch, panes: { ...current.panes, ...patch.panes } }
-  if (patch.globalHotkey !== undefined && patch.globalHotkey !== services.preferences.registeredHotkey) {
-    if (!services.preferences.setHotkey(patch.globalHotkey)) {
-      throw new HttpError(
-        409,
-        'HOTKEY_UNAVAILABLE',
-        `${patch.globalHotkey} could not be registered. Another app may already use it.`,
-      )
-    }
+  const { preferences } = services
+  if (
+    (patch.globalHotkey !== undefined || patch.captureHotkey !== undefined) &&
+    next.captureHotkey !== '' &&
+    next.captureHotkey === next.globalHotkey
+  ) {
+    throw new HttpError(
+      409,
+      'HOTKEY_UNAVAILABLE',
+      patch.captureHotkey !== undefined
+        ? `${next.captureHotkey} is already the show/hide hotkey.`
+        : `${next.globalHotkey} is already the Quick capture hotkey.`,
+    )
+  }
+  const previousHotkey = preferences.registeredHotkey
+  const hotkeyChanged = patch.globalHotkey !== undefined && patch.globalHotkey !== previousHotkey
+  if (hotkeyChanged && !preferences.setHotkey(next.globalHotkey)) throw refused(next.globalHotkey)
+  if (
+    patch.captureHotkey !== undefined &&
+    patch.captureHotkey !== preferences.registeredCaptureHotkey &&
+    !preferences.setCaptureHotkey(patch.captureHotkey)
+  ) {
+    if (hotkeyChanged) preferences.setHotkey(previousHotkey ?? '')
+    throw refused(patch.captureHotkey)
   }
   services.settings.update({ ui: next })
   services.preferences.apply(next)

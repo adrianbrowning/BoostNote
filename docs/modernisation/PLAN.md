@@ -238,7 +238,7 @@ not open → 409 `NO_VAULT`.
 | `POST /api/assets?note=&ext=` (raw body, ≤ 50 MB) | Editor `saveAsset` → `{ href: "./<stem>.assets/<hash>.<ext>" }`; `404 NOT_FOUND`, writing nothing, when the note does not exist |
 | `GET /api/import/candidates` · `POST /api/import/pick {purpose}` · `POST /api/import/run {source, target, dryRun, force}` | Importer: storages found on this machine, folder dialog, dry run / run → summary |
 | `POST /api/open-external {url}` | http(s) links only |
-| `GET /api/preferences` · `POST /api/preferences {…UiPatch}` | `{ ui, hotkeyRegistered }`; save validates every field, `409 HOTKEY_UNAVAILABLE` when the OS refuses the global hotkey (phase 5) |
+| `GET /api/preferences` · `POST /api/preferences {…UiPatch}` | `{ ui, hotkeyRegistered, captureHotkeyRegistered, update }`; save validates every field, `409 HOTKEY_UNAVAILABLE` when the OS refuses the global or Quick capture hotkey, or when the two would be the same accelerator (phase 5) |
 | `POST /api/export/note {id, format: html\|pdf\|markdown\|print}` · `POST /api/export/folder {folder}` | Export (phase 6) → `{ path }` (`null`: cancelled / printed) |
 | `POST /api/open-request` | Takes the oldest queued "open this `.md`" request → `{ kind: 'note', vault, id }`, `{ kind: 'external', ticket, name }` (outside file, reader tab) or `null` when the queue is empty (phase 6) |
 | `GET /api/reader/:ticket` · `POST /api/reader/:ticket/close` | A reader tab's outside file → `{ name, body, frontmatter, html }`, read fresh; close revokes the ticket. Unknown/revoked tickets: `404` |
@@ -405,7 +405,7 @@ titles stay aligned. CLI `list --pinned`, MCP `list_notes { pinned }`, `set-prop
 ⌘, (app menu "Settings…" on macOS, File > Preferences… elsewhere) opens a modal; every change is
 saved and applied immediately through `POST /api/preferences` (any subset of `UiPreferences`,
 validated field by field: unknown keys or bad values are `400`). `GET /api/preferences` and the page's
-SSR props carry `{ ui, hotkeyRegistered }`.
+SSR props carry `{ ui, hotkeyRegistered, captureHotkeyRegistered, update }`.
 
 | Preference | Effect |
 | --- | --- |
@@ -610,7 +610,9 @@ sending menu commands. Native dialogs are answered by replacing `dialog.showSave
 and clicks its items). On macOS the window opens inactive and can never
 become the key window (`tests/e2e/background-windows.cjs`, preloaded with `-r`), and the page gets
 CDP focus emulation (Playwright skips it for Electron): key presses made in other apps while the
-suite runs used to land in a test (`eWeekly plan`, arrow keys moving the note list). Covered: a note
+suite runs used to land in a test (`eWeekly plan`, arrow keys moving the note list). `globalShortcut`
+registers with a fake OS (`tests/e2e/global-shortcuts.cjs`, also `-r`): `pressGlobalShortcut` runs the
+callback registered for an accelerator and `takeGlobalShortcut` makes one refused. Covered: a note
 renders mermaid SVG and KaTeX (fully rendered while unfocused); typing is saved to disk; an external
 write live-reloads; tabs survive a reload; importing the legacy fixture storage through the dialog;
 HTML export contains mermaid `<svg>` and KaTeX markup (and is screenshotted in a window); PDF export;

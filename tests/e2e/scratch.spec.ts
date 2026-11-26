@@ -2,7 +2,16 @@ import { readdir, readFile } from 'node:fs/promises'
 import * as path from 'node:path'
 import type { Page } from '@playwright/test'
 
-import { type AppHandle, expect, relaunchApp, test, writeFiles } from './fixtures.ts'
+import {
+  type AppHandle,
+  expect,
+  pressGlobalShortcut,
+  readSettings,
+  relaunchApp,
+  takeGlobalShortcut,
+  test,
+  writeFiles,
+} from './fixtures.ts'
 
 test.use({ files: { 'a.md': '# A\n' } })
 
@@ -372,4 +381,74 @@ test('with no vault open and tabs open the scratch list shows beside the editor 
   await expect(page.locator(`[role="tab"][data-scratch-tab="${second}"]`)).toHaveCount(0)
   await expect(list.locator('[data-scratch-open]')).toHaveText(['Call the plumber'])
   expect(Object.keys(await scratchFiles(app))).toEqual([`${first}.md`])
+})
+
+/** Whether the app window is shown (the hidden export windows do not count). */
+function appWindowVisible({ electronApp }: Pick<AppHandle, 'electronApp'>): Promise<boolean> {
+  return electronApp.evaluate(({ BrowserWindow }) =>
+    BrowserWindow.getAllWindows().some(
+      (window) => window.webContents.getURL().startsWith('boost://app/') && window.isVisible(),
+    ),
+  )
+}
+
+test.describe('with a Quick capture hotkey', () => {
+  test.use({ ui: { captureHotkey: 'CommandOrControl+Alt+Shift+K' } })
+
+  test('the stored Quick capture hotkey shows the hidden window with a new focused scratch tab', async ({ app }) => {
+    const { page } = app
+    await page.locator('[data-note="a.md"]').click()
+    await expect(page.locator('[data-note-title]')).toHaveText('a')
+    await app.electronApp.evaluate(({ BrowserWindow }) => {
+      for (const window of BrowserWindow.getAllWindows()) {
+        if (window.webContents.getURL().startsWith('boost://app/')) window.hide()
+      }
+    })
+    await expect.poll(() => appWindowVisible(app)).toBe(false)
+
+    await pressGlobalShortcut(app, 'CommandOrControl+Alt+Shift+K')
+    await expect.poll(() => appWindowVisible(app)).toBe(true)
+    const tab = scratchTab(page)
+    await expect(tab).toHaveAttribute('aria-selected', 'true')
+    await expect(editor(page)).toBeFocused()
+    await page.keyboard.type('Captured')
+    const id = await tab.getAttribute('data-scratch-tab')
+    await expect.poll(() => scratchFiles(app)).toEqual({ [`${id}.md`]: 'Captured' })
+  })
+})
+
+test('Preferences records a Quick capture hotkey beside the show/hide hotkey, and says why a taken one is refused', async ({
+  app,
+}) => {
+  const { page } = app
+  await expect(page.locator('[data-note="a.md"]')).toBeVisible()
+  await app.clickMenu('preferences')
+  const dialog = page.getByRole('dialog', { name: 'Preferences' })
+  // The Quick capture recorder is the group right after the show/hide one.
+  const groups = dialog.getByRole('group')
+  await expect(groups).toHaveCount(2)
+  await expect(groups.nth(0)).toHaveAccessibleName('Show/hide Boostnote from anywhere')
+  await expect(groups.nth(1)).toHaveAccessibleName('Quick capture: a new scratch note from anywhere')
+  const capture = dialog.getByRole('group', { name: 'Quick capture: a new scratch note from anywhere' })
+  const status = capture.locator('[data-hotkey-status]')
+  await expect(capture.locator('[data-hotkey]')).toHaveText('None')
+  await expect(status).toHaveText('No Quick capture hotkey.')
+
+  await takeGlobalShortcut(app, 'Control+Alt+K')
+  await capture.locator('[data-hotkey-record]').click()
+  await page.keyboard.press('Control+Alt+K')
+  await expect(status).toHaveText('Control+Alt+K could not be registered. Another app may already use it.')
+  await expect(capture.locator('[data-hotkey]')).toHaveText('None')
+  expect((await readSettings(app)).ui.captureHotkey).toBe('')
+
+  await capture.locator('[data-hotkey-record]').click()
+  await page.keyboard.press('Control+Alt+J')
+  await expect(status).toHaveText('Registered Control+Alt+J.')
+  await expect(capture.locator('[data-hotkey]')).toHaveText('Control+Alt+J')
+  await expect.poll(async () => (await readSettings(app)).ui.captureHotkey).toBe('Control+Alt+J')
+
+  await dialog.getByRole('button', { name: 'Done' }).click()
+  await pressGlobalShortcut(app, 'Control+Alt+J')
+  await expect(scratchTab(page)).toHaveAttribute('aria-selected', 'true')
+  await expect(editor(page)).toBeFocused()
 })

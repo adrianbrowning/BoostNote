@@ -43,6 +43,8 @@ export interface UiPreferences {
   confirmDelete: boolean
   /** Electron accelerator that shows/hides the window from anywhere; `''` disables it. */
   globalHotkey: string
+  /** Electron accelerator that shows the window with a new scratch note (Quick capture); `''` disables it. */
+  captureHotkey: string
   /** Check GitHub for a newer release once a day (packaged app only). */
   checkUpdates: boolean
   /** Version whose update notice the user dismissed; `''` when none. */
@@ -67,6 +69,7 @@ export const DEFAULT_UI: UiPreferences = {
   spellcheck: true,
   confirmDelete: true,
   globalHotkey: DEFAULT_HOTKEY,
+  captureHotkey: '',
   checkUpdates: true,
   dismissedUpdate: '',
   outsideFile: 'reader',
@@ -107,6 +110,9 @@ export function isAccelerator(value: string): boolean {
   return /^F\d/.test(key) || parts.some((part) => part !== 'Shift')
 }
 
+/** A global hotkey preference: an accelerator, or `''` for none. */
+const isHotkey = (value: unknown): boolean => typeof value === 'string' && (value === '' || isAccelerator(value))
+
 /** Validity of each preference value (also used to validate `POST /api/preferences`). */
 export const UI_FIELDS: { [K in keyof Omit<UiPreferences, 'panes'>]: (value: unknown) => boolean } = {
   theme: (value) => value === 'system' || value === 'light' || value === 'dark',
@@ -116,7 +122,8 @@ export const UI_FIELDS: { [K in keyof Omit<UiPreferences, 'panes'>]: (value: unk
   tableWidth: (value) => value === 'line' || value === 'full' || intIn(400, 2000)(value),
   spellcheck: isBoolean,
   confirmDelete: isBoolean,
-  globalHotkey: (value) => typeof value === 'string' && (value === '' || isAccelerator(value)),
+  globalHotkey: isHotkey,
+  captureHotkey: isHotkey,
   checkUpdates: isBoolean,
   dismissedUpdate: (value) => typeof value === 'string' && value.length <= 64 && /^[0-9A-Za-z.+-]*$/.test(value),
   outsideFile: (value) => value === 'reader' || value === 'vault',

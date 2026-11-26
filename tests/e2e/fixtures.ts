@@ -14,6 +14,8 @@ const backgroundWindows = path.join(import.meta.dirname, 'background-windows.cjs
  * which records each window's CSP violations from the start.
  */
 const cspViolationRecorder = path.join(import.meta.dirname, 'csp-violations.cjs')
+/** Main-process preload: `globalShortcut` registers with a fake OS instead of the real one (see the file). */
+const fakeGlobalShortcuts = path.join(import.meta.dirname, 'global-shortcuts.cjs')
 
 export interface AppHandle {
   electronApp: ElectronApplication
@@ -60,6 +62,33 @@ export async function openLooseFile(
 }
 
 /**
+ * Presses the global hotkey `accelerator` as the OS would: runs the callback the app registered for it with the
+ * fake OS of `global-shortcuts.cjs`. Throws when the app has nothing registered for it.
+ */
+export async function pressGlobalShortcut(
+  { electronApp }: Pick<AppHandle, 'electronApp'>,
+  accelerator: string,
+): Promise<void> {
+  await electronApp.evaluate((_electron, target) => {
+    const shortcuts: Map<string, () => void> = Reflect.get(globalThis, 'boostGlobalShortcuts')
+    const callback = shortcuts.get(target)
+    if (!callback) throw new Error(`No global shortcut ${target} is registered`)
+    callback()
+  }, accelerator)
+}
+
+/** Makes the fake OS of `global-shortcuts.cjs` refuse `accelerator`, as when another app holds it. */
+export async function takeGlobalShortcut(
+  { electronApp }: Pick<AppHandle, 'electronApp'>,
+  accelerator: string,
+): Promise<void> {
+  await electronApp.evaluate((_electron, target) => {
+    const taken: Set<string> = Reflect.get(globalThis, 'boostTakenShortcuts')
+    taken.add(target)
+  }, accelerator)
+}
+
+/**
  * The app's `settings.json` from its temp profile. launchApp seeds a partial `ui`, but the app
  * rewrites the file with its sanitized settings (a full, normalized `ui`) when it restores the
  * vaults at start-up, before its window opens, so by the time launchApp returns it is full.
@@ -81,7 +110,8 @@ export interface LaunchOptions {
 
 /**
  * Launches the app from source on a temp profile (`--user-data-dir`) whose settings reopen a temp
- * vault, with the global hotkey off so tests never fight a running Boostnote for it. On macOS its
+ * vault, with the global hotkey off and `globalShortcut` on a fake OS (`global-shortcuts.cjs`), so tests
+ * never fight a running Boostnote or another app for a hotkey. On macOS its
  * window opens in the background and never takes the keyboard, so keys typed into other apps
  * meanwhile cannot reach a test. `openFiles` are passed on the command line, like a file association
  * does on Windows/Linux. The temp vault is a copy (`vaultCopyOf`), so a real vault is never opened.
@@ -151,6 +181,8 @@ async function startApp(root: string, args: string[] = []): Promise<Pick<AppHand
       backgroundWindows,
       '-r',
       cspViolationRecorder,
+      '-r',
+      fakeGlobalShortcuts,
       projectRoot,
       `--user-data-dir=${path.join(root, 'profile')}`,
       ...args,

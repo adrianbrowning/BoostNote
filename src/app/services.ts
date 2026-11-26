@@ -25,6 +25,13 @@ export interface PreferenceServices {
   setHotkey(accelerator: string): boolean
   /** The accelerator currently registered, if any. */
   readonly registeredHotkey: string | undefined
+  /**
+   * Makes `accelerator` the Quick capture hotkey (`''` removes it), which shows the window with a new
+   * scratch note. `false` when the OS refused it; the previous capture hotkey then stays active.
+   */
+  setCaptureHotkey(accelerator: string): boolean
+  /** The Quick capture accelerator currently registered, if any. */
+  readonly registeredCaptureHotkey: string | undefined
 }
 
 export interface SaveFileOptions {
