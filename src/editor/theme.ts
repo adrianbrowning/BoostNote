@@ -8,8 +8,8 @@ import { type EditorTheme, editorTheme } from './config.ts'
 /**
  * Colours, scoped to the editor so a light/dark editor stays coherent whatever the page uses. The base
  * values match `src/app/ui/public/base.css`. Hosts tune layout with inherited custom properties:
- * `--editor-font`, `--editor-font-size`, `--editor-line-height`, `--editor-max-width` (line width) and
- * `--editor-padding`.
+ * `--editor-font`, `--editor-font-size`, `--editor-line-height`, `--editor-max-width` (line width),
+ * `--table-max-width` (table width, at least the line width; defaults to it) and `--editor-padding`.
  *
  * `--lp-code-bg` is a translucent tint, not a solid colour: CodeMirror draws the selection in a layer
  * behind the text, so a solid code-block or inline-code background would hide the selection.
@@ -76,6 +76,8 @@ const baseTheme = EditorView.baseTheme({
   '.cm-scroller': {
     fontFamily: 'var(--editor-font, var(--font-ui, system-ui, -apple-system, "Segoe UI", sans-serif))',
     lineHeight: 'var(--editor-line-height, 1.65)',
+    // `100cqw` in the content is the pane width, which tables may grow to.
+    containerType: 'inline-size',
   },
   '.cm-content': {
     maxWidth: 'var(--editor-max-width, 46rem)',
@@ -161,7 +163,24 @@ const baseTheme = EditorView.baseTheme({
 
   '.cm-lp-math-block': { textAlign: 'center', padding: '0.5em 0', overflowX: 'auto' },
   // Cells break only between words: lineWrapping's `overflow-wrap: anywhere` would squeeze short columns mid-word.
-  '.cm-lp-table': { overflowX: 'auto', padding: '0.4em 0', overflowWrap: 'normal', wordBreak: 'normal' },
+  // A table keeps its natural width, from the text column (100%) up to the text column plus what the table
+  // width adds to the line width, both within the pane (100cqw); it stays centred on the text column.
+  '.cm-lp-table': {
+    overflowX: 'auto',
+    padding: '0.4em 0',
+    overflowWrap: 'normal',
+    wordBreak: 'normal',
+    '--lp-line-width': 'if(style(--editor-max-width: none): 100cqw; else: min(var(--editor-max-width, 46rem), 100cqw))',
+    '--lp-table-width':
+      'if(style(--table-max-width: none): 100cqw; else: min(var(--table-max-width, var(--lp-line-width)), 100cqw))',
+    width: 'max-content',
+    minWidth: '100%',
+    maxWidth: 'calc(100% + var(--lp-table-width) - var(--lp-line-width))',
+    position: 'relative',
+    left: '50%',
+    transform: 'translateX(-50%)',
+  },
+  '.cm-lp-table.cm-lp-table-nested': { maxWidth: '100%' },
   '.cm-lp-table table': { borderCollapse: 'collapse', minWidth: '50%' },
   '.cm-lp-table th, .cm-lp-table td': { border: '1px solid var(--lp-border)', padding: '4px 10px' },
   '.cm-lp-table th': { backgroundColor: 'var(--lp-code-bg)', fontWeight: '600' },

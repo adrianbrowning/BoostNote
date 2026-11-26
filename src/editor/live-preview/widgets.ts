@@ -116,15 +116,19 @@ export class MathWidget extends WidgetType {
 }
 
 export class TableWidget extends WidgetType {
-  constructor(readonly html: string) {
+  /** `nested`: the table is inside a list item, so it keeps the text column's width. */
+  constructor(
+    readonly html: string,
+    readonly nested: boolean,
+  ) {
     super()
   }
   eq(other: TableWidget): boolean {
-    return other.html === this.html
+    return other.html === this.html && other.nested === this.nested
   }
   toDOM(): HTMLElement {
     const wrap = document.createElement('div')
-    wrap.className = 'cm-lp-table'
+    wrap.className = this.nested ? 'cm-lp-table cm-lp-table-nested' : 'cm-lp-table'
     wrap.innerHTML = this.html
     return wrap
   }

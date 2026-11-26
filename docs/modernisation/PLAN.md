@@ -151,7 +151,11 @@ returns `{ view, setDoc(doc, { preserveSelection }), setReadOnly, setTheme, focu
   text (a selection becomes the alt text; code, links and images keep the URL as typed); pasted HTML
   becomes GFM markdown (turndown + turndown-plugin-gfm).
 - **Themes.** Colours are CSS variables scoped to `.cm-editor` (values match `base.css`); hosts tune
-  `--editor-font`, `--editor-font-size`, `--editor-line-height`, `--editor-max-width`, `--editor-padding`.
+  `--editor-font`, `--editor-font-size`, `--editor-line-height`, `--editor-max-width`, `--table-max-width`,
+  `--editor-padding`. A top-level table widget (`.cm-lp-table`) keeps its natural width from the text column
+  up to the text column plus what `--table-max-width` adds to the line width, within the pane (the
+  `.cm-scroller` is a size container, `100cqw`), centred on the text column; a table in a list item keeps the
+  text column's width, and a table wider than its box scrolls inside the widget.
 - **`setDoc`** without options resets the state (selection, history); with `preserveSelection` it
   changes only the characters that differ (the lines are matched first, so unchanged lines map
   through even when lines were added or removed, then each run of changed lines is diffed character
@@ -332,7 +336,7 @@ SSR props carry `{ ui, hotkeyRegistered }`.
 | --- | --- |
 | `theme` `system`/`light`/`dark` | main sets `nativeTheme.themeSource`, which drives the renderer's `prefers-color-scheme`: `base.css` and the editor (`setTheme`, mermaid `dark`) switch without a reload |
 | `editorFont`, `fontSize`, `lineWidth` (`0` = full width) | `--editor-font`, `--editor-font-size`, `--editor-max-width` on the workspace root |
-| `tableWidth` (`line` default, `full`, or 400–2000 px) | `--table-max-width` on the workspace root: the line width for `line`, `none` for `full`, the larger of the px value and the line width for px, `none` whenever `lineWidth` is `0`. Top-level reader-pane tables use it instead of the line width (shrink-to-fit, centred); tables in lists or blockquotes keep their container's width; export and print are unchanged |
+| `tableWidth` (`line` default, `full`, or 400–2000 px) | `--table-max-width` on the workspace root: the line width for `line`, `none` for `full`, the larger of the px value and the line width for px, `none` whenever `lineWidth` is `0`. Top-level tables in the reader pane and the live preview use it instead of the line width (shrink-to-fit, centred, within the pane); tables in lists or blockquotes keep their container's width; export and print are unchanged |
 | `spellcheck` | `session.defaultSession.setSpellCheckerEnabled`; while on, right-clicking a misspelled word in an editable field lists spelling suggestions and "Add to Dictionary" in the native context menu (see "Menus and shortcuts") |
 | `confirmDelete` | ask before moving notes/folders to the Trash |
 | `outsideFile` (`reader` default, `vault`) | "Opening a .md outside a vault": Read only (reader tab) or Open its folder as vault (see "Opening `.md` files") |
