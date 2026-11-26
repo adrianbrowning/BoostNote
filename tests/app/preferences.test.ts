@@ -253,6 +253,8 @@ describe('preferences route', () => {
     expect(sameAccelerator('CommandOrControl+Shift+Space', 'Command+Shift+Space', 'linux')).toBe(false)
     expect(sameAccelerator('Control+Alt+K', 'Control+Alt+J', 'linux')).toBe(false)
     expect(sameAccelerator('Control+Alt+K', 'Control+Shift+Alt+K', 'linux')).toBe(false)
+    expect(sameAccelerator('Super+Option+Esc', 'Command+Alt+Escape', 'linux')).toBe(true)
+    expect(sameAccelerator('Meta+Shift+Enter', 'Cmd+Shift+Return', 'darwin')).toBe(true)
     expect(sameAccelerator('', '', 'linux')).toBe(false)
     expect(sameAccelerator('', 'Control+Alt+K', 'darwin')).toBe(false)
   })

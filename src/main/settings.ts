@@ -110,24 +110,34 @@ export function isAccelerator(value: string): boolean {
   return /^F\d/.test(key) || parts.some((part) => part !== 'Shift')
 }
 
-/** The full name of each modifier alias, by platform (`CommandOrControl` presses Command on macOS only). */
+/** One name per modifier Electron parses as the same flag (`CommandOrControl` presses Command on macOS only). */
 function modifierName(part: string, platform: NodeJS.Platform): string {
   if (part === 'CommandOrControl' || part === 'CmdOrCtrl') return platform === 'darwin' ? 'Command' : 'Control'
-  if (part === 'Cmd') return 'Command'
+  if (part === 'Cmd' || part === 'Super' || part === 'Meta') return 'Command'
   if (part === 'Ctrl') return 'Control'
+  if (part === 'Option') return 'Alt'
   return part
 }
 
+/** One name per key Electron parses as the same key code, in upper case. */
+function keyName(key: string): string {
+  const upper = key.toUpperCase()
+  if (upper === 'ESC') return 'ESCAPE'
+  if (upper === 'ENTER') return 'RETURN'
+  return upper
+}
+
 /**
- * Whether two accelerators press the same keys on `platform`: aliases such as `CommandOrControl` and
- * `Command` (macOS) or `Control` (elsewhere) count as one, modifiers in any order, the key in any case.
- * `''` (no hotkey) is never the same as anything.
+ * Whether two accelerators press the same keys on `platform`: aliases Electron parses alike count as
+ * one (`CommandOrControl` and `Command` on macOS or `Control` elsewhere; `Cmd`, `Super` and `Meta`;
+ * `Option` and `Alt`; `Esc` and `Escape`; `Enter` and `Return`), modifiers in any order, the key in any
+ * case. `''` (no hotkey) is never the same as anything.
  */
 export function sameAccelerator(a: string, b: string, platform: NodeJS.Platform = process.platform): boolean {
   if (a === '' || b === '') return false
   const canonical = (value: string) => {
     const parts = value.split(/\+(?!$)/)
-    const key = (parts.pop() ?? '').toUpperCase()
+    const key = keyName(parts.pop() ?? '')
     return { key, modifiers: new Set(parts.map((part) => modifierName(part, platform))) }
   }
   const left = canonical(a)
