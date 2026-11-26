@@ -4,6 +4,7 @@ import type { UpdateInfo } from '../main/updates.ts'
 import type { VaultSession } from '../main/vault-session.ts'
 import type { LegacyStorageLocation } from '../migrate/index.ts'
 import type { DropGrants } from './drop-grants.ts'
+import type { ScratchStore } from './scratch-store.ts'
 
 export interface FolderPickerOptions {
   title: string
@@ -67,6 +68,8 @@ export interface AppServices {
   drops: Pick<DropGrants, 'take'>
   exports: ExportServices
   updates: UpdateServices
+  /** Scratch notes outside every vault (`<userData>/scratch`). */
+  scratch: ScratchStore
 }
 
 /** The update notice: the newest release found, and the automatic checks. */

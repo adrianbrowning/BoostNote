@@ -12,6 +12,7 @@ import {
 import { assets } from '../app/assets.ts'
 import { DropGrants } from '../app/drop-grants.ts'
 import { createAppRouter } from '../app/router.ts'
+import { ScratchStore } from '../app/scratch-store.ts'
 import { type CliTarget, defaultShimDirs, installShim, loginShellPath, windowsCommands } from '../cli/install.ts'
 import { findLegacyStorages } from '../migrate/index.ts'
 import { markdownFilesIn } from './argv.ts'
@@ -100,6 +101,7 @@ const router = createAppRouter({
   showItemInFolder: (fullPath) => shell.showItemInFolder(fullPath),
   findLegacyStorages: () => findLegacyStorages({ appDataDir: path.join(app.getPath('appData'), 'Boostnote') }),
   drops,
+  scratch: new ScratchStore(path.join(app.getPath('userData'), 'scratch')),
   exports: createExportServices(liveWindow),
   updates: updater,
 })

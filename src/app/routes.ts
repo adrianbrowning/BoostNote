@@ -63,5 +63,16 @@ export const routes = route({
     readerOpenFolder: post('/reader/:ticket/open-folder'),
     /** A reader tab's "Add to vault…" (`{ folder }`): imports its file into the open vault once (`ReaderImportResult`). */
     readerImport: post('/reader/:ticket/import'),
+    /**
+     * Scratch notes, kept outside every vault (`ScratchStore`), with or without an open vault. Ids
+     * (32 lowercase hex) travel in `?id=` / `{ id }`. A missing or non-string id is a `400`; any
+     * other string id, or a gone note, is a `404`.
+     */
+    scratchList: get('/scratch'),
+    scratchCreate: post('/scratch/create'),
+    scratchRead: get('/scratch/read'),
+    /** `{ id, text }`: replaces the note's text (last write wins). */
+    scratchWrite: post('/scratch/write'),
+    scratchDiscard: post('/scratch/discard'),
   }),
 })

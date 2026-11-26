@@ -6,6 +6,7 @@ import { mkdtemp, rm } from 'node:fs/promises'
 import * as os from 'node:os'
 import * as path from 'node:path'
 
+import { ScratchStore } from '../src/app/scratch-store.ts'
 import { createEventHub } from '../src/main/events.ts'
 import { SettingsStore } from '../src/main/settings.ts'
 import { VaultSession } from '../src/main/vault-session.ts'
@@ -30,6 +31,7 @@ const router = createAppRouter({
   showItemInFolder: () => {},
   findLegacyStorages: async () => [],
   drops: { take: () => undefined },
+  scratch: new ScratchStore(path.join(scratch, 'scratch')),
   updates: { available: undefined, setAutomatic: () => {} },
   exports: {
     saveFile: async () => undefined,
