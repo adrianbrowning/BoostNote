@@ -68,7 +68,12 @@ function parseYamlMapping(yaml: string): Frontmatter | undefined {
   if (yaml.trim() === '') return {}
   const doc = parseDocument(yaml)
   if (doc.errors.length > 0 || !isMap(doc.contents)) return undefined
-  return toMapping(doc.toJS())
+  try {
+    return toMapping(doc.toJS())
+  } catch {
+    // An unresolved alias or alias bomb is not reported in `doc.errors`; it is still invalid YAML.
+    return undefined
+  }
 }
 
 /**

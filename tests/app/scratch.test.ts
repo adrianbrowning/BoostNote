@@ -268,6 +268,20 @@ describe('/api/scratch/save', () => {
     }
   })
 
+  it('saves text whose leading block has an unresolved alias as body, adding created/updated', async () => {
+    const vault = await app.openVault()
+    const { id } = await create()
+    const typed = '---\nNote: *important*\n---\nbody'
+    await write(id, typed)
+
+    expect((await app.post('/api/scratch/save', { id, folder: '' })).status).toBe(201)
+    const files = (await filesUnder(vault.root)).filter((file) => file.endsWith('.md'))
+    expect(files).toHaveLength(1)
+    const saved = await readFile(path.join(vault.root, files[0] ?? ''), 'utf8')
+    expect(saved).toMatch(/^---\ncreated: \S+\nupdated: \S+\n---\n/)
+    expect(saved.replace(/^---\ncreated: \S+\nupdated: \S+\n---\n/, '')).toBe(typed)
+  })
+
   it('keeps a block with an integer-like key after another key byte for byte, appending created/updated', async () => {
     const vault = await app.openVault()
     const { id } = await create()
