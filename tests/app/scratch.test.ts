@@ -258,6 +258,13 @@ describe('/api/scratch/save', () => {
     expect(flowSaved).toBe(
       `---\n{title: 'quoted', tags: [a,b], created: ${stamp}, updated: ${stamp}} # kept\n---\n# Flow\n`,
     )
+
+    const anchored = await create()
+    await write(anchored.id, '---\n&anchor {}\n---\n# Anchored\n')
+    expect((await app.post('/api/scratch/save', { id: anchored.id, folder: '' })).status).toBe(201)
+    const anchoredSaved = await readFile(path.join(vault.root, 'Anchored.md'), 'utf8')
+    const at = /created: (\S+), updated: \1\}/.exec(anchoredSaved)?.[1] ?? ''
+    expect(anchoredSaved).toBe(`---\n&anchor {created: ${at}, updated: ${at}}\n---\n# Anchored\n`)
   })
 
   it('saves into the vault the request names, not the active one, and answers that vault’s lists', async () => {

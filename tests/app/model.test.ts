@@ -416,8 +416,11 @@ describe('WorkspaceModel Save to vault of a scratch note', () => {
     const { id } = await scratchBetweenNotes('# Draft\n')
     const saving = workspace.saveScratchToVault(id)
     await expect.poll(() => workspace.dialog?.kind).toBe('choose')
+    const dialog = workspace.dialog
+    if (dialog?.kind !== 'choose') throw new Error('No choose dialog')
+    // Confirmed right after typing, before the autosave runs: only the gate saves this text.
     workspace.session.edit('# Draft\n\nTyped while choosing.\n')
-    await chooseFolder('')
+    dialog.resolve('')
     await saving
 
     expect(await readFile(path.join(app.dir, 'vault', 'Draft.md'), 'utf8')).toMatch(
