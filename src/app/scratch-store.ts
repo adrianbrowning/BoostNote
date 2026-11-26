@@ -91,16 +91,19 @@ export class ScratchStore {
     return this.read(id)
   }
 
-  /** Deletes note `id`'s file (and its creation time). */
+  /**
+   * Deletes note `id`: its creation time first, then its file, so a failure leaves the note listed with its text
+   * (at worst with its file's birth time as its creation time).
+   */
   async discard(id: string): Promise<void> {
     const file = await this.#existing(id)
+    await rm(this.#meta(id), { force: true })
     try {
       await rm(file)
     } catch (error) {
       if (isNodeError(error, 'ENOENT')) throw notFound()
       throw error
     }
-    await rm(this.#meta(id), { force: true })
   }
 
   /** The file of note `id`; `404` when `id` is not a scratch id or the note has no regular file. */

@@ -2,7 +2,7 @@ import { readdir, readFile } from 'node:fs/promises'
 import * as path from 'node:path'
 import type { Page } from '@playwright/test'
 
-import { type AppHandle, expect, relaunchApp, test } from './fixtures.ts'
+import { type AppHandle, expect, relaunchApp, test, writeFiles } from './fixtures.ts'
 
 test.use({ files: { 'a.md': '# A\n' } })
 
@@ -70,6 +70,12 @@ test('New Scratch Note works with no vault open: its tab shows in the editor and
   await expect(tab).toContainText('Call the plumber')
   const id = await tab.getAttribute('data-scratch-tab')
   await expect.poll(() => scratchFiles(app)).toEqual({ [`${id}.md`]: 'Call the plumber' })
+
+  const save = page.locator('[data-scratch-save]')
+  await expect(save).toHaveText('Save to vault…')
+  await expect(save).toBeDisabled()
+  await expect(save).toHaveAccessibleDescription('Open a vault to save this scratch note to it')
+  await expect(page.locator('[data-scratch-save-reason]')).toBeVisible()
 })
 
 test('a scratch tab shows the vault-note banner and none of the note header buttons; its relative links are inert, http(s) links and Find work', async ({
@@ -91,7 +97,7 @@ test('a scratch tab shows the vault-note banner and none of the note header butt
   await app.clickMenu('new-scratch-note')
   const tab = scratchTab(page)
   await expect(tab).toHaveAttribute('aria-selected', 'true')
-  await expect(page.locator('[data-scratch-banner]')).toHaveText(
+  await expect(page.locator('[data-scratch-banner] > span')).toHaveText(
     'Scratch note, kept outside the vault. Links to notes, images and properties need a vault note.',
   )
   const editorPane = page.getByRole('main', { name: 'Editor' })
@@ -165,7 +171,9 @@ test('an image pasted over selected text in a scratch tab is refused with the no
   expect((await readdir(vault, { recursive: true })).sort()).toEqual(vaultFiles)
 })
 
-test('a scratch tab comes back after a restart, active, with the text typed in it', async ({ app }) => {
+test('a scratch tab comes back after a restart, active, with its text, and Save to vault turns it into a note’s tab', async ({
+  app,
+}) => {
   await expect(app.page.locator('[data-note="a.md"]')).toBeVisible()
   await app.page.locator('[data-note="a.md"]').click()
   await expect(app.page.locator('[data-note-title]')).toHaveText('a')
@@ -174,6 +182,8 @@ test('a scratch tab comes back after a restart, active, with the text typed in i
   await app.page.keyboard.type('# Kept\n\nAcross restarts')
   const id = (await scratchTab(app.page).getAttribute('data-scratch-tab')) ?? ''
   await expect.poll(() => scratchFiles(app)).toEqual({ [`${id}.md`]: '# Kept\n\nAcross restarts' })
+  // A folder to save into, seeded by this test.
+  await writeFiles(app.vault, { 'work/plan.md': '# Plan\n' })
 
   await relaunchApp(app)
   const { page } = app
@@ -183,6 +193,22 @@ test('a scratch tab comes back after a restart, active, with the text typed in i
   await expect(scratchTab(page)).toContainText('Kept')
   await expect(editor(page)).toContainText('Across restarts')
   await expect(page.locator('[data-notice]')).toHaveCount(0)
+
+  await page.locator('[data-scratch-save]').click()
+  const dialog = page.getByRole('dialog', { name: 'Save to vault' })
+  await dialog.locator('select').selectOption('work')
+  await dialog.getByRole('button', { name: 'Save' }).click()
+  const tabs = page.getByRole('tab')
+  await expect(tabs.nth(1)).toHaveAttribute('data-tab', 'work/Kept.md')
+  await expect(tabs.nth(1)).toHaveAttribute('aria-selected', 'true')
+  await expect(tabs).toHaveCount(2)
+  await expect(page.locator('[data-note-title]')).toHaveText('Kept')
+  await expect(page.locator('[data-note="work/Kept.md"]')).toBeVisible()
+  expect(await readFile(path.join(app.vault, 'work', 'Kept.md'), 'utf8')).toMatch(
+    /^---\ncreated: .+\nupdated: .+\n---\n# Kept\n\nAcross restarts$/,
+  )
+  expect(await scratchFiles(app)).toEqual({})
+  expect((await readdir(path.join(app.userDataDir, 'scratch'))).sort()).toEqual([])
 })
 
 test('a scratch tab comes back after a restart with no vault open', async ({ app }) => {

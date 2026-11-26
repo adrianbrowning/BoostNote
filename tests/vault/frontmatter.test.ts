@@ -77,6 +77,8 @@ describe('frontmatter', () => {
     expect(parseNoteText(broken)).toMatchObject({ yaml: null, body: broken })
     const list = '---\n- a\n- b\n---\nbody\n'
     expect(parseNoteText(list).yaml).toBeNull()
+    const alias = '---\nNote: *important*\n---\nbody'
+    expect(parseNoteText(alias)).toMatchObject({ frontmatter: {}, yaml: null, body: alias })
   })
 
   it('adds frontmatter to a plain note and emits only the body for empty frontmatter', () => {

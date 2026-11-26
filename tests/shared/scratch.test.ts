@@ -18,6 +18,23 @@ describe('scratchTitle', () => {
   })
 
   it.each([
+    ['---\n# a comment\ntitle: x\n---\n# Real', 'Real'],
+    ['---\r\n# a comment\r\n...\r\nFirst line', 'First line'],
+    ['---\n---\n# Right after an empty block', 'Right after an empty block'],
+    ['--- \n# not: [valid yaml\n--- \nPlain text check', 'Plain text check'],
+  ])('%j → skips the leading frontmatter block, %j', (text, title) => {
+    expect(scratchTitle(text, created)).toBe(title)
+  })
+
+  it('treats an unclosed `---` block as text', () => {
+    expect(scratchTitle('---\n# Never closed\nmore', created)).toBe('Never closed')
+  })
+
+  it('falls back to the creation time when only a frontmatter block is there', () => {
+    expect(scratchTitle('---\n# only: a comment\n---\n\n', created)).toBe('Scratch 2026-01-05 09:07')
+  })
+
+  it.each([
     ['\n\n   first words  \nsecond', 'first words'],
     ['```\n# only fenced\n```', '```'],
     ['    # four spaces is code\n', '# four spaces is code'],

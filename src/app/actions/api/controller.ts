@@ -21,6 +21,7 @@ import type {
   ReaderFolderResult,
   ReaderImportResult,
   SaveConflictBody,
+  ScratchSaveResult,
 } from '../public/workspace/types.ts'
 import { exportFolder, exportNote } from './export.ts'
 import { parseUiPatch, preferencesState, savePreferences } from './preferences.ts'
@@ -451,6 +452,35 @@ export function createApiController(services: AppServices) {
       scratchDiscard: guarded(async ({ request }: { request: Request }) => {
         await services.scratch.discard(requireString((await readJsonObject(request)).id, 'id', { allowEmpty: true }))
         return json({ ok: true })
+      }),
+
+      /**
+       * Save to vault, in the vault queue, into the vault the request names (`?vault=`, the page's; `409 NO_VAULT`
+       * without one, or once it is closed): the scratch text, read as a note file (a valid frontmatter block is kept
+       * byte for byte, a missing `created`/`updated` line appended only when the block still parses to the typed
+       * mapping plus those keys), becomes a note in `folder` named by its title (`scratchTitle`, made unique as
+       * `createNote` does), then the scratch note is removed; the answer has that vault's lists. When the note cannot
+       * be created the scratch note stays; when removing it fails afterwards, the note stays in the vault and the
+       * scratch note stays listed.
+       */
+      scratchSave: guarded(async ({ request, url }: { request: Request; url: URL }) => {
+        const body = await readJsonObject(request)
+        const id = requireString(body.id, 'id', { allowEmpty: true })
+        const folder = requireString(body.folder, 'folder', { allowEmpty: true })
+        const root = url.searchParams.get('vault') ?? undefined
+        const result = await services.vaults.inVault(
+          root,
+          root === undefined
+            ? 'Open a vault first, then save the scratch note to it'
+            : `This vault is not open: ${root}`,
+          async (vault): Promise<ScratchSaveResult> => {
+            const scratch = await services.scratch.read(id)
+            const created = await vault.createNote(folder, scratch.title, { text: scratch.text })
+            await services.scratch.discard(id)
+            return { id: created.id, workspace: await workspaceData(services, vault.root) }
+          },
+        )
+        return json(result, { status: 201 })
       }),
     },
   })

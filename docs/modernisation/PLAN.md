@@ -331,13 +331,35 @@ vault left fails, the other vault still shows (the switch counts) and the store 
   `POST /api/scratch/write` like a note's body, so the leave-note gate saves it before another tab shows (a
   failed save keeps the tab, as for notes). A tab whose scratch note is gone (`404`) closes with the notice. A
   vault switch or close leaves an open scratch note in the session as it is. The tab shows a "Scratch" badge and
-  the `scratchTitle` of the text as typed.
+  the `scratchTitle` of the text as typed: its first heading outside fenced code, else its first non-blank line,
+  else "Scratch YYYY-MM-DD HH:mm", with a leading frontmatter block (`---` … `---`/`...`, the fences of
+  `parseNoteText`) skipped, so a `# comment` in it is no title.
 - A scratch tab offers none of the vault-only features, and a banner above its editor says links to notes,
   images and properties need a vault note: relative `.md` links do nothing (http(s) links still open in the
   browser), a pasted or dropped image is not uploaded (`NoteSession.saveAsset` refuses it with the
   images-need-a-vault-note notice), the note header (rename, properties, pin, star, the note menu with reveal,
   export, move and delete) does not show, and Toggle Properties (⇧⌘P) leaves the properties pane as it is.
-  Edit › Find and the live preview work as in notes. No request with a scratch id reaches a vault route.
+  Edit › Find and the live preview work as in notes. No request with a scratch id reaches a vault route other than
+  the save below.
+- The banner's "Save to vault…" (`WorkspaceModel.saveScratchToVault`; disabled with no vault open, the reason next
+  to it) saves the typed text first (the leave-note gate, run again under the hold right before the request, so text
+  typed while the dialog is open is saved too; a refused save sends nothing), asks for a folder of the open vault in
+  the choose dialog of a reader's "Add to vault…" (`folderOptions`, `dropFolder` first), then posts `{ id, folder }` to
+  `POST /api/scratch/save`, naming the vault on screen (`?vault=`). Main runs it in `VaultSession`'s vault queue
+  (`inVault`) on that vault (`409 NO_VAULT` without one, or once it is closed): the scratch text becomes
+  `vault.createNote(folder, scratchTitle, { text })`, read as a note file: a valid frontmatter block is kept byte for
+  byte (comments, quoting, order, values, a typed `created`/`updated`); a missing `created`/`updated` line is appended
+  after the YAML only when it then parses to the typed mapping plus those keys, so flow mappings and complex, alias or
+  null keys stay exactly as typed, without them (no splice, no re-emit); without a block the whole text is the body
+  and both are added. A taken name gets ` 2`.
+  Then the scratch note is removed (its sidecar first, then its file), and it answers the
+  note id and that vault's lists (`ScratchSaveResult`). The scratch tab becomes the note's tab at its position
+  (`Navigation.saveScratch`), active when it was active. A vault switch while the folder dialog is open saves nothing
+  (the error notice says so; the folders offered were the vault left's). When the vault switched while the request
+  was out, the note is in the vault left: its lists are not shown, the scratch tab closes and the notice says where
+  the note went.
+  When the note cannot be created (a folder gone meanwhile) the scratch note and its tab stay and the notice says
+  why; when removing the scratch note fails after the note was written, the note stays and so does the scratch note.
 
 ### Properties panel
 

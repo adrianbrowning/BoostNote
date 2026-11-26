@@ -175,8 +175,9 @@ export class WorkspaceModel extends TypedEventTarget<{
   #noticeTimer: ReturnType<typeof setTimeout> | undefined
   /**
    * The work running in open order (`#inOpenOrder`): an open-request drain, a reader's "Open folder
-   * as vault", or a reader's "Add to vault…" from its folder dialog to main's answer. Later ones
-   * queue behind it, so vault switches, imports and the tabs they open never interleave.
+   * as vault", a reader's "Add to vault…", or a scratch note's "Save to vault…", each from its
+   * folder dialog to main's answer. Later ones queue behind it, so vault switches, imports, saves
+   * and the tabs they open never interleave.
    */
   #openRequests: Promise<void> = Promise.resolve()
   /** An "Update links?" question waiting for the dialog over it to close (`#showDialog`). */
@@ -195,6 +196,8 @@ export class WorkspaceModel extends TypedEventTarget<{
   #focusWanted: FocusEditorEvent | null = null
   /** Scratch notes' titles by id, as last shown in the editor (`scratchTabTitle`). */
   readonly #scratchTitles = new Map<string, string>()
+  /** Ids of the scratch notes whose Save to vault is in flight (one at a time each). */
+  readonly #savingScratch = new Set<string>()
 
   constructor(initial: WorkspaceData, preferences: PreferencesState, { api, store }: WorkspaceOptions) {
     super()
@@ -491,6 +494,57 @@ export class WorkspaceModel extends TypedEventTarget<{
     }
   }
 
+  /**
+   * A scratch note's "Save to vault…": saves its text first (the leave-note gate, run again right before the request,
+   * so text typed while the dialog is open is saved too; a refused save sends nothing), asks for a folder of the open
+   * vault (`dropFolder` first) in the dialog of a reader's "Add to vault…", then main creates the note there, named by the
+   * scratch note's title (`scratchTitle`), and removes the scratch note. Its tab becomes the new note's tab at its
+   * position (`Navigation.saveScratch`). A vault switch while the folder dialog is open saves nothing (an error
+   * notice). The request names the vault on screen, so a vault switch while it is out does not move the note: its
+   * lists are not shown, the scratch tab closes and the notice says where the note went. On failure the scratch note
+   * and its tab stay and the notice says why. Nothing happens without an open vault (the button is disabled) or
+   * while this scratch note is being saved. Runs in open order, as "Add to vault…" does, so no open-request drain
+   * switches the vault while the user chooses.
+   */
+  async saveScratchToVault(id: string): Promise<void> {
+    if (!this.data.vault || this.#savingScratch.has(id)) return
+    this.#savingScratch.add(id)
+    try {
+      await this.#inOpenOrder(async () => {
+        if (!this.data.vault) {
+          this.notify('error', 'Open a vault first, then save the scratch note to it.')
+          return
+        }
+        if (!(await this.navigation.leave())) return
+        // The folders offered are this vault's: a switch before the request goes out (the dialog is open while the
+        // native menu can open another vault) saves nothing.
+        const vault = this.data.vault?.name
+        if (vault === undefined) return
+        const sameVault = this.navigation.vaultToken()
+        const folder = await this.choose({
+          title: 'Save to vault',
+          label: 'Folder',
+          options: this.folderOptions,
+          value: this.dropFolder,
+          confirm: 'Save',
+        })
+        if (folder === null) return
+        await this.attempt(async () => {
+          const result = await this.navigation.saveScratch(id, async () => {
+            if (!sameVault()) throw new Error('The vault changed while the folder was chosen; nothing was saved.')
+            const saved = await this.#snapshot(() => this.#api.saveScratch(id, folder))
+            // Lists of the vault left, when a switch ran meanwhile: not shown over the vault on screen.
+            if (sameVault()) this.#showData(saved.workspace)
+            return saved
+          })
+          if (result && !result.shown) this.notify('info', `Saved as ${result.saved.id} in ${vault}`)
+        })
+      })
+    } finally {
+      this.#savingScratch.delete(id)
+    }
+  }
+
   reopenTab(): Promise<void> {
     return this.navigation.reopen()
   }
@@ -737,8 +791,8 @@ export class WorkspaceModel extends TypedEventTarget<{
 
   /**
    * Runs `task` after the work in open order running now (and that queued before): an open-request
-   * drain, a reader's "Open folder as vault", or a reader's "Add to vault…" (its folder dialog
-   * included, so a drain waits while the user chooses).
+   * drain, a reader's "Open folder as vault", a reader's "Add to vault…", or a scratch note's
+   * "Save to vault…" (their folder dialogs included, so a drain waits while the user chooses).
    */
   #inOpenOrder(task: () => Promise<void>): Promise<void> {
     const run = this.#openRequests.then(task)

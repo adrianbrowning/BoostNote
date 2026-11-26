@@ -18,6 +18,7 @@ import type {
   ReaderImportResult,
   SaveConflictBody,
   ScratchNote,
+  ScratchSaveResult,
   ScratchSummary,
   TitleRename,
   TitleRenamePlan,
@@ -203,6 +204,8 @@ export function createClient(transport: Transport) {
     readScratch: (id: string) => request<ScratchNote>(withQuery(api.scratchRead.href(), { id })),
     writeScratch,
     discardScratch: (id: string) => post<unknown>(api.scratchDiscard.href(), { id }),
+    /** Save to vault: main turns scratch note `id` into a note in `folder` of the open vault and removes it. */
+    saveScratch: (id: string, folder: string) => post<ScratchSaveResult>(api.scratchSave.href(), { id, folder }),
   }
 }
 
