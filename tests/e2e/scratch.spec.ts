@@ -99,10 +99,15 @@ test('closing a scratch tab with nothing typed removes its file; one with text k
   await expect(scratchTab(page)).toHaveCount(0)
   // Nothing at all stays: neither the note nor its `<id>.json` sidecar.
   await expect.poll(() => readdir(path.join(app.userDataDir, 'scratch')).catch(() => [])).toEqual([])
+  // The close's hold loads a.md after that discard and keeps the editor read-only until it settles: keys typed into
+  // the next scratch tab before then would be dropped.
+  await expect(editor(page)).toContainText('A')
+  await expect(editor(page)).not.toHaveAttribute('aria-readonly', 'true')
 
   await app.clickMenu('new-scratch-note')
   const tab = scratchTab(page)
   await expect(editor(page)).toBeFocused()
+  await expect(editor(page)).not.toHaveAttribute('aria-readonly', 'true')
   await page.keyboard.type('Keep this')
   const id = await tab.getAttribute('data-scratch-tab')
   await app.clickMenu('close-tab')
