@@ -58,6 +58,19 @@ describe('openVault exclude', () => {
     await expect(openVault(root, { exclude: path.join(root, rel) })).rejects.toMatchObject({ code: 'NOT_A_VAULT' })
   })
 
+  it.each([
+    ['foo.md', 'foo.assets/app/scratch'],
+    ['notes/foo.md', 'notes/foo.assets/scratch'],
+  ])(
+    'refuses a root that holds the excluded folder in the assets folder of %s, so no note move or trash carries it',
+    async (note, rel) => {
+      await put(note, '# Foo')
+      await put(`${rel}/a.md`, '# Scratch')
+      await expect(openVault(root, { exclude: path.join(root, rel) })).rejects.toMatchObject({ code: 'NOT_A_VAULT' })
+      expect(await read(`${rel}/a.md`)).toBe('# Scratch')
+    },
+  )
+
   it('opens a root that holds the excluded folder elsewhere, and never lists, reads, writes or moves it', async () => {
     const scratch = path.join(root, 'app', 'data', 'scratch')
     await put('app/data/scratch/a.md', '# Scratch')

@@ -82,7 +82,7 @@ export interface OpenVaultOptions {
   debounceMs?: number
   /**
    * An absolute folder that is no part of any vault (the scratch notes' folder): opening a vault on it, inside it, or
-   * on a folder that holds it in the vault's trash or config folder is refused (`ScratchOverlapError`); a vault that
+   * on a folder that holds it in the vault's trash or config folder or in a `*.assets` folder is refused (`ScratchOverlapError`); a vault that
    * holds it elsewhere leaves it out (see `openVault`), so its files are never notes of a vault.
    */
   exclude?: string
@@ -240,7 +240,7 @@ const WATCHER_SETTLE_MS = 1000
 /**
  * Opens the folder at `root` as a vault and indexes its notes. Throws `VaultError('NOT_A_VAULT')` when the folder is
  * missing, and `ScratchOverlapError` (code `NOT_A_VAULT`) when it is the `exclude` folder, lies inside it, or holds it
- * in the vault's own trash or config folder. A vault that holds it elsewhere opens and leaves it out: it is never
+ * in the vault's own trash or config folder or in a `*.assets` folder. A vault that holds it elsewhere opens and leaves it out: it is never
  * listed, read, written, moved or trashed, nor is any folder that holds it moved, renamed or trashed.
  */
 export async function openVault(root: string, options: OpenVaultOptions = {}): Promise<Vault> {
@@ -257,8 +257,10 @@ export async function openVault(root: string, options: OpenVaultOptions = {}): P
     const exclude = await realPathOf(options.exclude)
     if (isInside(exclude, real)) throw new ScratchOverlapError()
     if (isInside(real, exclude)) {
-      const first = path.relative(real, exclude).split(path.sep)[0]
-      if (first === TRASH_DIR || first === CONFIG_DIR) throw new ScratchOverlapError()
+      // Trash, config and a note's assets folder move or vanish wholesale (empty trash, note move or trash).
+      const segments = path.relative(real, exclude).split(path.sep)
+      if (segments[0] === TRASH_DIR || segments[0] === CONFIG_DIR) throw new ScratchOverlapError()
+      if (segments.some((segment) => segment.endsWith(ASSETS_SUFFIX))) throw new ScratchOverlapError()
       excluded = exclude
     }
   }

@@ -628,7 +628,8 @@ whose text is empty or whitespace only deletes the scratch note; one with text i
 list (sidebar "Scratch" section with a vault open, the welcome screen, or a panel beside the editor while tabs
 are open with no vault), where each row reopens, saves to the vault or discards it (see "Tabs"). Scratch notes
 live outside every vault: `openVault` refuses (`ScratchOverlapError`, `NOT_A_VAULT`) a folder that is
-`<userData>/scratch`, lies inside it, or holds it in its own `.trash` or `.boostnote` folder. A vault that holds it
+`<userData>/scratch`, lies inside it, or holds it in its own `.trash` or `.boostnote` folder or in a `*.assets` folder
+(which a note's move or trash carries along). A vault that holds it
 elsewhere (a home folder on macOS or Windows) opens and leaves it out: its scan and watcher skip it, no note or
 asset path resolves into it, and no folder holding it can be moved, renamed or trashed. The app (`VaultSession`'s
 `exclude`) and the CLI and the MCP server (see "CLI and MCP"; `runCli` passes the app's `<userData>/scratch`) all
