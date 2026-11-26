@@ -487,3 +487,207 @@ Run: issue-75
 Retro finding (factory, automated-checks, low)
 
 For a behavior that runs only on another platform (the off-macOS skip in the spelling e2e test), the implementer cannot see a test fail first, so fix round 02-f2 and slice 03 reported seenRed false with an Open note. Nothing marks such behaviors for a later run on that platform. Consider a report field for platform-bound behaviors that lists them in the PR body for a manual or CI check.
+
+## issue-73/02: --table-max-width rule lives as a nested ternary inside the render closure
+
+Run: issue-73
+Slice: 02 "Table width preference and wider tables in the reader pane"
+Review: 02-r1
+Reviewed commit: 839f8efda42ba1c8132ae8df950e3d486a273c99
+
+### [observation] thermo-table-max-width-rule-inline-in-render
+
+- Symbol: Workspace
+- Location at filing time: src/app/actions/public/workspace/workspace.tsx:237
+- Title: --table-max-width rule lives as a nested ternary inside the render closure
+- Problem: The rule 'none when lineWidth is 0 or tableWidth is full, else the larger of px and line width' (decision 2) is written inline in the Workspace render's css() variables. It is the only place the rule exists, so its four cases can only be proven through Playwright (tests/e2e/reader-tables.spec.ts), and slice 03 will need the same value for live-preview tables.
+- Fix: Extract a small pure helper, e.g. `tableMaxWidth(lineWidth, tableWidth): string`, next to the UiPreferences types and use it in Workspace; a unit test can then cover the four cases cheaply.
+- Fix prompt: In src/app/actions/public/workspace/workspace.tsx, move the `--table-max-width` ternary into a named pure function `tableMaxWidth(lineWidth: number, tableWidth: TableWidthPreference): string` (placed beside the other UI preference helpers) and call it from the css() variables. Optionally add a unit test for line/full/px-below-line/px-above-line/lineWidth 0.
+
+## issue-73/02: openInReader doc restates the helper
+
+Run: issue-73
+Slice: 02 "Table width preference and wider tables in the reader pane"
+Review: 02-r1
+Reviewed commit: 839f8efda42ba1c8132ae8df950e3d486a273c99
+
+### [observation] comments-open-in-reader-doc-restates-code
+
+- Symbol: openInReader
+- Location at filing time: tests/e2e/reader-tables.spec.ts:23
+- Title: openInReader doc restates the helper
+- Problem: tests/e2e/reader-tables.spec.ts:23 | `/** Opens the note in the reader and returns the reader's body. */` | Restates the function name and its three-line body (openLooseFile, locate `[data-reader-body]`, return it); adds nothing the code does not show.
+- Fix: Delete the JSDoc; the name `openInReader` and the `Promise<Locator>` return type already say it.
+- Fix prompt: In tests/e2e/reader-tables.spec.ts, delete the comment `/** Opens the note in the reader and returns the reader's body. */` above `openInReader`.
+
+## issue-73/03: One chained test covers four criteria, decision 4, the px width and the click
+
+Run: issue-73
+Slice: 03 "Live-preview tables grow to the table width"
+Review: 03-r1
+Reviewed commit: 3b91e7ce5ddee735cddb98f358ea18f0cc53010c
+
+### [observation] test-validity-single-chained-test-masks-later-criteria
+
+- Symbol: lets live-preview tables grow from the text column to the pane while prose keeps the line width
+- Location at filing time: tests/e2e/live-preview-tables.spec.ts:88
+- Title: One chained test covers four criteria, decision 4, the px width and the click
+- Problem: tests/e2e/live-preview-tables.spec.ts:88 | lets live-preview tables grow… | The default-width, full-width, narrow-table, list-table, too-wide scroll, 700px and click-to-source checks all run in one test, each starting from the state the previous step left. The name describes only the growth case. A failure in an early step (for example the full-width poll) hides whether the narrow, list, scroll, px and click behaviours still hold, and the failure title does not say which behaviour broke.
+- Fix: Split it into focused tests that share the fixture: default width keeps tables in the column; full width grows wide tables, centred, while prose and narrow tables keep their box; a nested list table keeps the column; a too-wide table scrolls and a click reveals its source; a px width caps the table. Set `tableWidth` through the `ui` fixture where the dialog path is not the behaviour under test.
+- Fix prompt: In tests/e2e/live-preview-tables.spec.ts, split the 'lets live-preview tables grow…' test into separate tests inside the 'the table width' describe, one per behaviour (default width, full-width growth with prose and narrow tables unchanged, list-nested table, too-wide scroll plus click-to-source, 700px cap). Each test should set its `tableWidth` through `test.use({ ui: … })`, or through the dialog once, rather than relying on the previous step's state.
+
+## issue-73/03: --lp-line-width re-derives the .cm-content max-width rule
+
+Run: issue-73
+Slice: 03 "Live-preview tables grow to the table width"
+Review: 03-r1
+Reviewed commit: 3b91e7ce5ddee735cddb98f358ea18f0cc53010c
+
+### [observation] thermo-lp-line-width-duplicates-content-max-width
+
+- Symbol: baseTheme
+- Location at filing time: src/editor/theme.ts:173
+- Title: --lp-line-width re-derives the .cm-content max-width rule
+- Problem: `.cm-lp-table`'s `--lp-line-width` restates the text column's width rule (the `46rem` default, `none` meaning the pane) that `.cm-content` already holds in `maxWidth: 'var(--editor-max-width, 46rem)'`. The table's `maxWidth: calc(100% + var(--lp-table-width) - var(--lp-line-width))` only works while these two match exactly, because it relies on `100%` being `--lp-line-width` minus the content padding. If someone changes the content default or the `none` handling in one place and not the other, tables are capped at the wrong width and no error shows.
+- Fix: Define the line width once, for example `--lp-line-width` on `.cm-scroller`, and use it in both `.cm-content` maxWidth and the table rule, so the default and the `none` handling exist in one place.
+- Fix prompt: In src/editor/theme.ts, move the `--lp-line-width` definition (`if(style(--editor-max-width: none): 100cqw; else: min(var(--editor-max-width, 46rem), 100cqw))`) to one rule that is an ancestor of both `.cm-content` and `.cm-lp-table` and sits inside the size container. Note that `cqw` needs a container ancestor, so either define it on `.cm-content` or keep the `46rem` default in a single custom property that both rules read. Then make `.cm-content` maxWidth and the `.cm-lp-table` maxWidth calc both read that one source, so the 46rem default and the `none` case live in one place. Keep tests/e2e/live-preview-tables.spec.ts green.
+
+## issue-73/03: Section comments in the table-width test restate the assertions below them
+
+Run: issue-73
+Slice: 03 "Live-preview tables grow to the table width"
+Review: 03-r1
+Reviewed commit: 3b91e7ce5ddee735cddb98f358ea18f0cc53010c
+
+### [observation] comments-table-width-test-section-comments-restate-assertions
+
+- Symbol: lets live-preview tables grow from the text column to the pane while prose keeps the line width
+- Location at filing time: tests/e2e/live-preview-tables.spec.ts:115
+- Title: Section comments in the table-width test restate the assertions below them
+- Problem: tests/e2e/live-preview-tables.spec.ts:101, 115, 120, 127, 134, 139, 144, 156 | e.g. `// Prose keeps the line width.` above `toHaveCSS('max-width', '600px')`, `// The pane itself never scrolls sideways.` above `scrollWidth <= clientWidth`, `// A pixel table width caps tables at that width.` above the 700px poll | Each comment repeats what the next one to four assertions already say. Line 101 also adds change narration ('as before') and says 'every table' while only the wide table is checked. Line 131 is the exception: it explains why the vertical position is left out, so keep it.
+- Fix: Delete the restating comments at lines 101, 115, 120, 127, 134, 139, 144 and 156, keeping line 131. If labels are wanted, split the test into test.step calls with names, or name the measured boxes (e.g. `withinPane(wideAfter)`) so the assertions read for themselves.
+- Fix prompt: In tests/e2e/live-preview-tables.spec.ts, in the test 'lets live-preview tables grow from the text column to the pane while prose keeps the line width', delete the section comments at lines 101, 115, 120, 127, 134, 139, 144 and 156, which restate the assertions that follow them. Keep the comment at line 131, which explains why only the horizontal extent is compared. If section labels are still wanted, wrap each group in `await test.step('<label>', async () => { ... })` instead of a comment.
+
+## issue-73/04: Blockquote-table width check compares one .cm-line with another, so it is always true
+
+Run: issue-73
+Slice: 04 "Harden table-width tests"
+Review: 04-r1
+Reviewed commit: 4148d9d1c0c38a8f75e8a5a6e03a0fbb88bb9c3a
+
+### [observation] testing-blockquote-line-width-assertion-always-true
+
+- Symbol: lets live-preview tables grow from the text column to the pane while prose keeps the line width
+- Location at filing time: tests/e2e/live-preview-tables.spec.ts:164
+- Title: Blockquote-table width check compares one .cm-line with another, so it is always true
+- Problem: `inQuote` is a `.cm-line` and `column` is the box of another `.cm-line` (the paragraph). Every `.cm-line` is a block child of `.cm-content`, so its box always spans exactly the text column whatever the table width setting does; the two `inQuoteBox` assertions cannot fail. Decision 10 accepts asserting on the quoted source lines, and the regression it guards (a blockquote table turning into a growing widget) is still caught, but only indirectly by `toHaveCount(4)` and by `inQuote` no longer resolving, not by the width check the comment describes.
+- Fix: Make the blockquote check say what actually protects decision 4/10: assert the quoted table stays as source (for example the `.cm-line` containing '> | Quoted | Table |' is visible and the widget count stays 4), or measure the quoted line's text extent with a Range instead of the line's block box.
+- Fix prompt: In tests/e2e/live-preview-tables.spec.ts, in 'lets live-preview tables grow from the text column to the pane while prose keeps the line width', replace or supplement the two `inQuoteBox` assertions: assert `await expect(editor.locator('.cm-line', { hasText: '> | Quoted | Table |' })).toBeVisible()` after switching to 'full' (the quote stays as source lines, decision 10) and keep `toHaveCount(4)` as the guard that no widget is drawn for it. If a width check is kept, measure the text extent of the quoted line with a DOM Range's getBoundingClientRect rather than the `.cm-line` box, which always equals the column.
+
+## issue-73/04: Reader centring is checked on a table that fills the article, so the check passes whether or not the table is centred
+
+Run: issue-73
+Slice: 04 "Harden table-width tests"
+Review: 04-r1
+Reviewed commit: 4148d9d1c0c38a8f75e8a5a6e03a0fbb88bb9c3a
+
+### [observation] test-validity-reader-centring-checked-on-pane-filling-table
+
+- Symbol: lets a wide top-level table grow to the pane while prose keeps the line width
+- Location at filing time: tests/e2e/reader-tables.spec.ts:65
+- Title: Reader centring is checked on a table that fills the article, so the check passes whether or not the table is centred
+- Problem: tests/e2e/reader-tables.spec.ts:65 | a full table width › lets a wide top-level table grow to the pane while prose keeps the line width | At tableWidth 'full', `& > table` has `max-width: none` and auto width. The wide 5-column table's max-content (four ~100-character sentences) is far wider than the reader, so shrink-to-fit makes it exactly as wide as the article's content box. The test confirms this with `scrollWidth <= clientWidth`. A table that fills its container has no free space for its auto margins to share, so its centre is the content-box centre with `margin: auto` and with `margin: 0`. The paragraph's centre is also the content-box centre, so the 1px check holds whatever the table's horizontal margins are. Escaping bug: a table-only rule that drops the auto margins (for example `'& table': { borderCollapse: 'collapse', margin: 0 }`) left-aligns every table whose natural width is between the line width and the pane width, or that is capped at a px width below the pane width. That breaks decision 3 ('stays centred on the text column'), and the test stays green. The narrow-table check in the dialog test does not catch it either, because it compares the narrow table only with itself before and after the change.
+- Fix: Check centring on a table that leaves free space on both sides. Either assert that the narrow two-column table's centre equals the paragraph centre within 1px, or check the wide table's centre in a px-width case after first asserting that the table is narrower than the article's content box. Keep the existing assertion if you like, but do not rely on it alone.
+- Fix prompt: In tests/e2e/reader-tables.spec.ts, in 'a full table width › lets a wide top-level table grow to the pane while prose keeps the line width', add a centring check that can fail: get the narrow table's box with `reader.locator('> table').nth(1).boundingBox()` and assert `Math.abs(narrowBox.x + narrowBox.width / 2 - (paragraphBox.x + paragraphBox.width / 2)) <= 1`. Alternatively, in the dialog test after the table width is set to 900, assert that the wide table's width is less than the reader's clientWidth minus its horizontal padding, then assert that its centre equals the `> p` centre within 1px. Check that the new assertion fails when you temporarily add `margin: 0` to the `'& table'` rule in src/app/actions/public/workspace/reader-pane.tsx.
+
+## issue-73/04: Reader spec re-implements the `box`/`across` helpers of the live-preview spec
+
+Run: issue-73
+Slice: 04 "Harden table-width tests"
+Review: 04-r1
+Reviewed commit: 4148d9d1c0c38a8f75e8a5a6e03a0fbb88bb9c3a
+
+### [observation] thermo-reader-horizontal-helper-duplicates-across-and-box
+
+- Symbol: the preferences dialog sets the table width and the reader follows without a reload
+- Location at filing time: tests/e2e/reader-tables.spec.ts:93
+- Title: Reader spec re-implements the `box`/`across` helpers of the live-preview spec
+- Problem: tests/e2e/reader-tables.spec.ts:93 and :63 | The new `horizontal` closure returns `{ x, width, height }` of a bounding box, which is exactly what `across` in tests/e2e/live-preview-tables.spec.ts does, and the centring check inlines `boundingBox()` + `if (!a || !b) throw new Error('not visible')`, which is `box`. The two specs now carry two versions of the same measurement helpers with different names (`horizontal` vs `across`) and different null handling (`horizontal` returns null, `box` throws). The name `horizontal` is also wrong: it includes `height`.
+- Fix: Move `box` and `across` into tests/e2e/fixtures.ts (or a small shared helper module) and use them in both specs; drop `horizontal` and the inline boundingBox/throw.
+- Fix prompt: Move the `box` and `across` helpers from tests/e2e/live-preview-tables.spec.ts into tests/e2e/fixtures.ts and export them. In tests/e2e/reader-tables.spec.ts replace the `horizontal` closure with `across(narrow)` and replace the inline `boundingBox()` + throw in the centring check with `await box(table)` / `await box(reader.locator('> p'))`. Import them in both specs.
+
+## issue-73/04: The 8-column too-wide table fixture and its scroll assertions are written twice
+
+Run: issue-73
+Slice: 04 "Harden table-width tests"
+Review: 04-r1
+Reviewed commit: 4148d9d1c0c38a8f75e8a5a6e03a0fbb88bb9c3a
+
+### [observation] thermo-too-wide-table-fixture-and-assertions-duplicated
+
+- Symbol: a too-wide live-preview table scrolls inside its widget within the pane
+- Location at filing time: tests/e2e/live-preview-tables.spec.ts:201
+- Title: The 8-column too-wide table fixture and its scroll assertions are written twice
+- Problem: tests/e2e/live-preview-tables.spec.ts:201 | The new lineWidth-0 describe rebuilds the same 8-column table (`Array(8).fill('Wide')`, `Array(8).fill('---')`, `Array(8).fill('y'.repeat(60))`) that the 'the table width' fixture already builds with `cell`, and repeats the same 'within the pane / scrollWidth > clientWidth' assertions. The overflow-x check sits in one copy and the wheel check in the other, so the two halves of 'the user can scroll it' live in different tests and will drift when the fixture or the widget changes.
+- Fix: Extract a `tooWideTable` constant (or `wideTableRows(cell)`) at module scope and use it in both fixtures; put the scrollability checks (overflow-x auto|scroll, scrollWidth > clientWidth, wheel increases scrollLeft) in one `expectScrollsInside(widget, pane)` helper called from both tests where possible.
+- Fix prompt: In tests/e2e/live-preview-tables.spec.ts, add a module-level `const tooWideTable = [ `| ${Array(8).fill('Wide').join(' | ')} |`, `| ${Array(8).fill('---').join(' | ')} |`, `| ${Array(8).fill('y'.repeat(60)).join(' | ')} |` ]` and spread it into both the widths.md and wide.md fixtures. Add a helper that asserts a widget lies within the pane, has scrollWidth > clientWidth and computed overflow-x auto|scroll, and use it in both the chained test and the lineWidth-0 test (keep the wheel check in the lineWidth-0 test per decision 11).
+
+## issue-73/04: New live-preview test comments restate the steps below them
+
+Run: issue-73
+Slice: 04 "Harden table-width tests"
+Review: 04-r3
+Reviewed commit: e7adbbc8b1678c58f718347b47dfea40147b6b8c
+
+### [observation] comments-live-preview-new-comments-restate-assertions
+
+- Symbol: a too-wide live-preview table scrolls inside its widget within the pane
+- Location at filing time: tests/e2e/live-preview-tables.spec.ts:224
+- Title: New live-preview test comments restate the steps below them
+- Problem: tests/e2e/live-preview-tables.spec.ts:224 `// A user scrolls it with a horizontal wheel.` sits above `widget.hover(); page.mouse.wheel(200, 0)`, and :163 `// So does a table in a blockquote.` sits above the inQuoteBox column assertions. Both repeat what the next lines do and give no reason. The useful reason (a script that sets scrollLeft also works under overflow-x: hidden, so only a real wheel proves the user can scroll) is not stated.
+- Fix: Delete :163. Delete :224, or rewrite it to give the reason: `// A real wheel, not a scripted scrollLeft: scrollLeft can be set even under overflow-x: hidden.`
+- Fix prompt: In tests/e2e/live-preview-tables.spec.ts, delete the comment `// So does a table in a blockquote.` (line 163). Replace `// A user scrolls it with a horizontal wheel.` (line 224) with `// A real wheel, not a scripted scrollLeft: scrollLeft can be set even under overflow-x: hidden.` or delete it.
+
+## issue-73/04: New reader test comments restate the assertions below them
+
+Run: issue-73
+Slice: 04 "Harden table-width tests"
+Review: 04-r3
+Reviewed commit: e7adbbc8b1678c58f718347b47dfea40147b6b8c
+
+### [observation] comments-reader-new-comments-restate-assertions
+
+- Symbol: lets a wide top-level table grow to the pane while prose keeps the line width
+- Location at filing time: tests/e2e/reader-tables.spec.ts:62
+- Title: New reader test comments restate the assertions below them
+- Problem: tests/e2e/reader-tables.spec.ts:62 `// The wide table stays centred on the text column.` sits above the centre-difference <= 1 assertion, and :103 `// A narrow table keeps its natural box.` sits above `expect(await narrow.boundingBox()).toEqual(narrowBefore)`. Each one repeats what its assertion already says and gives no reason the code cannot show.
+- Fix: Delete both comments, or name the comparison in code instead, for example a `centreX(box)` helper so the assertion reads as centring.
+- Fix prompt: In tests/e2e/reader-tables.spec.ts, delete the comments `// The wide table stays centred on the text column.` (line 62) and `// A narrow table keeps its natural box.` (line 103). If the centring arithmetic needs a label, extract a `centreX = (b) => b.x + b.width / 2` helper and compare `centreX(tableBox)` with `centreX(paragraphBox)`.
+
+## issue-73/retro: E2E layout tests were weak in the first pass
+
+Run: issue-73
+Retro finding (repo, coding-standards, medium)
+
+Reviews of slices 01-03 kept 7 missing-test or test-validity observations (asserting on the inner table instead of the widget, scrollWidth instead of real scrolling, one chained e2e test for many behaviours, centring checked on a pane-filling table). They needed a whole follow-up slice. Add a short e2e testing section to the repo's coding standards or a test-writing doc: one behaviour per Playwright test, measure the element the user sees, prove scrolling with a real wheel, and check layout on cases that leave free space.
+
+## issue-73/retro: Document which nested blocks the live preview renders as widgets
+
+Run: issue-73
+Retro finding (repo, navigation, medium)
+
+The live preview draws no table widget for a table inside a blockquote (blocks.ts skips lines after a quote marker). The orchestrator did not know this and wrote an acceptance criterion for slice 04 that a test-only slice could not meet. Add a line on which Markdown blocks become live-preview widgets (and where nested blocks are skipped) to the live-preview section of docs/modernisation/PLAN.md.
+
+## issue-73/retro: Possible lost wheel events after closing the preferences dialog
+
+Run: issue-73
+Retro finding (repo, information-access, medium)
+
+In slice 04 the implementer saw that after the preferences dialog is opened and closed with Escape, no wheel events reach the page in the e2e window. It was not investigated (recorded as out of scope). It may be a real app bug (an overlay or pointer-events left behind). File it as an app issue so someone reproduces it.
+
+## issue-73/retro: Implementers keep writing comments that restate assertions in tests
+
+Run: issue-73
+Retro finding (factory, coding-standards, low)
+
+Comments reviewers kept 5 observations about test comments that restate the next assertion, across slices 02-04. Implementers keep writing them. A line in the implementer guidance (no section comments in tests that only restate assertions; use test.step names instead) would stop the repeat.
