@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { parseNoteText, serializeNoteText } from '../../src/vault/frontmatter.ts'
+import { parseNoteText, serializeNoteText, updateYaml } from '../../src/vault/frontmatter.ts'
 
 const NOTE = `---
 title: "Hello: world"   # keep this comment
@@ -123,5 +123,21 @@ describe('frontmatter as a flow mapping, on a note save', () => {
       ['a', null],
       ['b', 1],
     ])
+  })
+})
+
+describe('frontmatter with integer-like keys, on a note save', () => {
+  const parsed = (yaml: string) => parseNoteText(`---\n${yaml}---\n`).frontmatter
+
+  it('keeps every line of a mapping with an array-index key and appends the new key', () => {
+    const yaml = "z: 'q' # c\ntags: [a,b]\n1: 2\n"
+    expect(updateYaml(yaml, parsed(yaml), { ...parsed(yaml), n: 3 })).toBe(`${yaml}n: 3\n`)
+  })
+
+  it('moves a key past the array-index range (4294967295) when only the key order changes', () => {
+    const yaml = 'a: 1\n4294967295: 2\n'
+    const text = updateYaml(yaml, parsed(yaml), { '4294967295': 2, a: 1 })
+    expect(Object.keys(parsed(text))).toEqual(['4294967295', 'a'])
+    expect(parsed(text)).toEqual({ '4294967295': 2, a: 1 })
   })
 })

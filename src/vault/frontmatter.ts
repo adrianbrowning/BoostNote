@@ -102,11 +102,11 @@ function stringifyMapping(frontmatter: Frontmatter): string {
 
 /** Edits `yaml` (whose parsed value is `before`) so that it parses to `after`; see `serializeNoteText`. */
 export function updateYaml(yaml: string, before: Frontmatter, after: Frontmatter): string {
-  if (isDeepStrictEqual(before, after)) return yaml
+  if (isDeepStrictEqual(before, after) && isDeepStrictEqual(Object.keys(before), Object.keys(after))) return yaml
   const spliced = spliceYaml(yaml, after)
   if (spliced !== undefined && isDeepStrictEqual(parseYamlMapping(spliced), after)) return spliced
   // Unusual layouts (flow mappings, anchors, reordered keys): re-emit through the document model,
-  // which still keeps comments and the order of surviving keys.
+  // which still keeps comments; keys follow `after`'s order.
   const doc = parseDocument(yaml)
   if (!isMap(doc.contents)) return stringifyMapping(after)
   const current = toMapping(doc.toJS())
@@ -116,7 +116,19 @@ export function updateYaml(yaml: string, before: Frontmatter, after: Frontmatter
   for (const [key, value] of Object.entries(after)) {
     if (!isDeepStrictEqual(current[key], value)) doc.set(key, value)
   }
+  const order = Object.keys(after)
+  const map = doc.contents
+  map.items.sort(
+    (a, b) =>
+      order.indexOf(String(isScalar(a.key) ? a.key.value : a.key)) -
+      order.indexOf(String(isScalar(b.key) ? b.key.value : b.key)),
+  )
   return doc.toString(STRINGIFY_OPTIONS)
+}
+
+/** `keys` in the order a JS object built from them in that order lists them (array-index keys first, ascending). */
+function jsKeyOrder(keys: string[]): string[] {
+  return Object.keys(Object.fromEntries(keys.map((key) => [key, true])))
 }
 
 function toMapping(value: unknown): Frontmatter {
@@ -144,13 +156,8 @@ function spliceYaml(yaml: string, after: Frontmatter): string | undefined {
   }
   const beforeKeys = spans.map((span) => span.key)
   const kept = Object.keys(after).filter((key) => beforeKeys.includes(key))
-  if (
-    !isDeepStrictEqual(
-      kept,
-      beforeKeys.filter((key) => key in after),
-    )
-  )
-    return undefined
+  // `after` lists array-index keys first, as every JS object does: an unchanged YAML order reads that way too.
+  if (!isDeepStrictEqual(kept, jsKeyOrder(beforeKeys.filter((key) => key in after)))) return undefined
   const before = toMapping(doc.toJS())
   let text = yaml
   // Apply from the end so earlier offsets stay valid.
