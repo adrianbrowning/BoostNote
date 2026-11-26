@@ -341,8 +341,8 @@ describe('WorkspaceModel Save to vault of a scratch note', () => {
     return { id, key }
   }
 
-  /** Answers the open choose dialog with `folder`, once it shows. */
-  async function chooseFolder(folder: string): Promise<void> {
+  /** Answers the open choose dialog with `folder`, once it shows; it offers `value` (the drop folder) first. */
+  async function chooseFolder(folder: string, value = ''): Promise<void> {
     await expect.poll(() => workspace.dialog?.kind).toBe('choose')
     const dialog = workspace.dialog
     if (dialog?.kind !== 'choose') throw new Error('No choose dialog')
@@ -350,11 +350,52 @@ describe('WorkspaceModel Save to vault of a scratch note', () => {
       title: 'Save to vault',
       label: 'Folder',
       options: workspace.folderOptions,
-      value: '',
+      value,
       confirm: 'Save',
     })
     dialog.resolve(folder)
   }
+
+  it('offers the selected folder first in the folder dialog', async () => {
+    const { id } = await scratchBetweenNotes('# Into f\n')
+    workspace.select({ kind: 'folder', id: 'f' })
+    const saving = workspace.saveScratchToVault(id)
+    await chooseFolder('f', 'f')
+    await saving
+    expect(strip()).toEqual(['meeting.md', 'f/Into f.md', 'f/n.md'])
+  })
+
+  it('saves once when Save to vault is asked twice before the dialog is answered', async () => {
+    const { id } = await scratchBetweenNotes('# Once\n')
+    const first = workspace.saveScratchToVault(id)
+    const second = workspace.saveScratchToVault(id)
+    await chooseFolder('')
+    await Promise.all([first, second])
+    expect(workspace.dialog).toBeNull()
+    expect((await readdir(path.join(app.dir, 'vault'))).filter((name) => name.startsWith('Once'))).toEqual(['Once.md'])
+    expect(workspace.notice).toBeNull()
+  })
+
+  it('says why nothing was saved when the vault closed while the save waited for another one’s folder dialog', async () => {
+    const { id } = await scratchBetweenNotes('# First\n')
+    await workspace.newScratchNote()
+    const other = workspace.session.scratch?.id ?? ''
+    workspace.session.edit('# Second\n')
+    const first = workspace.saveScratchToVault(id)
+    await expect.poll(() => workspace.dialog?.kind).toBe('choose')
+    const second = workspace.saveScratchToVault(other)
+    await workspace.closeVault()
+    const dialog = workspace.dialog
+    if (dialog?.kind !== 'choose') throw new Error('No choose dialog')
+    dialog.resolve('')
+    await Promise.all([first, second])
+    expect(workspace.data.vault).toBeNull()
+    expect(workspace.dialog).toBeNull()
+    expect(workspace.notice).toEqual({ kind: 'error', text: 'Open a vault first, then save the scratch note to it.' })
+    expect((await readdir(app.scratchDir)).sort()).toEqual(
+      [`${id}.json`, `${id}.md`, `${other}.json`, `${other}.md`].sort(),
+    )
+  })
 
   it('saves the typed text into the chosen folder; the scratch tab becomes the note’s active tab at its place', async () => {
     const { id } = await scratchBetweenNotes('# Groceries\n\nMilk\n')
@@ -682,7 +723,10 @@ describe('WorkspaceModel scratch list', () => {
     await start(true)
     const id = await keptScratch('# Groceries\n\nMilk\n')
     await workspace.openScratch(id)
+    const key = workspace.tabs.activeKey
+    await workspace.openNote('f/n.md', { newTab: true })
     await workspace.activateTab(workspace.tabs.tabs[0]?.key ?? -1)
+    expect(strip()).toEqual(['meeting.md', id, 'f/n.md'])
     expect(workspace.session.note?.id).toBe('meeting.md')
 
     const saving = workspace.saveScratchToVault(id)
@@ -692,7 +736,8 @@ describe('WorkspaceModel scratch list', () => {
     dialog.resolve('f')
     await saving
 
-    expect(strip()).toEqual(['meeting.md', 'f/Groceries.md'])
+    expect(strip()).toEqual(['meeting.md', 'f/Groceries.md', 'f/n.md'])
+    expect(workspace.tabs.activeKey).toBe(key)
     expect(workspace.tabs.active).toMatchObject({ kind: 'note', path: 'f/Groceries.md' })
     expect(workspace.session.note?.id).toBe('f/Groceries.md')
     expect(workspace.scratchNotes).toEqual([])
@@ -719,6 +764,208 @@ describe('WorkspaceModel scratch list', () => {
     expect(strip()).toEqual([])
     expect(workspace.session.scratch).toBeNull()
     expect(await readdir(app.scratchDir)).toEqual([])
+  })
+
+  it('titles a restored scratch tab that never opened in this page from its text', async () => {
+    await start(false)
+    const first = await keptScratch('# Groceries\n')
+    await workspace.newScratchNote()
+    const second = workspace.session.scratch?.id ?? ''
+    workspace.session.edit('# Second\n')
+    await workspace.activateTab(workspace.tabs.tabs[0]?.key ?? -1)
+    const later = new WorkspaceModel(
+      await api.workspace(),
+      { ui: DEFAULT_UI, hotkeyRegistered: false, captureHotkeyRegistered: false, update: null },
+      { api, store: { ...noTabStore, loadScratch: () => ({ ids: [first, second], active: 1 }) } },
+    )
+    await later.restoreTabs()
+    expect(later.session.scratch?.id).toBe(second)
+    expect(later.scratchTabTitle(first)).toBe('Groceries')
+    expect(later.scratchTabTitle(second)).toBe('Second')
+    later.session.edit('# Retitled\n')
+    expect(later.scratchTabTitle(second)).toBe('Retitled')
+    later.session.close()
+  })
+
+  it('drops a scratch note’s row once its tab, activated, finds its file gone', async () => {
+    await start(false)
+    const id = await keptScratch('# Groceries\n')
+    await workspace.openScratch(id)
+    await workspace.activateTab(workspace.tabs.tabs[0]?.key ?? -1)
+    await rm(path.join(app.scratchDir, `${id}.md`))
+    await rm(path.join(app.scratchDir, `${id}.json`))
+
+    await workspace.activateTab(workspace.tabs.tabs[1]?.key ?? -1)
+    expect(strip()).toEqual(['meeting.md'])
+    expect(workspace.scratchNotes).toEqual([])
+  })
+
+  it('keeps the row, the tab and the file, with the error notice, when the discard fails', async () => {
+    await start(false)
+    const id = await keptScratch('# Groceries\n')
+    await workspace.openScratch(id)
+    net.fail = (url) => url.pathname === '/api/scratch/discard'
+    await workspace.discardScratch(id)
+    net.fail = null
+    expect(strip()).toEqual(['meeting.md', id])
+    expect(rows()).toEqual([{ id, title: 'Groceries' }])
+    expect(await readFile(path.join(app.scratchDir, `${id}.md`), 'utf8')).toBe('# Groceries\n')
+    expect(workspace.notice).toEqual({ kind: 'error', text: 'Disk full' })
+  })
+
+  it('closes the tab and drops the row, with no notice, when the scratch note was already removed on disk', async () => {
+    await start(false)
+    const id = await keptScratch('# Groceries\n')
+    await workspace.openScratch(id)
+    await rm(path.join(app.scratchDir, `${id}.md`))
+    await rm(path.join(app.scratchDir, `${id}.json`))
+    await workspace.discardScratch(id)
+    expect(strip()).toEqual(['meeting.md'])
+    expect(workspace.scratchNotes).toEqual([])
+    expect(workspace.notice).toBeNull()
+  })
+
+  it('discards a listed scratch note whose tab is in the background, leaving the active note loaded', async () => {
+    await start(false)
+    const id = await keptScratch('# Groceries\n')
+    await workspace.openScratch(id)
+    await workspace.activateTab(workspace.tabs.tabs[0]?.key ?? -1)
+    await workspace.discardScratch(id)
+    expect(strip()).toEqual(['meeting.md'])
+    expect(workspace.tabs.active).toMatchObject({ kind: 'note', path: 'meeting.md' })
+    expect(workspace.session.note?.id).toBe('meeting.md')
+    expect(workspace.scratchNotes).toEqual([])
+    expect(await readdir(app.scratchDir)).toEqual([])
+  })
+
+  it('keeps the open note editable while a discard of a scratch note with no tab is out', async () => {
+    await start(false)
+    const id = await keptScratch('# Groceries\n')
+    net.hold(onPath('/api/scratch/discard'), { once: true })
+    const discarding = workspace.discardScratch(id)
+    await expect.poll(() => net.held.length).toBe(1)
+    expect(workspace.session.locked).toBe(false)
+    net.held[0]?.release()
+    await discarding
+    expect(workspace.scratchNotes).toEqual([])
+  })
+
+  it('says a scratch note is gone, and drops its row, when its row reopens it after its file was removed', async () => {
+    await start(false)
+    const id = await keptScratch('# Groceries\n')
+    await rm(path.join(app.scratchDir, `${id}.md`))
+    await rm(path.join(app.scratchDir, `${id}.json`))
+    await workspace.openScratch(id)
+    expect(strip()).toEqual(['meeting.md'])
+    expect(workspace.notice).toEqual({ kind: 'error', text: 'This scratch note no longer exists' })
+    expect(workspace.scratchNotes).toEqual([])
+  })
+
+  it('reads an active scratch tab again when its row is clicked after its read failed', async () => {
+    await start(false)
+    const id = await keptScratch('# Groceries\n')
+    net.fail = (url) => url.pathname === '/api/scratch/read'
+    await workspace.openScratch(id)
+    net.fail = null
+    expect(workspace.tabs.active).toMatchObject({ kind: 'scratch', id })
+    expect(workspace.session.scratch).toBeNull()
+    await workspace.openScratch(id)
+    expect(workspace.session.scratch?.id).toBe(id)
+    expect(workspace.session.body).toBe('# Groceries\n')
+  })
+
+  it('drops a listing that returns after a later one, and shows a failed listing as the error notice', async () => {
+    await start(false)
+    const id = await keptScratch('# Groceries\n')
+    net.hold(onPath('/api/scratch'), { once: true })
+    const stale = workspace.refreshScratch()
+    await expect.poll(() => net.held.length).toBe(1)
+    await workspace.discardScratch(id)
+    expect(workspace.scratchNotes).toEqual([])
+    net.held[0]?.release()
+    await stale
+    expect(workspace.scratchNotes).toEqual([])
+
+    net.fail = (url) => url.pathname === '/api/scratch'
+    await workspace.refreshScratch()
+    net.fail = null
+    expect(workspace.notice).toEqual({ kind: 'error', text: 'Disk full' })
+  })
+
+  it('opens the saved note’s tab in the background when another tab was activated while a row with no tab saved', async () => {
+    await start(false)
+    const id = await keptScratch('# Groceries\n')
+    await workspace.openNote('f/n.md', { newTab: true })
+    const meeting = workspace.tabs.tabs[0]?.key ?? -1
+    net.hold(onPath('/api/scratch/save'), { once: true })
+    const saving = workspace.saveScratchToVault(id)
+    await expect.poll(() => workspace.dialog?.kind).toBe('choose')
+    const dialog = workspace.dialog
+    if (dialog?.kind !== 'choose') throw new Error('No choose dialog')
+    dialog.resolve('')
+    await expect.poll(() => net.held.length).toBe(1)
+    await workspace.activateTab(meeting)
+    net.held[0]?.release()
+    await saving
+    expect(strip()).toEqual(['meeting.md', 'Groceries.md', 'f/n.md'])
+    expect(workspace.tabs.activeKey).toBe(meeting)
+    expect(workspace.session.note?.id).toBe('meeting.md')
+  })
+
+  it('opens no tab for a row with no tab saved across a vault switch, and says where the note went', async () => {
+    await start(false)
+    const second = await realpath(await folderWith(app, 'second', { 'in second.md': '# In second\n' }))
+    const id = await keptScratch('# Groceries\n')
+    net.hold(onPath('/api/scratch/save'), { once: true })
+    const saving = workspace.saveScratchToVault(id)
+    await expect.poll(() => workspace.dialog?.kind).toBe('choose')
+    const dialog = workspace.dialog
+    if (dialog?.kind !== 'choose') throw new Error('No choose dialog')
+    dialog.resolve('')
+    await expect.poll(() => net.held.length).toBe(1)
+    await workspace.openVault(second)
+    net.held[0]?.release()
+    await saving
+    expect(strip()).toEqual([])
+    expect(workspace.notice).toEqual({ kind: 'info', text: 'Saved as Groceries.md in vault' })
+    expect(workspace.scratchNotes).toEqual([])
+  })
+
+  it('refuses a row’s Discard while its Save to vault is out, so the save is shown as it happened', async () => {
+    await start(false)
+    const id = await keptScratch('# Groceries\n')
+    net.hold(onPath('/api/scratch/save'), { once: true })
+    const saving = workspace.saveScratchToVault(id)
+    await expect.poll(() => workspace.dialog?.kind).toBe('choose')
+    const dialog = workspace.dialog
+    if (dialog?.kind !== 'choose') throw new Error('No choose dialog')
+    dialog.resolve('')
+    await expect.poll(() => net.held.length).toBe(1)
+    expect(workspace.savingScratch(id)).toBe(true)
+    await workspace.discardScratch(id)
+    net.held[0]?.release()
+    await saving
+    expect(workspace.savingScratch(id)).toBe(false)
+    expect(workspace.notice).toBeNull()
+    expect(workspace.tabs.active).toMatchObject({ kind: 'note', path: 'Groceries.md' })
+    expect(workspace.scratchNotes).toEqual([])
+  })
+
+  it('closes Preferences, Import, Title renames and an open prompt before a new scratch note takes the focus', async () => {
+    await start(false)
+    await workspace.openNote('meeting.md')
+    workspace.setPreferencesOpen(true)
+    workspace.setImportOpen(true)
+    workspace.setTitleRenamesOpen(true)
+    const prompt = workspace.prompt({ title: 'Rename note', label: 'File name', value: 'x', confirm: 'Rename' })
+    await workspace.newScratchNote()
+    expect(await prompt).toBeNull()
+    expect(workspace.dialog).toBeNull()
+    expect(workspace.preferencesOpen).toBe(false)
+    expect(workspace.importOpen).toBe(false)
+    expect(workspace.titleRenamesOpen).toBe(false)
+    expect(workspace.tabs.active?.kind).toBe('scratch')
+    expect(workspace.takeEditorFocus()).not.toBeNull()
   })
 })
 

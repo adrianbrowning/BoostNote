@@ -83,6 +83,7 @@ beforeEach(async () => {
       notify: (kind, text) => notices.push({ kind, text }),
       fail: (error) => notices.push({ kind: 'error', text: error instanceof Error ? error.message : String(error) }),
       changed: () => {},
+      scratchChanged: async () => {},
     },
   })
   relocation = new Relocation({

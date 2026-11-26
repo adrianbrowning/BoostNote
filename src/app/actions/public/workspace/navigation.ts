@@ -70,6 +70,11 @@ export interface NavigationHost {
   fail(error: unknown): void
   /** Something visible changed (the tabs, the reader). */
   changed(): void
+  /**
+   * The scratch notes changed: one was created, deleted, saved to the vault or found gone (or the tabs were
+   * restored). The host lists them again; called once the transition that changed them is done.
+   */
+  scratchChanged(): Promise<void>
 }
 
 export interface NavigationOptions {
@@ -129,6 +134,8 @@ export class Navigation {
   #scratchRestoring = false
   /** The New Scratch Note running now, if any (`newScratch` runs one at a time). */
   #scratchCreates: Promise<unknown> = Promise.resolve()
+  /** A transition changed the scratch notes since the host last listed them (`#relistScratch`). */
+  #scratchListStale = false
 
   constructor({ session, api, store, host }: NavigationOptions) {
     this.#session = session
@@ -144,16 +151,27 @@ export class Navigation {
    */
   #scratchGone(id: string, message: string): void {
     this.#host.notify('error', message)
+    this.#scratchListStale = true
     const tab = this.#scratchTab(id)
-    if (!tab) return
-    const wasActive = tab.key === this.tabs.activeKey
-    try {
-      this.#edit((tabs) => tabs.close(tab.key))
-    } catch (error) {
-      this.#host.fail(error)
+    const wasActive = tab !== undefined && tab.key === this.tabs.activeKey
+    if (tab) {
+      try {
+        this.#edit((tabs) => tabs.close(tab.key))
+      } catch (error) {
+        this.#host.fail(error)
+      }
+      this.#host.changed()
     }
-    this.#host.changed()
-    if (wasActive) void this.hold(() => this.#loadActive(), { gate: false }).catch((error) => this.#host.fail(error))
+    // The load's hold lists the scratch notes again once it is done; without one, they are listed now.
+    const done = wasActive ? this.hold(() => this.#loadActive(), { gate: false }) : this.#relistScratch()
+    void done.catch((error: unknown) => this.#host.fail(error))
+  }
+
+  /** Lets the host list the scratch notes again when a transition changed them, once no hold runs. */
+  async #relistScratch(): Promise<void> {
+    if (!this.#scratchListStale || this.#holds > 0) return
+    this.#scratchListStale = false
+    await this.#host.scratchChanged()
   }
 
   /**
@@ -198,6 +216,7 @@ export class Navigation {
     } finally {
       this.#holds--
       this.#session.lock(this.#holds > 0)
+      await this.#relistScratch()
     }
   }
 
@@ -233,6 +252,7 @@ export class Navigation {
       async () => {
         this.#transitions++
         this.#restoreNoteTabs()
+        this.#scratchListStale = true
         const scratch = scratchTabsOf(this.#store.loadScratch())
         if (scratch.ids.length > 0) {
           const current = this.token()
@@ -369,6 +389,7 @@ export class Navigation {
       this.#edit((tabs) => tabs.close(key), { save: false })
       this.#host.changed()
       await this.#discardBlank(tab.id, report)
+      await this.#relistScratch()
       if (this.#holds === 0) this.#persist()
       return
     }
@@ -394,8 +415,10 @@ export class Navigation {
   async #discardBlank(id: string, report: LoadReport): Promise<void> {
     try {
       await this.#api.discardScratch(id, { ifBlank: true })
+      this.#scratchListStale = true
     } catch (error) {
-      if (!(error instanceof ApiError && error.status === 404)) report.fail(error)
+      if (error instanceof ApiError && error.status === 404) this.#scratchListStale = true
+      else report.fail(error)
     }
   }
 
@@ -472,6 +495,7 @@ export class Navigation {
       this.hold(async () => {
         const current = this.token()
         const scratch = await this.#api.createScratch()
+        this.#scratchListStale = true
         if (!current()) return { scratch, shown: false }
         this.#edit((tabs) => tabs.openScratch(scratch.id))
         this.#session.openScratch(scratch)
@@ -514,6 +538,7 @@ export class Navigation {
       const open = this.#scratchTab(id)
       if (open) this.#edit((tabs) => tabs.close(open.key))
       this.#host.changed()
+      await this.#relistScratch()
       return
     }
     const holdsOther =
@@ -536,6 +561,7 @@ export class Navigation {
     } catch (error) {
       if (!(error instanceof ApiError && error.status === 404)) throw error
     }
+    this.#scratchListStale = true
   }
 
   /** Scratch note `id`'s tab, if open. */
@@ -575,6 +601,7 @@ export class Navigation {
       const sameVault = this.vaultToken()
       const unmoved = this.token()
       const saved = await save()
+      this.#scratchListStale = true
       const tab = this.tabs.tabs.find((item) => item.kind === 'scratch' && item.id === id)
       const shown = sameVault()
       if (!tab && !shown) return { saved, shown }
@@ -835,6 +862,7 @@ export class Navigation {
         return
       }
       report.missing(error.message)
+      this.#scratchListStale = true
       this.#edit((tabs) => tabs.close(tab.key))
       await this.#loadActive(report)
       return

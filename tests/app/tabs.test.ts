@@ -312,7 +312,7 @@ describe('Tabs', () => {
       const scratch = tabs.openScratch('s1')
       tabs.openNew('b.md')
       const note = tabs.replaceScratch(scratch.key, 'new.md')
-      expect(note).toEqual({ key: note?.key, kind: 'note', path: 'new.md', back: [], forward: [] })
+      expect(note).toEqual({ key: scratch.key, kind: 'note', path: 'new.md', back: [], forward: [] })
       expect(paths(tabs)).toEqual(['a.md', 'new.md', 'b.md'])
       expect(label(tabs.active)).toBe('new.md')
 

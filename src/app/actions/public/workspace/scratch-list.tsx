@@ -49,6 +49,7 @@ export function ScratchList(handle: Handle<{ model: WorkspaceModel }>) {
               </button>
               <button
                 type="button"
+                disabled={model.savingScratch(note.id)}
                 aria-label="Discard"
                 title="Discard"
                 mix={[iconButton, actionStyle, on('click', () => void model.discardScratch(note.id))]}

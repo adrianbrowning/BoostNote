@@ -70,6 +70,7 @@ function createNavigation(tabStore: TabStore): Navigation {
     notify: (_kind, text) => notices.push(text),
     fail: (error) => notices.push(error instanceof Error ? error.message : String(error)),
     changed: () => {},
+    scratchChanged: async () => {},
   }
   return new Navigation({ session, api, store: tabStore, host })
 }
