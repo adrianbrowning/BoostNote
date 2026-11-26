@@ -184,6 +184,41 @@ describe('preferences route', () => {
     expect(app.settings.ui).toMatchObject({ globalHotkey: DEFAULT_HOTKEY, captureHotkey: '' })
   })
 
+  it('refuses a two-hotkey patch whose hotkey equals the other current hotkey, without registering it', async () => {
+    await app.post(api.preferencesSave.href(), { globalHotkey: 'CommandOrControl+Alt+K' })
+    await app.post(api.preferencesSave.href(), { captureHotkey: 'CommandOrControl+Alt+J' })
+    const setHotkey = vi.spyOn(app.preferences, 'setHotkey')
+    const setCaptureHotkey = vi.spyOn(app.preferences, 'setCaptureHotkey')
+
+    const capture = await app.post(api.preferencesSave.href(), {
+      globalHotkey: 'CommandOrControl+Alt+L',
+      captureHotkey: 'CommandOrControl+Alt+K',
+    })
+    expect(capture.status).toBe(409)
+    expect(await capture.json()).toEqual({
+      error: 'HOTKEY_UNAVAILABLE',
+      message: 'CommandOrControl+Alt+K is already the show/hide hotkey.',
+    })
+    const global = await app.post(api.preferencesSave.href(), {
+      globalHotkey: 'CommandOrControl+Alt+J',
+      captureHotkey: 'CommandOrControl+Alt+L',
+    })
+    expect(global.status).toBe(409)
+    expect(await global.json()).toEqual({
+      error: 'HOTKEY_UNAVAILABLE',
+      message: 'CommandOrControl+Alt+J is already the Quick capture hotkey.',
+    })
+    expect(setHotkey).not.toHaveBeenCalled()
+    expect(setCaptureHotkey).not.toHaveBeenCalled()
+
+    expect(app.preferences.registeredHotkey).toBe('CommandOrControl+Alt+K')
+    expect(app.preferences.registeredCaptureHotkey).toBe('CommandOrControl+Alt+J')
+    expect(app.settings.ui).toMatchObject({
+      globalHotkey: 'CommandOrControl+Alt+K',
+      captureHotkey: 'CommandOrControl+Alt+J',
+    })
+  })
+
   it('puts the show/hide hotkey of a patch back when the Quick capture hotkey of the same patch is refused', async () => {
     await app.post(api.preferencesSave.href(), { globalHotkey: 'CommandOrControl+Alt+K' })
     app.takenHotkeys.push('Control+Shift+F6')

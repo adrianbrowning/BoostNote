@@ -238,7 +238,7 @@ not open → 409 `NO_VAULT`.
 | `POST /api/assets?note=&ext=` (raw body, ≤ 50 MB) | Editor `saveAsset` → `{ href: "./<stem>.assets/<hash>.<ext>" }`; `404 NOT_FOUND`, writing nothing, when the note does not exist |
 | `GET /api/import/candidates` · `POST /api/import/pick {purpose}` · `POST /api/import/run {source, target, dryRun, force}` | Importer: storages found on this machine, folder dialog, dry run / run → summary |
 | `POST /api/open-external {url}` | http(s) links only |
-| `GET /api/preferences` · `POST /api/preferences {…UiPatch}` | `{ ui, hotkeyRegistered, captureHotkeyRegistered, update }`; save validates every field, `409 HOTKEY_UNAVAILABLE` when the OS refuses the global or Quick capture hotkey, or when the two would be the same accelerator (phase 5) |
+| `GET /api/preferences` · `POST /api/preferences {…UiPatch}` | `{ ui, hotkeyRegistered, captureHotkeyRegistered, update }`; save validates every field, `409 HOTKEY_UNAVAILABLE` when the OS refuses the global or Quick capture hotkey, or, before anything is registered, when a hotkey in the patch equals the other hotkey, current or as patched (phase 5) |
 | `POST /api/export/note {id, format: html\|pdf\|markdown\|print}` · `POST /api/export/folder {folder}` | Export (phase 6) → `{ path }` (`null`: cancelled / printed) |
 | `POST /api/open-request` | Takes the oldest queued "open this `.md`" request → `{ kind: 'note', vault, id }`, `{ kind: 'external', ticket, name }` (outside file, reader tab) or `null` when the queue is empty (phase 6) |
 | `GET /api/reader/:ticket` · `POST /api/reader/:ticket/close` | A reader tab's outside file → `{ name, body, frontmatter, html }`, read fresh; close revokes the ticket. Unknown/revoked tickets: `404` |

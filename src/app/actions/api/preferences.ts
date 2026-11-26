@@ -57,24 +57,26 @@ export function parseUiPatch(body: Record<string, unknown>): UiPatch {
  * Merges `patch` into the stored preferences and applies them. A new show/hide or Quick capture
  * hotkey is registered first; when the OS refuses it nothing is stored and the previous hotkeys stay
  * registered (`409 HOTKEY_UNAVAILABLE`). The two hotkeys never share an accelerator, aliases included
- * (`CommandOrControl+Shift+Space` and `Command+Shift+Space` on macOS): a patch that would make them
- * equal is refused the same way before anything is registered.
+ * (`CommandOrControl+Shift+Space` and `Command+Shift+Space` on macOS): a hotkey in the patch equal to
+ * the other hotkey, current or as patched, is refused the same way before anything is registered.
  */
 export function savePreferences(services: AppServices, patch: UiPatch): PreferencesState {
   const current = services.settings.ui
   const next = { ...current, ...patch, panes: { ...current.panes, ...patch.panes } }
   const { preferences } = services
   if (
-    (patch.globalHotkey !== undefined || patch.captureHotkey !== undefined) &&
-    sameAccelerator(next.captureHotkey, next.globalHotkey)
+    patch.captureHotkey !== undefined &&
+    (sameAccelerator(patch.captureHotkey, current.globalHotkey) ||
+      sameAccelerator(patch.captureHotkey, next.globalHotkey))
   ) {
-    throw new HttpError(
-      409,
-      'HOTKEY_UNAVAILABLE',
-      patch.captureHotkey !== undefined
-        ? `${next.captureHotkey} is already the show/hide hotkey.`
-        : `${next.globalHotkey} is already the Quick capture hotkey.`,
-    )
+    throw new HttpError(409, 'HOTKEY_UNAVAILABLE', `${patch.captureHotkey} is already the show/hide hotkey.`)
+  }
+  if (
+    patch.globalHotkey !== undefined &&
+    (sameAccelerator(patch.globalHotkey, current.captureHotkey) ||
+      sameAccelerator(patch.globalHotkey, next.captureHotkey))
+  ) {
+    throw new HttpError(409, 'HOTKEY_UNAVAILABLE', `${patch.globalHotkey} is already the Quick capture hotkey.`)
   }
   const previousHotkey = preferences.registeredHotkey
   const hotkeyChanged = patch.globalHotkey !== undefined && patch.globalHotkey !== previousHotkey
