@@ -28,7 +28,7 @@ beforeEach(async () => {
   await app.openVault('vault')
   workspace = new WorkspaceModel(
     await api.workspace(),
-    { ui: DEFAULT_UI, hotkeyRegistered: false, update: null },
+    { ui: DEFAULT_UI, hotkeyRegistered: false, captureHotkeyRegistered: false, update: null },
     { api, store: noTabStore },
   )
   await workspace.openNote('in first.md')

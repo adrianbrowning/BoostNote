@@ -16,13 +16,14 @@ import { ScratchStore } from '../app/scratch-store.ts'
 import { type CliTarget, defaultShimDirs, installShim, loginShellPath, windowsCommands } from '../cli/install.ts'
 import { findLegacyStorages } from '../migrate/index.ts'
 import { markdownFilesIn } from './argv.ts'
+import { createCaptureHandler } from './capture.ts'
 import { eventHub } from './events.ts'
 import { createExportServices } from './export.ts'
 import { installMenu } from './menu.ts'
 import { createPreferenceServices } from './preferences.ts'
 import { handleBoostProtocol, registerBoostScheme } from './protocol.ts'
 import { createQuitDisposal, raceTimeout } from './quit.ts'
-import { SettingsStore } from './settings.ts'
+import { SettingsStore, sameAccelerator } from './settings.ts'
 import { checkForUpdate, createUpdater } from './updates.ts'
 import { VaultSession } from './vault-session.ts'
 import { createMainWindow } from './window.ts'
@@ -40,7 +41,10 @@ registerBoostScheme()
 
 const settings = new SettingsStore(path.join(app.getPath('userData'), 'settings.json'))
 const vaults = new VaultSession({ settings, events: eventHub })
-const preferences = createPreferenceServices(toggleMainWindow)
+const preferences = createPreferenceServices(
+  toggleMainWindow,
+  createCaptureHandler({ show: bringMainWindowToFront, send: (event) => eventHub.broadcast(event) }),
+)
 // `BOOSTNOTE_UPDATE_URL` (development and tests only) points the checker at another server and
 // turns on the automatic checks, which otherwise run only in the packaged app.
 const updateUrl = app.isPackaged ? undefined : process.env.BOOSTNOTE_UPDATE_URL
@@ -122,6 +126,12 @@ function showMainWindow(): void {
   window.focus()
 }
 
+/** Shows and focuses the window; on macOS also makes the app the active one, as a global hotkey needs. */
+function bringMainWindowToFront(): void {
+  showMainWindow()
+  if (process.platform === 'darwin') app.focus({ steal: true })
+}
+
 /** The global hotkey: hides the app when it is in front, otherwise brings it (back) to the front. */
 function toggleMainWindow(): void {
   const window = liveWindow()
@@ -130,8 +140,7 @@ function toggleMainWindow(): void {
     else window.hide()
     return
   }
-  showMainWindow()
-  if (process.platform === 'darwin') app.focus({ steal: true })
+  bringMainWindowToFront()
 }
 
 /**
@@ -217,6 +226,14 @@ if (!app.requestSingleInstanceLock()) {
     const ui = settings.ui
     preferences.apply(ui)
     if (!preferences.setHotkey(ui.globalHotkey)) console.warn(`Could not register the hotkey ${ui.globalHotkey}`)
+    // One accelerator stored for both, aliases included (a hand-edited settings.json), stays the
+    // show/hide hotkey.
+    if (
+      ui.captureHotkey !== '' &&
+      (sameAccelerator(ui.captureHotkey, ui.globalHotkey) || !preferences.setCaptureHotkey(ui.captureHotkey))
+    ) {
+      console.warn(`Could not register the Quick capture hotkey ${ui.captureHotkey}`)
+    }
     updater.setAutomatic(ui.checkUpdates)
     // Reopen the last vault first, so the first page already shows it.
     await vaults.restore().catch((error: unknown) => console.error('Could not reopen the last vault', error))

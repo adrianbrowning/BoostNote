@@ -1,10 +1,17 @@
 import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import * as path from 'node:path'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import type { NoteDocument, PreferencesState } from '../../src/app/actions/public/workspace/types.ts'
 import { routes } from '../../src/app/routes.ts'
-import { DEFAULT_HOTKEY, DEFAULT_UI, isAccelerator, normalizeUi, SettingsStore } from '../../src/main/settings.ts'
+import {
+  DEFAULT_HOTKEY,
+  DEFAULT_UI,
+  isAccelerator,
+  normalizeUi,
+  SettingsStore,
+  sameAccelerator,
+} from '../../src/main/settings.ts'
 import { TestApp } from './helpers.ts'
 
 const api = routes.api
@@ -26,7 +33,7 @@ async function readJson<T>(response: Response): Promise<T> {
 describe('preferences route', () => {
   it('answers the defaults when nothing is stored', async () => {
     const state = await readJson<PreferencesState>(await app.get(api.preferences.href()))
-    expect(state).toEqual({ ui: DEFAULT_UI, hotkeyRegistered: false, update: null })
+    expect(state).toEqual({ ui: DEFAULT_UI, hotkeyRegistered: false, captureHotkeyRegistered: false, update: null })
   })
 
   it('stores a valid patch in settings.json and applies it', async () => {
@@ -69,6 +76,9 @@ describe('preferences route', () => {
       { colour: 'blue' },
       { globalHotkey: 'Shift+A' },
       { globalHotkey: 'Command+Nope' },
+      { captureHotkey: 'Shift+A' },
+      { captureHotkey: 'Command+Nope' },
+      { captureHotkey: 5 },
     ]
     for (const body of bad) {
       const response = await app.post(api.preferencesSave.href(), body)
@@ -98,6 +108,131 @@ describe('preferences route', () => {
     expect(app.preferences.registeredHotkey).toBeUndefined()
   })
 
+  it('registers a Quick capture hotkey, refuses one the OS does not grant, and turns it off with an empty value', async () => {
+    const ok = await app.post(api.preferencesSave.href(), { captureHotkey: 'CommandOrControl+Alt+J' })
+    expect(ok.status).toBe(200)
+    expect(await readJson<PreferencesState>(ok)).toMatchObject({
+      ui: { captureHotkey: 'CommandOrControl+Alt+J' },
+      captureHotkeyRegistered: true,
+    })
+    expect(app.preferences.registeredCaptureHotkey).toBe('CommandOrControl+Alt+J')
+    expect(await readJson<PreferencesState>(await app.get(api.preferences.href()))).toMatchObject({
+      ui: { captureHotkey: 'CommandOrControl+Alt+J' },
+      captureHotkeyRegistered: true,
+    })
+    expect(new SettingsStore(app.settings.file).ui.captureHotkey).toBe('CommandOrControl+Alt+J')
+
+    app.takenHotkeys.push('Control+Shift+F6')
+    const taken = await app.post(api.preferencesSave.href(), { captureHotkey: 'Control+Shift+F6', theme: 'light' })
+    expect(taken.status).toBe(409)
+    expect(await taken.json()).toEqual({
+      error: 'HOTKEY_UNAVAILABLE',
+      message: 'Control+Shift+F6 could not be registered. Another app may already use it.',
+    })
+    expect(app.settings.ui).toMatchObject({ captureHotkey: 'CommandOrControl+Alt+J', theme: 'system' })
+    expect(app.preferences.registeredCaptureHotkey).toBe('CommandOrControl+Alt+J')
+
+    const off = await readJson<PreferencesState>(await app.post(api.preferencesSave.href(), { captureHotkey: '' }))
+    expect(off).toMatchObject({ ui: { captureHotkey: '' }, captureHotkeyRegistered: false })
+    expect(app.preferences.registeredCaptureHotkey).toBeUndefined()
+    expect(app.settings.ui.captureHotkey).toBe('')
+  })
+
+  it('refuses a Quick capture hotkey equal to the show/hide hotkey, and the reverse, without registering it', async () => {
+    await app.post(api.preferencesSave.href(), { globalHotkey: 'CommandOrControl+Alt+K' })
+    await app.post(api.preferencesSave.href(), { captureHotkey: 'CommandOrControl+Alt+J' })
+    // From here on, neither refused save may register anything, not even for a moment.
+    const setHotkey = vi.spyOn(app.preferences, 'setHotkey')
+    const setCaptureHotkey = vi.spyOn(app.preferences, 'setCaptureHotkey')
+
+    const capture = await app.post(api.preferencesSave.href(), { captureHotkey: 'CommandOrControl+Alt+K' })
+    expect(capture.status).toBe(409)
+    expect(await capture.json()).toEqual({
+      error: 'HOTKEY_UNAVAILABLE',
+      message: 'CommandOrControl+Alt+K is already the show/hide hotkey.',
+    })
+    const global = await app.post(api.preferencesSave.href(), { globalHotkey: 'CommandOrControl+Alt+J' })
+    expect(global.status).toBe(409)
+    expect(await global.json()).toEqual({
+      error: 'HOTKEY_UNAVAILABLE',
+      message: 'CommandOrControl+Alt+J is already the Quick capture hotkey.',
+    })
+    expect(setHotkey).not.toHaveBeenCalled()
+    expect(setCaptureHotkey).not.toHaveBeenCalled()
+
+    expect(app.preferences.registeredHotkey).toBe('CommandOrControl+Alt+K')
+    expect(app.preferences.registeredCaptureHotkey).toBe('CommandOrControl+Alt+J')
+    expect(app.settings.ui).toMatchObject({
+      globalHotkey: 'CommandOrControl+Alt+K',
+      captureHotkey: 'CommandOrControl+Alt+J',
+    })
+  })
+
+  it('refuses the platform form of the default show/hide hotkey as Quick capture hotkey', async () => {
+    const alias = process.platform === 'darwin' ? 'Command+Shift+Space' : 'Control+Shift+Space'
+    const setHotkey = vi.spyOn(app.preferences, 'setHotkey')
+    const setCaptureHotkey = vi.spyOn(app.preferences, 'setCaptureHotkey')
+
+    const capture = await app.post(api.preferencesSave.href(), { captureHotkey: alias })
+    expect(capture.status).toBe(409)
+    expect(await capture.json()).toEqual({
+      error: 'HOTKEY_UNAVAILABLE',
+      message: `${alias} is already the show/hide hotkey.`,
+    })
+    expect(setHotkey).not.toHaveBeenCalled()
+    expect(setCaptureHotkey).not.toHaveBeenCalled()
+    expect(app.settings.ui).toMatchObject({ globalHotkey: DEFAULT_HOTKEY, captureHotkey: '' })
+  })
+
+  it('refuses a two-hotkey patch whose hotkey equals the other current hotkey, without registering it', async () => {
+    await app.post(api.preferencesSave.href(), { globalHotkey: 'CommandOrControl+Alt+K' })
+    await app.post(api.preferencesSave.href(), { captureHotkey: 'CommandOrControl+Alt+J' })
+    const setHotkey = vi.spyOn(app.preferences, 'setHotkey')
+    const setCaptureHotkey = vi.spyOn(app.preferences, 'setCaptureHotkey')
+
+    const capture = await app.post(api.preferencesSave.href(), {
+      globalHotkey: 'CommandOrControl+Alt+L',
+      captureHotkey: 'CommandOrControl+Alt+K',
+    })
+    expect(capture.status).toBe(409)
+    expect(await capture.json()).toEqual({
+      error: 'HOTKEY_UNAVAILABLE',
+      message: 'CommandOrControl+Alt+K is already the show/hide hotkey.',
+    })
+    const global = await app.post(api.preferencesSave.href(), {
+      globalHotkey: 'CommandOrControl+Alt+J',
+      captureHotkey: 'CommandOrControl+Alt+L',
+    })
+    expect(global.status).toBe(409)
+    expect(await global.json()).toEqual({
+      error: 'HOTKEY_UNAVAILABLE',
+      message: 'CommandOrControl+Alt+J is already the Quick capture hotkey.',
+    })
+    expect(setHotkey).not.toHaveBeenCalled()
+    expect(setCaptureHotkey).not.toHaveBeenCalled()
+
+    expect(app.preferences.registeredHotkey).toBe('CommandOrControl+Alt+K')
+    expect(app.preferences.registeredCaptureHotkey).toBe('CommandOrControl+Alt+J')
+    expect(app.settings.ui).toMatchObject({
+      globalHotkey: 'CommandOrControl+Alt+K',
+      captureHotkey: 'CommandOrControl+Alt+J',
+    })
+  })
+
+  it('puts the show/hide hotkey of a patch back when the Quick capture hotkey of the same patch is refused', async () => {
+    await app.post(api.preferencesSave.href(), { globalHotkey: 'CommandOrControl+Alt+K' })
+    app.takenHotkeys.push('Control+Shift+F6')
+
+    const taken = await app.post(api.preferencesSave.href(), {
+      globalHotkey: 'CommandOrControl+Alt+L',
+      captureHotkey: 'Control+Shift+F6',
+    })
+    expect(taken.status).toBe(409)
+    expect(app.preferences.registeredHotkey).toBe('CommandOrControl+Alt+K')
+    expect(app.preferences.registeredCaptureHotkey).toBeUndefined()
+    expect(app.settings.ui).toMatchObject({ globalHotkey: 'CommandOrControl+Alt+K', captureHotkey: '' })
+  })
+
   it('normalises stored settings field by field', () => {
     expect(normalizeUi({ theme: 'dark', fontSize: 99, panes: { listWidth: 250, sidebarWidth: 'x' } })).toEqual({
       ...DEFAULT_UI,
@@ -105,6 +240,8 @@ describe('preferences route', () => {
       panes: { ...DEFAULT_UI.panes, listWidth: 250 },
     })
     expect(normalizeUi('garbage')).toEqual(DEFAULT_UI)
+    expect(normalizeUi({ captureHotkey: 'Shift+A' }).captureHotkey).toBe('')
+    expect(normalizeUi({ captureHotkey: 'Control+Alt+J' }).captureHotkey).toBe('Control+Alt+J')
   })
 
   it('keeps a valid tableWidth and replaces a missing or invalid one with line', () => {
@@ -140,6 +277,21 @@ describe('preferences route', () => {
     for (const invalid of ['', 'A', 'Shift+A', 'Command', 'Command+Command+A', 'Hyper+A', 'Command+AB']) {
       expect(isAccelerator(invalid), invalid).toBe(false)
     }
+  })
+
+  it('compares accelerators by what they press on the platform', () => {
+    expect(sameAccelerator('CommandOrControl+Shift+Space', 'Command+Shift+Space', 'darwin')).toBe(true)
+    expect(sameAccelerator('CmdOrCtrl+Shift+Space', 'Shift+Cmd+space', 'darwin')).toBe(true)
+    expect(sameAccelerator('CommandOrControl+Shift+Space', 'Control+Shift+Space', 'darwin')).toBe(false)
+    expect(sameAccelerator('CommandOrControl+Shift+Space', 'Control+Shift+Space', 'linux')).toBe(true)
+    expect(sameAccelerator('CmdOrCtrl+Alt+K', 'Alt+Ctrl+k', 'linux')).toBe(true)
+    expect(sameAccelerator('CommandOrControl+Shift+Space', 'Command+Shift+Space', 'linux')).toBe(false)
+    expect(sameAccelerator('Control+Alt+K', 'Control+Alt+J', 'linux')).toBe(false)
+    expect(sameAccelerator('Control+Alt+K', 'Control+Shift+Alt+K', 'linux')).toBe(false)
+    expect(sameAccelerator('Super+Option+Esc', 'Command+Alt+Escape', 'linux')).toBe(true)
+    expect(sameAccelerator('Meta+Shift+Enter', 'Cmd+Shift+Return', 'darwin')).toBe(true)
+    expect(sameAccelerator('', '', 'linux')).toBe(false)
+    expect(sameAccelerator('', 'Control+Alt+K', 'darwin')).toBe(false)
   })
 })
 

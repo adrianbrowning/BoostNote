@@ -54,6 +54,8 @@ export interface PreferencesState {
   ui: UiPreferences
   /** Whether `ui.globalHotkey` is registered with the OS right now. */
   hotkeyRegistered: boolean
+  /** Whether `ui.captureHotkey` (Quick capture) is registered with the OS right now. */
+  captureHotkeyRegistered: boolean
   /** The update notice to show, `null` when there is none (or it was dismissed). */
   update: UpdateInfo | null
 }

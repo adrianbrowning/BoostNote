@@ -43,6 +43,8 @@ export interface UiPreferences {
   confirmDelete: boolean
   /** Electron accelerator that shows/hides the window from anywhere; `''` disables it. */
   globalHotkey: string
+  /** Electron accelerator that shows the window with a new scratch note (Quick capture); `''` disables it. */
+  captureHotkey: string
   /** Check GitHub for a newer release once a day (packaged app only). */
   checkUpdates: boolean
   /** Version whose update notice the user dismissed; `''` when none. */
@@ -67,6 +69,7 @@ export const DEFAULT_UI: UiPreferences = {
   spellcheck: true,
   confirmDelete: true,
   globalHotkey: DEFAULT_HOTKEY,
+  captureHotkey: '',
   checkUpdates: true,
   dismissedUpdate: '',
   outsideFile: 'reader',
@@ -107,6 +110,48 @@ export function isAccelerator(value: string): boolean {
   return /^F\d/.test(key) || parts.some((part) => part !== 'Shift')
 }
 
+/** One name per modifier Electron parses as the same flag (`CommandOrControl` presses Command on macOS only). */
+function modifierName(part: string, platform: NodeJS.Platform): string {
+  if (part === 'CommandOrControl' || part === 'CmdOrCtrl') return platform === 'darwin' ? 'Command' : 'Control'
+  if (part === 'Cmd' || part === 'Super' || part === 'Meta') return 'Command'
+  if (part === 'Ctrl') return 'Control'
+  if (part === 'Option') return 'Alt'
+  return part
+}
+
+/** One name per key Electron parses as the same key code, in upper case. */
+function keyName(key: string): string {
+  const upper = key.toUpperCase()
+  if (upper === 'ESC') return 'ESCAPE'
+  if (upper === 'ENTER') return 'RETURN'
+  return upper
+}
+
+/**
+ * Whether two accelerators press the same keys on `platform`: aliases Electron parses alike count as
+ * one (`CommandOrControl` and `Command` on macOS or `Control` elsewhere; `Cmd`, `Super` and `Meta`;
+ * `Option` and `Alt`; `Esc` and `Escape`; `Enter` and `Return`), modifiers in any order, the key in any
+ * case. `''` (no hotkey) is never the same as anything.
+ */
+export function sameAccelerator(a: string, b: string, platform: NodeJS.Platform = process.platform): boolean {
+  if (a === '' || b === '') return false
+  const canonical = (value: string) => {
+    const parts = value.split(/\+(?!$)/)
+    const key = keyName(parts.pop() ?? '')
+    return { key, modifiers: new Set(parts.map((part) => modifierName(part, platform))) }
+  }
+  const left = canonical(a)
+  const right = canonical(b)
+  return (
+    left.key === right.key &&
+    left.modifiers.size === right.modifiers.size &&
+    [...left.modifiers].every((modifier) => right.modifiers.has(modifier))
+  )
+}
+
+/** A global hotkey preference: an accelerator, or `''` for none. */
+const isHotkey = (value: unknown): boolean => typeof value === 'string' && (value === '' || isAccelerator(value))
+
 /** Validity of each preference value (also used to validate `POST /api/preferences`). */
 export const UI_FIELDS: { [K in keyof Omit<UiPreferences, 'panes'>]: (value: unknown) => boolean } = {
   theme: (value) => value === 'system' || value === 'light' || value === 'dark',
@@ -116,7 +161,8 @@ export const UI_FIELDS: { [K in keyof Omit<UiPreferences, 'panes'>]: (value: unk
   tableWidth: (value) => value === 'line' || value === 'full' || intIn(400, 2000)(value),
   spellcheck: isBoolean,
   confirmDelete: isBoolean,
-  globalHotkey: (value) => typeof value === 'string' && (value === '' || isAccelerator(value)),
+  globalHotkey: isHotkey,
+  captureHotkey: isHotkey,
   checkUpdates: isBoolean,
   dismissedUpdate: (value) => typeof value === 'string' && value.length <= 64 && /^[0-9A-Za-z.+-]*$/.test(value),
   outsideFile: (value) => value === 'reader' || value === 'vault',

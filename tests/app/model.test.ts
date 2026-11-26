@@ -59,7 +59,7 @@ describe('WorkspaceModel vault switches', () => {
   beforeEach(async () => {
     model = new WorkspaceModel(
       await api.workspace(),
-      { ui: DEFAULT_UI, hotkeyRegistered: false, update: null },
+      { ui: DEFAULT_UI, hotkeyRegistered: false, captureHotkeyRegistered: false, update: null },
       { api, store },
     )
   })
@@ -102,7 +102,7 @@ describe('WorkspaceModel operations that change the open note after a request', 
   beforeEach(async () => {
     workspace = new WorkspaceModel(
       await api.workspace(),
-      { ui: DEFAULT_UI, hotkeyRegistered: false, update: null },
+      { ui: DEFAULT_UI, hotkeyRegistered: false, captureHotkeyRegistered: false, update: null },
       { api, store: noTabStore },
     )
   })
@@ -316,7 +316,7 @@ describe('WorkspaceModel Save to vault of a scratch note', () => {
   beforeEach(async () => {
     workspace = new WorkspaceModel(
       await api.workspace(),
-      { ui: DEFAULT_UI, hotkeyRegistered: false, update: null },
+      { ui: DEFAULT_UI, hotkeyRegistered: false, captureHotkeyRegistered: false, update: null },
       { api, store: noTabStore },
     )
   })
@@ -521,7 +521,7 @@ describe('WorkspaceModel scratch list', () => {
   const start = async (confirmDelete: boolean) => {
     workspace = new WorkspaceModel(
       await api.workspace(),
-      { ui: { ...DEFAULT_UI, confirmDelete }, hotkeyRegistered: false, update: null },
+      { ui: { ...DEFAULT_UI, confirmDelete }, hotkeyRegistered: false, captureHotkeyRegistered: false, update: null },
       { api, store: noTabStore },
     )
   }
@@ -588,7 +588,7 @@ describe('WorkspaceModel scratch list', () => {
     const id = await keptScratch('# Groceries\n')
     const later = new WorkspaceModel(
       await api.workspace(),
-      { ui: DEFAULT_UI, hotkeyRegistered: false, update: null },
+      { ui: DEFAULT_UI, hotkeyRegistered: false, captureHotkeyRegistered: false, update: null },
       { api, store: noTabStore },
     )
     expect(later.scratchNotes).toEqual([])
@@ -730,7 +730,7 @@ describe('WorkspaceModel relocations that return after a vault switch', () => {
     saved = new Map()
     workspace = new WorkspaceModel(
       await api.workspace(),
-      { ui: DEFAULT_UI, hotkeyRegistered: false, update: null },
+      { ui: DEFAULT_UI, hotkeyRegistered: false, captureHotkeyRegistered: false, update: null },
       {
         api,
         store: {
@@ -807,7 +807,7 @@ describe('WorkspaceModel link questions', () => {
     await app.openVault('links')
     workspace = new WorkspaceModel(
       await api.workspace(),
-      { ui: DEFAULT_UI, hotkeyRegistered: false, update: null },
+      { ui: DEFAULT_UI, hotkeyRegistered: false, captureHotkeyRegistered: false, update: null },
       { api, store: noTabStore },
     )
   })

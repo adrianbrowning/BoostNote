@@ -52,8 +52,14 @@ export class TestApp {
   /** Documents sent to the fake printer / PDF writer. */
   readonly printed: string[] = []
   readonly pdfs: string[] = []
-  /** The fake `PreferenceServices` (`registeredHotkey` is what the fake OS has registered). */
-  readonly preferences: { registeredHotkey: string | undefined } & PreferenceServices
+  /**
+   * The fake `PreferenceServices` (`registeredHotkey` and `registeredCaptureHotkey` are what the fake OS has
+   * registered).
+   */
+  readonly preferences: {
+    registeredHotkey: string | undefined
+    registeredCaptureHotkey: string | undefined
+  } & PreferenceServices
   /** The fake `UpdateServices`: set `available` to simulate a found release; `automatic` records `setAutomatic` calls. */
   readonly updates = {
     available: undefined as UpdateInfo | undefined,
@@ -74,12 +80,18 @@ export class TestApp {
     this.scratchDir = path.join(dir, 'userData', 'scratch')
     const preferences = {
       registeredHotkey: undefined as string | undefined,
+      registeredCaptureHotkey: undefined as string | undefined,
       apply: (ui: UiPreferences) => {
         this.applied.push(ui)
       },
       setHotkey: (accelerator: string) => {
         if (this.takenHotkeys.includes(accelerator)) return false
         preferences.registeredHotkey = accelerator === '' ? undefined : accelerator
+        return true
+      },
+      setCaptureHotkey: (accelerator: string) => {
+        if (this.takenHotkeys.includes(accelerator)) return false
+        preferences.registeredCaptureHotkey = accelerator === '' ? undefined : accelerator
         return true
       },
     }

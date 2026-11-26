@@ -20,11 +20,20 @@ export interface PreferenceServices {
   apply(ui: UiPreferences): void
   /**
    * Makes `accelerator` the global show/hide hotkey (`''` removes it). `false` when the OS refused
-   * it (taken by another app, or not a valid accelerator); the previous hotkey then stays active.
+   * it (taken by another app, or not a valid accelerator); the previous hotkey is then registered
+   * again, when the OS still grants it (`registeredHotkey` tells).
    */
   setHotkey(accelerator: string): boolean
   /** The accelerator currently registered, if any. */
   readonly registeredHotkey: string | undefined
+  /**
+   * Makes `accelerator` the Quick capture hotkey (`''` removes it), which shows the window with a new
+   * scratch note. `false` when the OS refused it; the previous capture hotkey is then registered
+   * again, when the OS still grants it (`registeredCaptureHotkey` tells).
+   */
+  setCaptureHotkey(accelerator: string): boolean
+  /** The Quick capture accelerator currently registered, if any. */
+  readonly registeredCaptureHotkey: string | undefined
 }
 
 export interface SaveFileOptions {

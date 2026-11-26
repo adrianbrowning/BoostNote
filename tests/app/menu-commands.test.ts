@@ -127,7 +127,7 @@ describe('runMenuCommand on the workspace', () => {
     const snapshots = new Map<string, TabsSnapshot>()
     return new WorkspaceModel(
       await api.workspace(),
-      { ui: DEFAULT_UI, hotkeyRegistered: false, update: null },
+      { ui: DEFAULT_UI, hotkeyRegistered: false, captureHotkeyRegistered: false, update: null },
       {
         api,
         store: {

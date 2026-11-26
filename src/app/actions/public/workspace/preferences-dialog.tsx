@@ -71,25 +71,105 @@ export function acceleratorOf(event: KeyboardEvent, isMac: boolean): string | nu
   return [...modifiers, key].join('+')
 }
 
+/** The global hotkey preferences, and the texts of each one's recorder. */
+const HOTKEYS = {
+  globalHotkey: {
+    legend: 'Show/hide Boostnote from anywhere',
+    turnedOff: 'Global hotkey turned off.',
+    none: 'No global hotkey.',
+  },
+  captureHotkey: {
+    legend: 'Quick capture: a new scratch note from anywhere',
+    turnedOff: 'Quick capture turned off.',
+    none: 'No Quick capture hotkey.',
+  },
+}
+
+/**
+ * Records global hotkey `field`: click, then press the combination, which is saved right away (a
+ * taken one shows the refusal); Turn off saves `''`.
+ */
+function HotkeyRecorder(handle: Handle<{ model: WorkspaceModel; field: keyof typeof HOTKEYS }>) {
+  let recording = false
+  let message = ''
+
+  const saveHotkey = async (accelerator: string) => {
+    recording = false
+    const { field } = handle.props
+    const failure = await handle.props.model.savePreferences({ [field]: accelerator })
+    message = failure ?? (accelerator === '' ? HOTKEYS[field].turnedOff : `Registered ${accelerator}.`)
+    void handle.update()
+  }
+
+  return () => {
+    const { model, field } = handle.props
+    const texts = HOTKEYS[field]
+    const value = model.preferences[field]
+    const registered = field === 'globalHotkey' ? model.hotkeyRegistered : model.captureHotkeyRegistered
+    const isMac = /Mac/.test(navigator.platform)
+    return (
+      <fieldset mix={hotkeyStyle}>
+        <legend>{texts.legend}</legend>
+        <div mix={hotkeyRowStyle}>
+          <button
+            type="button"
+            data-hotkey-record
+            aria-pressed={recording ? 'true' : 'false'}
+            mix={[
+              button,
+              hotkeyButtonStyle,
+              on('click', () => {
+                recording = true
+                message = 'Press the new key combination (Esc cancels)…'
+                void handle.update()
+              }),
+              on('blur', () => {
+                if (!recording) return
+                recording = false
+                message = ''
+                void handle.update()
+              }),
+              // Stops every key while recording, Esc too, so the dialog does not close.
+              on('keydown', (event) => {
+                if (!recording) return
+                event.preventDefault()
+                event.stopPropagation()
+                if (event.key === 'Escape') {
+                  recording = false
+                  message = ''
+                  void handle.update()
+                  return
+                }
+                const accelerator = acceleratorOf(event, isMac)
+                if (accelerator) void saveHotkey(accelerator)
+              }),
+            ]}
+          >
+            <kbd data-hotkey>{recording ? 'Recording…' : value || 'None'}</kbd>
+          </button>
+          <button type="button" mix={[button, on('click', () => void saveHotkey(''))]} disabled={value === ''}>
+            Turn off
+          </button>
+        </div>
+        <output mix={muted} data-hotkey-status>
+          {message ||
+            (value === '' ? texts.none : registered ? 'Active.' : 'Not active: another app may use this combination.')}
+        </output>
+      </fieldset>
+    )
+  }
+}
+
 /**
  * Preferences (⌘,): theme, editor font/size/line width, table width, spellcheck, delete confirmation, how a
- * `.md`/`.mdx` outside every vault opens, and the global show/hide hotkey. Every change is saved (and
- * applied) right away.
+ * `.md`/`.mdx` outside every vault opens, the global show/hide hotkey and the Quick capture hotkey beside it.
+ * Every change is saved (and applied) right away.
  */
 export function PreferencesDialog(handle: Handle<{ model: WorkspaceModel }>) {
-  let recording = false
-  let hotkeyMessage = ''
   let error = ''
 
   const save = async (patch: UiPatch) => {
     error = (await handle.props.model.savePreferences(patch)) ?? ''
-    void handle.update()
-  }
-
-  const saveHotkey = async (accelerator: string) => {
-    recording = false
-    const failure = await handle.props.model.savePreferences({ globalHotkey: accelerator })
-    hotkeyMessage = failure ?? (accelerator === '' ? 'Global hotkey turned off.' : `Registered ${accelerator}.`)
     void handle.update()
   }
 
@@ -98,7 +178,6 @@ export function PreferencesDialog(handle: Handle<{ model: WorkspaceModel }>) {
   return () => {
     const { model } = handle.props
     const prefs = model.preferences
-    const isMac = /Mac/.test(navigator.platform)
     return (
       <div
         mix={[
@@ -116,7 +195,7 @@ export function PreferencesDialog(handle: Handle<{ model: WorkspaceModel }>) {
           mix={[
             dialogStyle,
             on('keydown', (event) => {
-              if (event.key === 'Escape' && !recording) {
+              if (event.key === 'Escape') {
                 event.preventDefault()
                 close()
               }
@@ -273,61 +352,8 @@ export function PreferencesDialog(handle: Handle<{ model: WorkspaceModel }>) {
             </select>
           </label>
 
-          <fieldset mix={hotkeyStyle}>
-            <legend>Show/hide Boostnote from anywhere</legend>
-            <div mix={hotkeyRowStyle}>
-              <button
-                type="button"
-                data-hotkey-record
-                aria-pressed={recording ? 'true' : 'false'}
-                mix={[
-                  button,
-                  hotkeyButtonStyle,
-                  on('click', () => {
-                    recording = true
-                    hotkeyMessage = 'Press the new key combination (Esc cancels)…'
-                    void handle.update()
-                  }),
-                  on('blur', () => {
-                    if (!recording) return
-                    recording = false
-                    hotkeyMessage = ''
-                    void handle.update()
-                  }),
-                  on('keydown', (event) => {
-                    if (!recording) return
-                    event.preventDefault()
-                    event.stopPropagation()
-                    if (event.key === 'Escape') {
-                      recording = false
-                      hotkeyMessage = ''
-                      void handle.update()
-                      return
-                    }
-                    const accelerator = acceleratorOf(event, isMac)
-                    if (accelerator) void saveHotkey(accelerator)
-                  }),
-                ]}
-              >
-                <kbd data-hotkey>{recording ? 'Recording…' : prefs.globalHotkey || 'None'}</kbd>
-              </button>
-              <button
-                type="button"
-                mix={[button, on('click', () => void saveHotkey(''))]}
-                disabled={prefs.globalHotkey === ''}
-              >
-                Turn off
-              </button>
-            </div>
-            <output mix={muted} data-hotkey-status>
-              {hotkeyMessage ||
-                (prefs.globalHotkey === ''
-                  ? 'No global hotkey.'
-                  : model.hotkeyRegistered
-                    ? 'Active.'
-                    : 'Not active: another app may use this combination.')}
-            </output>
-          </fieldset>
+          <HotkeyRecorder model={model} field="globalHotkey" />
+          <HotkeyRecorder model={model} field="captureHotkey" />
 
           {error ? (
             <p role="alert" mix={errorStyle}>

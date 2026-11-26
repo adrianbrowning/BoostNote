@@ -167,6 +167,7 @@ export class WorkspaceModel extends TypedEventTarget<{
   readonly #api: Client
   preferences: UiPreferences
   hotkeyRegistered: boolean
+  captureHotkeyRegistered: boolean
   /** Newer release shown in the status bar. */
   update: UpdateInfo | null
 
@@ -248,6 +249,7 @@ export class WorkspaceModel extends TypedEventTarget<{
     setPageVault(initial.vault?.root ?? null)
     this.preferences = preferences.ui
     this.hotkeyRegistered = preferences.hotkeyRegistered
+    this.captureHotkeyRegistered = preferences.captureHotkeyRegistered
     this.update = preferences.update
     this.session.addEventListener('saved', (event) => this.#putSummary(event.note))
     this.session.addEventListener('change', () => {
@@ -996,6 +998,7 @@ export class WorkspaceModel extends TypedEventTarget<{
       const state = await this.#api.savePreferences(patch)
       this.preferences = state.ui
       this.hotkeyRegistered = state.hotkeyRegistered
+      this.captureHotkeyRegistered = state.captureHotkeyRegistered
       this.update = state.update
       this.changed()
       return null
