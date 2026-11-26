@@ -691,3 +691,248 @@ Run: issue-73
 Retro finding (factory, coding-standards, low)
 
 Comments reviewers kept 5 observations about test comments that restate the next assertion, across slices 02-04. Implementers keep writing them. A line in the implementer guidance (no section comments in tests that only restate assertions; use test.step names instead) would stop the repeat.
+
+## issue-78
+
+### issue-78/01: renameNote re-encodes the note-extension rule in its own regex
+
+Run: issue-78
+Slice: 01 "One note-extension rule: .mdx files are notes"
+Review: 01-r1
+Reviewed commit: ceb4b9a690fdaf14f3eec4f26873448a99443698
+
+### [observation] thermo-rename-guard-duplicates-note-extension-rule
+
+- Symbol: Vault.renameNote
+- Location at filing time: src/vault/vault.ts:447
+- Title: renameNote re-encodes the note-extension rule in its own regex
+- Problem: The slice's goal is to define the note extensions once in src/shared/vault-ids.ts (NOTE_EXTENSION). renameNote keeps a second, hand-written copy of the same policy, /^\.(?:[mM][dD]|mdx)$/, to refuse a name that is only an extension. A regex search of src shows this and NOTE_EXTENSION are the only two encodings of the rule (argv, VaultSession, resolveNoteId, links and render all go through isNoteFileName/splitNoteExtension). If the extension set changes, vault-ids.ts is updated and this guard silently drifts: renameNote(id, '.newext') would then produce a file named '.newext<ext>' instead of INVALID_PATH. This is the duplicated canonical policy the slice exists to remove.
+- Fix: Expose the rule from vault-ids.ts (e.g. export `isNoteExtension(name)` that returns whether `name` is exactly a note extension, implemented with NOTE_EXTENSION) and use it in renameNote instead of the inline regex.
+- Fix prompt: In src/shared/vault-ids.ts add and export a helper, e.g. `export function isNoteExtension(name: string): boolean { return NOTE_EXTENSION.exec(name)?.[0] === name }`, documented as 'whether name is only a note extension (`.md` any case, `.mdx`)'. In src/vault/vault.ts renameNote, replace `/^\.(?:[mM][dD]|mdx)$/.test(name.trim())` with `isNoteExtension(name.trim())` and import it. Keep the existing tests in tests/vault/vault.test.ts ('keeps a note’s own extension on rename…') passing; add rows to tests/shared/vault-ids.test.ts for the helper ('.md', '.MD', '.mdx' true; '.MDX', 'a.md', '' false).
+
+### issue-78/01: NOTE_EXTENSION comment restates the regex
+
+Run: issue-78
+Slice: 01 "One note-extension rule: .mdx files are notes"
+Review: 01-r3
+Reviewed commit: dd447ebd923ca663a0d537587539dd344a1b5f37
+
+### [observation] comments-note-extension-comment-restates-regex
+
+- Symbol: NOTE_EXTENSION
+- Location at filing time: src/shared/vault-ids.ts:53
+- Title: NOTE_EXTENSION comment restates the regex
+- Problem: src/shared/vault-ids.ts:53 | "A note extension at the end of a name: `.md` in any letter case, or `.mdx` in lower case only." | This spells out what `/(?:\.[mM][dD]|\.mdx)$/` already says. It does not explain why `.mdx` is lowercase only, which is the one fact a later cleanup could break by adding an `i` flag.
+- Fix: Rewrite the comment to give the reason (for example: `// .mdx is lowercase only on purpose: .MDX/.Mdx files are not notes (scan, argv, open requests skip them); do not add an i flag.`), or delete it.
+- Fix prompt: In src/shared/vault-ids.ts, replace the doc comment above NOTE_EXTENSION, which restates the regex, with one that says why .mdx matches lowercase only: .MDX and .Mdx files are deliberately not notes, so the regex must not get a case-insensitive flag. If you cannot state that reason briefly, delete the comment.
+
+### issue-78/02: isExtensionCaseTwin now detects stem twins, but its name still says extension case
+
+Run: issue-78
+Slice: 02 "Stem clashes between .md and .mdx notes"
+Review: 02-r1
+Reviewed commit: fcbb5c6885c5262c63efde9b771e17a0b8708a62
+
+### [observation] react-ts-is-extension-case-twin-name-outdated
+
+- Symbol: isExtensionCaseTwin
+- Location at filing time: src/vault/names.ts:19
+- Title: isExtensionCaseTwin now detects stem twins, but its name still says extension case
+- Problem: The function now returns true for `a.md`/`A.mdx` and `a.md`/`A.md`, pairs whose extensions or stem case differ, not only their extension case. The diff renames the concept to "stem twins" in every doc comment (`hasStemTwin`, `sharedAssetsOf`, vault-ids.ts, PLAN.md), but the function keeps its old name. A reader of `sharedAssetsOf` sees `isExtensionCaseTwin` and expects only `a.md`/`a.MD`.
+- Fix: Rename `isExtensionCaseTwin` to `isStemTwin` (with its test describe block), to match `hasStemTwin` and the docs.
+- Fix prompt: Rename the function isExtensionCaseTwin in src/vault/names.ts to isStemTwin. Update its one caller, sharedAssetsOf in src/vault/vault.ts, and the comment there that names it. Rename the `describe('isExtensionCaseTwin', ...)` block in tests/vault/names.test.ts to match. Keep no alias.
+
+### issue-78/02: lowerCaseEntries keeps a second reader of a folder's name keys beside readFolderNames
+
+Run: issue-78
+Slice: 02 "Stem clashes between .md and .mdx notes"
+Review: 02-r3
+Reviewed commit: 28f7d3912e38ec031b0f0d560c6ee02f34be4f24
+
+### [observation] thermo-lower-case-entries-duplicates-folder-names
+
+- Symbol: lowerCaseEntries
+- Location at filing time: src/vault/names.ts:97
+- Title: lowerCaseEntries keeps a second reader of a folder's name keys beside readFolderNames
+- Problem: The slice adds `readFolderNames` (one readdir → `FolderNames.entries`, keyed by `nameKey`, ENOENT → empty) but keeps `lowerCaseEntries`, which does the same readdir/nameKey/ENOENT work into a `Set`. The two are now used for the same question, whether a folder name is taken: `pickFolderId` in import-files.ts asks `names.entries.has(nameKey(candidate))`, while `restore` (folder branch) and `deleteFolder` in vault.ts ask `lowerCaseEntries(dir).has(nameKey(c))`. Two readers with copied ENOENT handling for one fact.
+- Fix: Delete `lowerCaseEntries` and have the folder branches of `restore` and `deleteFolder` read `(await readFolderNames(dir)).entries` (or add a small `entryTaken(names, name)` helper used by all three folder-name checks).
+- Fix prompt: In src/vault/names.ts remove `lowerCaseEntries`. In src/vault/vault.ts, in the folder branch of `restore` and in `deleteFolder`, replace `const names = await lowerCaseEntries(dir)` and `names.has(nameKey(c))` with `const names = await readFolderNames(dir)` and `names.entries.has(nameKey(c))`, matching `pickFolderId` in src/vault/import-files.ts. Drop the unused import.
+
+### issue-78/03: noteSource hand-codes the lowercase-.mdx rule beside NOTE_EXTENSION
+
+Run: issue-78
+Slice: 03 "Drop import and OS file association accept .mdx"
+Review: 03-r1
+Reviewed commit: a479b6e03b186798a41999e2aa0d442239745fc3
+
+### [observation] thermo-note-source-re-encodes-mdx-rule
+
+- Symbol: noteSource
+- Location at filing time: src/vault/import-files.ts:119
+- Title: noteSource hand-codes the lowercase-.mdx rule beside NOTE_EXTENSION
+- Problem: Slice 01 made `NOTE_EXTENSION` / `splitNoteExtension` in src/shared/vault-ids.ts the one place that says which extensions are notes (`.md` in any case, `.mdx` in lowercase only). `noteSource` adds a third copy of that rule (`name.endsWith('.mdx')` plus `MARKDOWN`), next to the renameNote regex already deferred under 01-r1. Import does need one extra rule of its own: `.markdown` turns into `.md`. But the `.md`/`.mdx` part is the shared policy. If the note-extension set changes in vault-ids.ts, drop import drifts without anyone noticing. The function also checks MARKDOWN twice (`test`, then `replace`).
+- Fix: Derive the note case from splitNoteExtension and keep only the `.markdown` mapping local.
+- Fix prompt: In src/vault/import-files.ts, rewrite noteSource(name) on top of splitNoteExtension from src/shared/vault-ids.ts. If isNoteFileName(name) is true, take { base, extension } from splitNoteExtension(name) and return { stem: base, extension: extension === '.mdx' ? '.mdx' : '.md' }. Otherwise, if name matches /\.markdown$/i and its stem is not empty, return the stem with '.md'. In every other case return undefined. Narrow MARKDOWN to the .markdown-only rule, or remove it, so that the lowercase-.mdx policy lives only in vault-ids.ts. Keep the behaviour pinned by the existing import-files tests.
+
+### issue-78/04: exportNote picks the .mdx filter with its own `id.endsWith('.mdx')` instead of the shared note-extension split
+
+Run: issue-78
+Slice: 04 "MDX syntax renders as plain Markdown; edit and export .mdx notes"
+Review: 04-r1
+Reviewed commit: 0b807f9d8ae8922af37c2c4b70f74329f7e343da
+
+### [observation] holistic-export-filter-hand-codes-mdx-extension
+
+- Symbol: exportNote
+- Location at filing time: src/app/actions/api/export.ts:44
+- Title: exportNote picks the .mdx filter with its own `id.endsWith('.mdx')` instead of the shared note-extension split
+- Problem: The line right after this one calls `noteStem(id)`, which goes through `splitNoteExtension` in src/shared/vault-ids.ts, the one place meant to define the note extensions. The filter choice instead checks `id.endsWith('.mdx')` by hand. The result is correct today, because `vault.readNote(id)` has already accepted `id` as a note, so a `.mdx` ending can only be the lowercase note extension. But it adds one more hand-written copy of the `.mdx` rule, next to the copies in renameNote and noteSource that earlier reviews deferred. Taking the extension from `splitNoteExtension(id)` would keep the stem and the filter on the same split.
+- Fix: Take the extension from `splitNoteExtension(id)` once, and use it for both the stem and the filter choice.
+- Fix prompt: In src/app/actions/api/export.ts, in exportNote, replace `id.endsWith('.mdx')` and the separate `noteStem(id)` call with one call: `const { base, extension } = splitNoteExtension(lastSegment(id))`. Choose MDX_FILTER when `format === 'markdown' && extension === '.mdx'`, and use `base` as the stem. Import splitNoteExtension from src/shared/vault-ids.ts, and drop the noteStem import if nothing else uses it. The behavior stays the same, so the test in tests/app/export.test.ts stays as it is.
+
+### issue-78/04: MDX filter comment mostly restates the ternary below it
+
+Run: issue-78
+Slice: 04 "MDX syntax renders as plain Markdown; edit and export .mdx notes"
+Review: 04-r1
+Reviewed commit: 0b807f9d8ae8922af37c2c4b70f74329f7e343da
+
+### [observation] comments-mdx-filter-comment-restates-ternary
+
+- Symbol: exportNote
+- Location at filing time: src/app/actions/api/export.ts:43
+- Title: MDX filter comment mostly restates the ternary below it
+- Problem: src/app/actions/api/export.ts:43 | "// An .mdx note exports as .mdx, so the copy stays the note's kind; .md notes keep .md." | The next line already says this: `format === 'markdown' && id.endsWith('.mdx') ? MDX_FILTER : SAVE_FILTERS[format]`. The only extra part, "so the copy stays the note's kind", is a weak reason. The comment also leaves out the one fact a later reader could get wrong: the check is case-sensitive on purpose, because only lowercase `.mdx` is a note (`.MDX` is not).
+- Fix: Delete the comment, or rewrite it to give the non-obvious fact, e.g. `// Case-sensitive on purpose: only lowercase .mdx is a note extension (see NOTE_EXTENSION).`
+- Fix prompt: In src/app/actions/api/export.ts, in exportNote, replace the comment above the `const filter = ...` line with `// Case-sensitive on purpose: only lowercase .mdx is a note extension (see NOTE_EXTENSION in src/shared/vault-ids.ts).`, or delete the comment.
+
+### issue-78/05: Title-rename planner hand-copies #relocateNote's refusal rule and resolves each folder twice
+
+Run: issue-78
+Slice: 05 "Close .mdx follow-ups: rename clashes, title-rename and folder-name edges, index.mdx export, tests and docs"
+Review: 05-r1
+Reviewed commit: ddc21900b407f418f5fadfe26d815e544422095c
+
+### [observation] thermo-title-planner-re-derives-relocate-refusal
+
+- Symbol: Vault.planTitleRenames
+- Location at filing time: src/vault/vault.ts:519
+- Title: Title-rename planner hand-copies #relocateNote's refusal rule and resolves each folder twice
+- Problem: The own-stem exemption (`ownFree`: stemShared plus sameOrMissing on the target .assets) re-encodes, in a different form, what #relocateNote/stemTakenByOthers refuses at apply time. The new comment says so: 'as `#relocateNote` would refuse it'. The plan stays right only while the two predicates agree. In this diff one is count-based (stemShared over FolderNames) and the other is identity-based (inode exclusion of self and own assets), so they can drift. The loop also calls resolveInside for every planned note, even when nameKey(target) !== nameKey(stem), although the folder was already resolved for the FolderNames cache a few lines up.
+- Fix: Keep the resolved dir next to the cached FolderNames: one map entry { dir, names }. Compute dir/file only when nameKey(target) === nameKey(stem). Better still, give the plan and the apply step one shared 'own stem is free' predicate, so the planner does not mirror #relocateNote by comment.
+- Fix prompt: In src/vault/vault.ts planTitleRenames, cache { dir, names } per folder instead of calling resolveInside again for each note. Only compute `file` and the sameOrMissing assets check when nameKey(target) === nameKey(stem). Consider pulling the 'own stem is free' rule into one helper that both the planner and #relocateNote use.
+
+### issue-78/05: vault.ts is 1262 lines and keeps gaining name-clash helpers
+
+Run: issue-78
+Slice: 05 "Close .mdx follow-ups: rename clashes, title-rename and folder-name edges, index.mdx export, tests and docs"
+Review: 05-r1
+Reviewed commit: ddc21900b407f418f5fadfe26d815e544422095c
+
+### [observation] thermo-vault-ts-over-1000-lines
+
+- Symbol: stemTakenByOthers
+- Location at filing time: src/vault/vault.ts:1205
+- Title: vault.ts is 1262 lines and keeps gaining name-clash helpers
+- Problem: src/vault/vault.ts is over 1000 lines. This slice adds more folder-name clash logic to it (stemTakenByOthers, the planner's assets check), while names.ts is the module that owns the clash rules (stemTaken, folderNamesOf, stemShared). Name policy is now split between the two files.
+- Fix: Move stemTakenByOthers, and the sameOrMissing/assetsDirOf helpers it needs, into src/vault/names.ts or a small clash module, so vault.ts keeps orchestration only.
+- Fix prompt: Move the file-system clash helpers from src/vault/vault.ts (stemTakenByOthers, and sameOrMissing/sharedAssetsOf if they fit) into src/vault/names.ts or a new src/vault/clashes.ts. Import them from vault.ts to bring it back toward 1000 lines.
+
+### issue-78/05: No test for a case-only rename refused because a stem twin already has the target's name
+
+Run: issue-78
+Slice: 05 "Close .mdx follow-ups: rename clashes, title-rename and folder-name edges, index.mdx export, tests and docs"
+Review: 05-r2
+Reviewed commit: d554c5a4dec6747fb8bcff9f6dd365430f56f0a9
+
+### [observation] testing-case-only-rename-onto-twin-name-untested
+
+- Symbol: stemTakenByOthers
+- Location at filing time: src/vault/vault.ts:1226
+- Title: No test for a case-only rename refused because a stem twin already has the target's name
+- Problem: The fix adds a branch in stemTakenByOthers: on a case-only rename, a stem twin is skipped unless its nameKey equals the target file name (`if (entryKey=<REDACTED> nameKey(name)) return true`). The doc comment calls this out ('though an entry of the target's own name by nameKey still clashes'). Only the skip side has a test ('renames a.md to A beside its .mdx twin a.mdx'). No test reaches the refusal side, for example on a case-sensitive disk `work/a.md` beside `work/A.MD`, where renameNote('work/a.md', 'A') targets `A.md`, whose nameKey matches `A.MD`. If that return were dropped, the rename would go through and leave `A.md` beside `A.MD`, and no test would fail. The exact-path case is already caught by sameOrMissing(from, to), so the only effect is an extra stem twin, which is why this does not block.
+- Fix: Add a case-sensitive-disk test (skip elsewhere) where a case-only rename lands on a name a stem twin already holds by nameKey, and expect EXISTS with both files unchanged.
+- Fix prompt: In tests/vault/vault.test.ts, describe('stem twins (a.md beside a.mdx)') or describe('extension-case twins'), add a test: put 'work/a.md' and 'work/A.MD', skip with ctx.skip() when readdir(work) has fewer than 2 entries (case-insensitive disk), open the vault, and expect vault.renameNote('work/a.md', 'A') to reject with { code: 'EXISTS' }. Then check that readdir(work).sort() is still ['A.MD', 'a.md']. This pins the `entryKey=<REDACTED> nameKey(name)` refusal in stemTakenByOthers (src/vault/vault.ts).
+
+### issue-78/05: stemTakenByOthers pre-filters entries with a hand copy of stemTaken's three clauses
+
+Run: issue-78
+Slice: 05 "Close .mdx follow-ups: rename clashes, title-rename and folder-name edges, index.mdx export, tests and docs"
+Review: 05-r3
+Reviewed commit: d554c5a4dec6747fb8bcff9f6dd365430f56f0a9
+
+### [observation] thermo-stem-taken-by-others-prefilter-copies-stem-taken
+
+- Symbol: stemTakenByOthers
+- Location at filing time: src/vault/vault.ts:1222
+- Title: stemTakenByOthers pre-filters entries with a hand copy of stemTaken's three clauses
+- Problem: Before it calls `stemTaken(folderNamesOf(others), base, extension)`, stemTakenByOthers drops every entry that fails its own test: `ofStem` (a note of the stem by nameKey) or `candidates` (the file name and `<base>.assets` by nameKey). That is the stemTaken rule written out a second time in another form, so the result is right only while the filter and stemTaken agree. They have already disagreed once in this slice: the implementer's report says the ΟΣ test went red because the prefix filter skipped `ΟΣ.mdx` while stemTaken would have counted it. If a later change adds a clause to stemTaken, the filter drops those entries before stemTaken sees them, and renames go through without any error.
+- Fix: Keep one copy of the rule. Build FolderNames from every entry that is not self, not self's own assets folder and not a skipped case-only twin, and let stemTaken decide. Or move the 'could this entry take the stem' test into names.ts next to stemTaken, so both read the same keys.
+- Fix prompt: In src/vault/vault.ts stemTakenByOthers, remove the hand-written prefilter (`ofStem` / `candidates`), which repeats stemTaken's clauses. Either run the self, own-assets and case-only-twin exclusions over all folder entries and pass the rest to folderNamesOf/stemTaken. Or, if the per-entry stat cost matters, export a predicate from src/vault/names.ts beside stemTaken (for example `mayTakeStem(entryName, stem, extension)`, built from the same nameKey keys) and use it here, so the filter and stemTaken cannot drift apart. Keep the existing ΟΣ and stem-twin rename tests green.
+
+### issue-78/05: Case-only rename onto a case-variant hard link of the note is a silent no-op that untracks the source
+
+Run: issue-78
+Slice: 05 "Close .mdx follow-ups: rename clashes, title-rename and folder-name edges, index.mdx export, tests and docs"
+Review: 05-r4
+Reviewed commit: 4049f60d135932734677ac131afa682379ea6482
+
+### [observation] bug-rename-onto-case-variant-hard-link-of-self
+
+- Symbol: stemTakenByOthers
+- Location at filing time: src/vault/vault.ts:1230
+- Title: Case-only rename onto a case-variant hard link of the note is a silent no-op that untracks the source
+- Problem: src/vault/vault.ts:1230 stemTakenByOthers skips any entry whose nameKey equals the source's name key and that shares its inode (sameOrMissing(self, other)). Take a case-sensitive disk where `work/a.md` and `work/A.md` are hard links of one file. Then renameNote('work/a.md', 'A') targets `work/A.md`. sameOrMissing(from, to) is true because both names have the same inode, and line 1230 skips `A.md` as if it were the source. No clash is reported and `rename(a.md, A.md)` runs. POSIX defines rename of two hard links to one file as a successful no-op. `#relocateNote` then untracks `work/a.md` and tracks `work/A.md`, so the index drops a note that is still on disk until a later refresh finds it again. It needs hard links made by hand and loses no data, so it does not block.
+- Fix: Treat only the source's own directory entry as self: skip an entry when its name is exactly path.basename(self). When it is a different entry with the same nameKey, also require that the folder holds no separate entry of that name, for example on a case-insensitive disk where readdir returns the one real name. A distinct case-variant entry that is a hard link of the source then counts as a clash and the rename is refused with EXISTS.
+- Fix prompt: In src/vault/vault.ts, stemTakenByOthers: the self-skip `if (entryKey=<REDACTED> nameKey(selfName) && (await sameOrMissing(self, other))) continue` also skips a different directory entry that is a case-variant hard link of the source (case-sensitive disk: `a.md` and `A.md` linked). Then renameNote('work/a.md', 'A') goes through, POSIX rename is a no-op, and the vault untracks a.md, which is still on disk. Change the skip so it applies only to the source's own entry (entry.name === path.basename(self)). Any other entry with the same nameKey, hard-linked or not, should reach stemTaken and give EXISTS. A case-only rename on a case-insensitive disk must keep working. Add a test, skipped unless the disk is case-sensitive: link work/a.md to work/A.md, then expect renameNote('work/a.md', 'A') to reject with EXISTS and both names to stay.
+
+### issue-78/05: Title-planner comment says an NFD stem twin claims the same <stem>.assets path; on a non-normalizing disk it does not
+
+Run: issue-78
+Slice: 05 "Close .mdx follow-ups: rename clashes, title-rename and folder-name edges, index.mdx export, tests and docs"
+Review: 05-r4
+Reviewed commit: 4049f60d135932734677ac131afa682379ea6482
+
+### [observation] comments-title-planner-nfd-twin-same-assets-path
+
+- Symbol: Vault.planTitleRenames
+- Location at filing time: src/vault/vault.ts:515
+- Title: Title-planner comment says an NFD stem twin claims the same <stem>.assets path; on a non-normalizing disk it does not
+- Problem: src/vault/vault.ts:514-516 | "unless another entry in the folder shares its stem (a stem twin: `a.MD`, `a.mdx` or an NFD name beside it, which claims the same `<stem>.assets` path; ...)" | This is true for `a.MD` and `a.mdx` (identical stem) but not for an NFD name: on a case-sensitive, non-normalizing disk (ext4), NFC `Café.md` and NFD `Cafe\u0301.md` have separate `<stem>.assets` directories. The sharedAssetsOf doc in the same diff (vault.ts:1245-1247) says exactly that: they 'normally keep separate folders, so neither is a twin'. A reader of the planner comment learns that an NFD twin shares the assets folder, which contradicts sharedAssetsOf, and gets the wrong reason why the planner treats the note's own stem as taken in that case (stemShared counts any entry of the same stem key, not only ones that share a folder).
+- Fix: Make the reason match the code: the own stem is taken whenever stemShared finds another note of the same stem key. For example: "unless another note in the folder shares its stem by `nameKey` (a stem twin: `a.MD`, `a.mdx` or an NFD name beside it, which may share its `<stem>.assets` path — always for `a.MD`/`a.mdx`, for an NFD name only on a normalizing disk; `#relocateNote` also refuses the move when the twin has the target's own file name, `a.MD` beside `a.md`)".
+- Fix prompt: In src/vault/vault.ts, Vault.planTitleRenames, the comment at lines 514-516 says a stem twin `a.MD`, `a.mdx` or an NFD name 'claims the same `<stem>.assets` path'. That is false for an NFD name on a non-normalizing disk (see the sharedAssetsOf doc around line 1245). Reword it so it does not claim an NFD twin always shares the assets path: say the own stem counts as taken when another note of the same stem key is there (stemShared), and that such a twin may share the `<stem>.assets` path (always for `a.MD`/`a.mdx`, for an NFD name only on a normalizing or case-insensitive disk). Keep the clause about #relocateNote refusing the move when the twin has the target's own file name.
+
+### issue-78/retro: Note-name rules are restated in many PLAN.md sections and doc comments, so each rule change left stale copies
+
+Run: issue-78
+Retro finding (repo, navigation, medium)
+
+Slices 01, 02, 03 and 05 each spent a fix round (01-f2, 02-f2, 02-f3, 03-f1, 05-f2) on prose that stated the note-extension, stem-twin or import-name rule in one place but kept the old rule in another: the `src/shared/vault-ids.ts` header, PLAN.md "Note names" / "Extension case", PLAN.md "Shared rules", PLAN.md "Drop import" Names and Links bullets, PLAN.md Renderer export paragraph, and function doc comments in names.ts, vault.ts, export.ts and render.ts. State each name rule once (the `vault-ids.ts` header or the PLAN.md "Note names" section) and have the other places point to it instead of restating it, so a rule change edits one paragraph.
+
+### issue-78/retro: Case-sensitive-disk tests are outside the configured checks
+
+Run: issue-78
+Retro finding (repo, automated-checks, medium)
+
+Slices 02 and 05 added tests that skip on the default macOS disk (case-sensitive twins, `a.mdx` beside `a.MDX`, foreign `hELLo.assets`). They ran only when the implementer chose to run `pnpm test:case-sensitive` by hand; `factory_checks` (pnpm run check, typecheck, test, test:e2e, build) never runs them, so a regression in those paths passes every configured check on macOS. Add `pnpm test:case-sensitive tests/vault` (or the whole suite) to the run checks in `.omp/factory.json`, or to CI on a Linux runner via `pnpm test:linux`.
+
+### issue-78/retro: No check stops new hand-written copies of the note-extension rule
+
+Run: issue-78
+Retro finding (repo, automated-checks, low)
+
+The `.md`/`.mdx` rule of `NOTE_EXTENSION` in `src/shared/vault-ids.ts` was re-encoded by hand three times in this run (`renameNote` regex in src/vault/vault.ts, `noteSource` in src/vault/import-files.ts, the `id.endsWith('.mdx')` export filter in src/app/actions/api/export.ts); thermo and holistic reviewers raised each one. A Biome/grit rule (the repo already has tests/e2e/rules.grit and tests/lint/) that flags `.mdx` / `\.md` string or regex literals in `src/` outside `src/shared/vault-ids.ts` and `src/migrate/` would catch new copies before review.
+
+### issue-78/retro: Validator gets advisory notes that ask for reviewer work it cannot do
+
+Run: issue-78
+Retro finding (factory, no-ops, low)
+
+In reviews 01-r2, 01-r4 and 01-r1 the validator answered an advisory note that asked it to run domain reviews or resubmit fix-item verdicts with `factory_review_submit`, which it does not have; it then explained why it would not act. These advisory turns add a model round trip and transcript text but change no verdict. Gate the advisory so it does not fire when every domain file is an empty list, or word it for the validator role only.
+
+### issue-78/retro: Comment-only fix rounds still force a second full multi-domain review
+
+Run: issue-78
+Retro finding (factory, tool-economy, low)
+
+Each slice with a blocking finding ran full review (8-10 domains) → targeted → full again even when the fix was a one-line comment change (01-f1, 02-f3, 03-f1). Slice 02 took 6 reviews and slice 01 took 4. A targeted green after a comments-only fix of a comments-domain finding could count as final when the diff since the last full review touches only comment lines, which would save one full 9-domain review per such slice.
