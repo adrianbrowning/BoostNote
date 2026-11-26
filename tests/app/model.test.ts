@@ -677,6 +677,49 @@ describe('WorkspaceModel scratch list', () => {
     expect(await readdir(app.scratchDir)).toEqual([])
     expect(workspace.notice).toBeNull()
   })
+
+  it('saves a listed scratch note whose tab is in the background: its tab becomes the new note’s, active', async () => {
+    await start(true)
+    const id = await keptScratch('# Groceries\n\nMilk\n')
+    await workspace.openScratch(id)
+    await workspace.activateTab(workspace.tabs.tabs[0]?.key ?? -1)
+    expect(workspace.session.note?.id).toBe('meeting.md')
+
+    const saving = workspace.saveScratchToVault(id)
+    await expect.poll(() => workspace.dialog?.kind).toBe('choose')
+    const dialog = workspace.dialog
+    if (dialog?.kind !== 'choose') throw new Error('No choose dialog')
+    dialog.resolve('f')
+    await saving
+
+    expect(strip()).toEqual(['meeting.md', 'f/Groceries.md'])
+    expect(workspace.tabs.active).toMatchObject({ kind: 'note', path: 'f/Groceries.md' })
+    expect(workspace.session.note?.id).toBe('f/Groceries.md')
+    expect(workspace.scratchNotes).toEqual([])
+  })
+
+  it('sends the discard only once the scratch note’s save in flight is done, so the save cannot bring it back', async () => {
+    await start(false)
+    await workspace.newScratchNote()
+    const id = workspace.session.scratch?.id ?? ''
+    net.hold((url) =>
+      url.pathname === '/api/scratch/write' || url.pathname === '/api/scratch/discard' ? url.pathname : undefined,
+    )
+    workspace.session.edit('# Groceries\n')
+    await expect.poll(() => net.held.map((request) => request.id)).toEqual(['/api/scratch/write'])
+
+    const discarding = workspace.discardScratch(id)
+    // The discard's hold has started (it locks the session); the discard request waits for the save.
+    await expect.poll(() => workspace.session.locked).toBe(true)
+    expect(net.held.map((request) => request.id)).toEqual(['/api/scratch/write'])
+    net.hold(null)
+    net.held[0]?.release()
+    await discarding
+
+    expect(strip()).toEqual([])
+    expect(workspace.session.scratch).toBeNull()
+    expect(await readdir(app.scratchDir)).toEqual([])
+  })
 })
 
 describe('WorkspaceModel relocations that return after a vault switch', () => {

@@ -462,10 +462,10 @@ export class Navigation {
   }
 
   /**
-   * The scratch list's Discard: deletes scratch note `id` (a `404`: it is gone already), then closes its tab when it
-   * is open, dropping the text the session holds of it; when that tab was active, the next tab loads. The gate runs
-   * first only when that load can replace another note the session holds. When the delete fails, the scratch note
-   * and its tab stay and the error rejects.
+   * The scratch list's Discard: deletes scratch note `id` (a `404`: it is gone already) once a save of its text still
+   * out ended (so it cannot write the file back), then closes its tab when it is open, dropping the text the session
+   * holds of it; when that tab was active, the next tab loads. The gate runs first only when that load can replace
+   * another note the session holds. When the delete fails, the scratch note and its tab stay and the error rejects.
    */
   async discardScratch(id: string): Promise<void> {
     const tab = this.tabs.tabs.find((item) => item.kind === 'scratch' && item.id === id)
@@ -473,6 +473,8 @@ export class Navigation {
       (this.#session.note !== null || this.#session.scratch !== null) && this.#session.scratch?.id !== id
     await this.hold(
       async () => {
+        // A save of its text still out could land after the delete and bring the file back: it ends first.
+        if (this.#session.scratch?.id === id) await this.#session.flush()
         try {
           await this.#api.discardScratch(id)
         } catch (error) {
@@ -494,7 +496,8 @@ export class Navigation {
   /**
    * Save to vault of scratch note `id`, after the gate: `save` asks main to turn it into a note of the vault on screen
    * (main removes the scratch note) and answers the note's id. The scratch note's tab then becomes that note's tab at
-   * its position: active when it was active (the note then loads into the session), else in the background with the
+   * its position, active (the note then loads into the session; a tab in the background, saved from the scratch list,
+   * too), unless a transition changed the active tab while `save` was out: then it stays in the background, the
    * active tab left as it is (`shown: true`). A scratch note with no tab (saved from the scratch list) opens as the
    * new note in a new active tab after the active one (`shown: true`). When a vault switch ran while `save` was out,
    * the note is in the vault left, so the tab closes instead (none opens) and the active tab loads (`shown: false`).
@@ -506,11 +509,13 @@ export class Navigation {
   ): Promise<{ saved: T; shown: boolean } | null> {
     return this.hold(async () => {
       const sameVault = this.vaultToken()
+      const unmoved = this.token()
       const saved = await save()
       const tab = this.tabs.tabs.find((item) => item.kind === 'scratch' && item.id === id)
       const shown = sameVault()
       if (!tab && !shown) return { saved, shown }
       const active = this.tabs.activeKey
+      const stay = !unmoved()
       this.#edit((tabs) => {
         if (!tab) {
           tabs.openNew(saved.id)
@@ -521,7 +526,7 @@ export class Navigation {
           return
         }
         tabs.replaceScratch(tab.key, saved.id)
-        if (active !== null && active !== tab.key) tabs.activate(active)
+        if (stay && active !== null && active !== tab.key) tabs.activate(active)
       })
       await this.#loadActive()
       return { saved, shown }

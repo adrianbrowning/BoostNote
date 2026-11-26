@@ -359,8 +359,9 @@ vault left fails, the other vault still shows (the switch counts) and the store 
   and both are added. A taken name gets ` 2`.
   Then the scratch note is removed (its sidecar first, then its file), and it answers the
   note id and that vault's lists (`ScratchSaveResult`). The scratch tab becomes the note's tab at its position
-  (`Navigation.saveScratch`), active when it was active. A vault switch while the folder dialog is open saves nothing
-  (the error notice says so; the folders offered were the vault left's). When the vault switched while the request
+  (`Navigation.saveScratch`), active unless the active tab changed while the request was out. A vault switch while
+  the folder dialog is open saves nothing (the error notice says so; the folders offered were the vault left's). When
+  the vault switched while the request
   was out, the note is in the vault left: its lists are not shown, the scratch tab closes and the notice says where
   the note went.
   When the note cannot be created (a folder gone meanwhile) the scratch note and its tab stay and the notice says
@@ -370,9 +371,10 @@ vault left fails, the other vault still shows (the switch counts) and the store 
   screen while none is (the no-vault layout that shows only the editor pane, tabs open, has none). Each row shows
   the scratch note's `scratchTitle` (the open one's follows its text as typed) and reopens it (`openScratch`: its
   tab is activated, or opened after the active tab), with "Save to vault…" (the banner's action; disabled with no
-  vault, the reason above the list; saved from a row with no tab, the new note opens in a new tab) and Discard
-  (`discardScratch`: asks first when the confirmDelete preference is on, deletes the scratch note through
-  `POST /api/scratch/discard`, then closes its tab when open; a failed delete keeps both, with the notice). The
+  vault, the reason above the list; the new note opens: in a new tab when the scratch note had none, else in its tab,
+  active, unless the active tab changed while the save was out) and Discard (`discardScratch`: asks first when the
+  confirmDelete preference is on, lets a save of the open scratch note's text still out end, deletes the scratch note
+  through `POST /api/scratch/discard`, then closes its tab when open; a failed delete keeps both, with the notice). The
   list is read again (`refreshScratch`) after the tab restore, New Scratch Note, a scratch tab closed (a blank one
   is deleted), a reopen of one gone, Save to vault and Discard.
 
