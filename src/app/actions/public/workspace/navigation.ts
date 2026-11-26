@@ -1,8 +1,8 @@
 import { isUnder } from '../../../../shared/vault-ids.ts'
 import { ApiError, type NavigationApi } from './api.ts'
 import type { NoteSession } from './note-session.ts'
-import { type ReaderTab, Tabs, type TabsSnapshot } from './tabs.ts'
-import type { AssetsLeftBehind, NoteDocument, ReaderDocument, WorkspaceData } from './types.ts'
+import { type ReaderTab, type ScratchTab, Tabs, type TabsSnapshot } from './tabs.ts'
+import type { AssetsLeftBehind, NoteDocument, ReaderDocument, ScratchNote, WorkspaceData } from './types.ts'
 
 /** Where each vault's tabs are kept between runs, by vault root: `localStorage` in the app, a map in tests. */
 export interface TabStore {
@@ -62,12 +62,12 @@ interface LoadReport {
 
 /**
  * Every note transition of the workspace: opening notes, selecting, closing and reopening tabs, the
- * back/forward trail, new and deleted notes, and vault switches. Each one that leaves the open note
- * (switching or closing the active tab, a new note, deleting the open note or a folder holding it, a vault
- * switch) runs the leave-note gate (`leave`) once; closing a background tab and deleting a note that is not
- * open skip it. Each holds the open note (`hold`) until it is done: it changes the tabs, loads the active
- * tab's note into the session (or its reader file), then saves the tabs to the tab store. Background tabs
- * therefore never hold unsaved text, and nothing typed during a transition is dropped by it.
+ * back/forward trail, new and deleted notes, new scratch notes, and vault switches. Each one that leaves the
+ * open note (switching or closing the active tab, a new note or scratch note, deleting the open note or a folder
+ * holding it, a vault switch) runs the leave-note gate (`leave`) once; closing a background tab and deleting a
+ * note that is not open skip it. Each holds the open note (`hold`) until it is done: it changes the tabs, loads
+ * the active tab's note or scratch note into the session (or its reader file), then saves the tabs to the tab
+ * store. Background tabs therefore never hold unsaved text, and nothing typed during a transition is dropped by it.
  */
 export class Navigation {
   readonly tabs = new Tabs()
@@ -302,6 +302,22 @@ export class Navigation {
   }
 
   /**
+   * "New Scratch Note": after the gate, creates a scratch note (with or without an open vault) and shows it in a
+   * new scratch tab after the active tab. `null` when the gate refused (nothing is created); `shown: false` when
+   * the scratch note was created but is not shown: a later transition changed the active tab meanwhile.
+   */
+  async newScratch(): Promise<{ scratch: ScratchNote; shown: boolean } | null> {
+    return this.hold(async () => {
+      const current = this.token()
+      const scratch = await this.#api.createScratch()
+      if (!current()) return { scratch, shown: false }
+      this.#edit((tabs) => tabs.openScratch(scratch.id))
+      this.#session.openScratch(scratch)
+      return { scratch, shown: true }
+    })
+  }
+
+  /**
    * Moves note `id` to the trash, its latest edits included; its tabs close and the session follows the
    * active tab. When that can replace the open note (`#replaces`) the gate runs first: `null`, and nothing
    * is trashed, when it refused.
@@ -341,12 +357,12 @@ export class Navigation {
   /**
    * Shows another vault (or none) after the gate. `load` asks main for it (`undefined`: no switch, such as a
    * cancelled folder picker); the host shows its lists, then its tabs are restored from the tab store,
-   * `change` edits them (and they are saved) and the active one loads. `false` when the gate refused. A failing
-   * restore rejects, so the caller's error handling sees it. A failing save of the tabs changed in the vault left
-   * while `load` ran does not: the other vault shows by then, so the switch happened (callers that go on after it,
-   * such as the open-request drain, still run) and the store error is reported through the host (`fail`). Main
-   * may already be on the other vault while `load` runs, so edits made then could not be saved: the switch holds
-   * the open note (`hold`).
+   * `change` edits them (and they are saved) and the active one loads; an open scratch note stays open (it is in
+   * no vault, and its tab stays). `false` when the gate refused. A failing restore rejects, so the caller's error
+   * handling sees it. A failing save of the tabs changed in the vault left while `load` ran does not: the other
+   * vault shows by then, so the switch happened (callers that go on after it, such as the open-request drain, still
+   * run) and the store error is reported through the host (`fail`). Main may already be on the other vault while
+   * `load` runs, so edits made then could not be saved: the switch holds the open note (`hold`).
    */
   async switchVault(
     load: () => Promise<WorkspaceData | undefined>,
@@ -356,7 +372,7 @@ export class Navigation {
       const data = await load()
       if (!data) return true
       this.#vaults++
-      this.#session.close()
+      if (!this.#session.scratch) this.#session.close()
       // Tab changes made in this vault while `load` ran (a background tab closed or dragged) are saved
       // under its root before the other vault's tabs replace them.
       let unsaved: { error: unknown } | undefined
@@ -456,21 +472,25 @@ export class Navigation {
   }
 
   /**
-   * Makes the session show the active tab's note, or reads the active reader tab's file (nothing without a note or
-   * reader tab). Runs inside a `hold`: the open note it replaces or closes takes no edits meanwhile. Failures go to
-   * `report` (by default the host's): a failed read to `fail`; a `404` to `missing`, and that tab closes.
+   * Makes the session show the active tab's note or scratch note, or reads the active reader tab's file (nothing
+   * without tabs). Runs inside a `hold`: the open note it replaces or closes takes no edits meanwhile. Failures go
+   * to `report` (by default the host's): a failed read to `fail`; a `404` to `missing`, and that tab closes.
    */
   async #loadActive(report = this.#hostReport): Promise<void> {
     const tab = this.tabs.active
     if (tab?.kind === 'reader') {
-      if (this.#session.note) this.#session.close()
+      if (this.#session.note || this.#session.scratch) this.#session.close()
       await this.#loadReader(tab, report)
       return
     }
     this.reader = null
+    if (tab?.kind === 'scratch') {
+      await this.#loadScratch(tab, report)
+      return
+    }
     const id = tab?.kind === 'note' ? tab.path : undefined
     if (id === undefined) {
-      if (this.#session.note) this.#session.close()
+      if (this.#session.note || this.#session.scratch) this.#session.close()
       this.#host.changed()
       return
     }
@@ -499,26 +519,58 @@ export class Navigation {
   }
 
   /**
+   * Opens the scratch tab's note in the session (`GET /api/scratch/read`) unless it is open already. A `404` (the
+   * scratch note is gone) closes the tab with the notice, and the next active tab loads. Failures go to `report`.
+   */
+  async #loadScratch(tab: ScratchTab, report: LoadReport): Promise<void> {
+    if (tab.id === this.#session.scratch?.id) {
+      this.#host.changed()
+      return
+    }
+    // As for notes, a read that returns after a later transition is dropped (its error too).
+    const current = this.token()
+    let scratch: ScratchNote
+    try {
+      scratch = await this.#api.readScratch(tab.id)
+    } catch (error) {
+      if (!current()) return
+      if (!(error instanceof ApiError && error.status === 404)) {
+        report.fail(error)
+        return
+      }
+      report.missing(error.message)
+      this.#edit((tabs) => tabs.close(tab.key))
+      await this.#loadActive(report)
+      return
+    }
+    if (current()) this.#session.openScratch(scratch)
+  }
+
+  /**
    * Whether closing the notes `gone` matches can replace or close the open note: it is one of them, or the active
    * tab does not show it (its load is out, or failed), and closing always loads the active tab's note (the
-   * leave-note gate of deletes decides from this).
+   * leave-note gate of deletes decides from this). An open scratch note is replaced unless its own tab is active.
    */
   #replaces(gone: (path: string) => boolean): boolean {
+    const active = this.tabs.active
+    const scratch = this.#session.scratch
+    if (scratch) return active?.kind !== 'scratch' || active.id !== scratch.id
     const open = this.#session.note?.id
     if (open === undefined) return false
-    const active = this.tabs.active
     return gone(open) || active?.kind !== 'note' || active.path !== open
   }
 
   /**
    * Whether renaming or moving the notes `moved` matches can replace the open note: it is one of them, or the
    * active tab is a note tab that does not show it and its own note moves, so `rebase` loads that note over it
-   * (the leave-note gate of renames and moves in `Relocation` decides from this).
+   * (the leave-note gate of renames and moves in `Relocation` decides from this). An open scratch note is never
+   * moved, but is replaced the same way while a note tab is active (that tab's read failed).
    */
   relocationReplaces(moved: (path: string) => boolean): boolean {
+    const active = this.tabs.active
+    if (this.#session.scratch) return active?.kind === 'note' && moved(active.path)
     const open = this.#session.note?.id
     if (open === undefined) return false
-    const active = this.tabs.active
     return moved(open) || (active?.kind === 'note' && active.path !== open && moved(active.path))
   }
 

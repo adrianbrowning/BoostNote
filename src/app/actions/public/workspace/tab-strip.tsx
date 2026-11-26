@@ -14,7 +14,8 @@ const MIDDLE_BUTTON = 1
 /**
  * Back/forward of the active tab and the tab strip: click activates, middle-click or × closes,
  * drag and drop reorders. Note tabs show their note's title (file name when the list doesn't know
- * it); reader tabs show the outside file's name.
+ * it); reader tabs show the outside file's name; scratch tabs show the scratch note's title
+ * (`scratchTitle`, following its text as typed) and a "Scratch" badge.
  */
 export function TabStrip(handle: Handle<{ model: WorkspaceModel }>) {
   let dropKey: number | null = null
@@ -58,7 +59,7 @@ export function TabStrip(handle: Handle<{ model: WorkspaceModel }>) {
                 ? (model.data.notes.find((note) => note.id === tab.path)?.title ?? noteStem(tab.path))
                 : tab.kind === 'reader'
                   ? tab.name
-                  : 'Scratch note'
+                  : model.scratchTabTitle(tab.id)
             const active = tab.key === model.tabs.activeKey
             return (
               <div
@@ -76,6 +77,7 @@ export function TabStrip(handle: Handle<{ model: WorkspaceModel }>) {
                 draggable="true"
                 data-tab={tab.kind === 'note' ? tab.path : undefined}
                 data-reader-tab={tab.kind === 'reader' ? tab.name : undefined}
+                data-scratch-tab={tab.kind === 'scratch' ? tab.id : undefined}
                 data-drop-target={dropKey === tab.key ? 'true' : undefined}
                 mix={[
                   tabStyle,
@@ -109,6 +111,11 @@ export function TabStrip(handle: Handle<{ model: WorkspaceModel }>) {
                   }),
                 ]}
               >
+                {tab.kind === 'scratch' ? (
+                  <span mix={badgeStyle} data-scratch-badge>
+                    Scratch
+                  </span>
+                ) : null}
                 <span mix={tabTitleStyle}>{title}</span>
                 <button
                   type="button"
@@ -170,6 +177,16 @@ const tabStyle = css({
 })
 
 const tabTitleStyle = css({ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' })
+
+const badgeStyle = css({
+  flex: 'none',
+  padding: '0 4px',
+  border: '1px solid var(--border)',
+  borderRadius: '3px',
+  fontSize: '10px',
+  lineHeight: '14px',
+  color: 'var(--text-muted)',
+})
 
 const closeStyle = css({
   display: 'inline-grid',

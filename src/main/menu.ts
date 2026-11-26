@@ -105,6 +105,7 @@ export function buildMenuTemplate({
       submenu: [
         item('new-note'),
         item('new-folder'),
+        item('new-scratch-note'),
         { type: 'separator' },
         item('open-folder'),
         item('import-storage'),

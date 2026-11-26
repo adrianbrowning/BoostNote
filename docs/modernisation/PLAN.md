@@ -208,7 +208,7 @@ is refreshed. The router is built by `createAppRouter(services)`;
 `AppServices` (`src/app/services.ts`) is everything Electron-specific (folder picker =
 `dialog.showOpenDialog`, `shell.openExternal`, `shell.showItemInFolder`, legacy storage discovery),
 so controllers never import Electron and tests pass fakes. The File menu (New Note ⌘N, New Folder
-⇧⌘N, Open Folder… ⌘O, Import Boostnote Storage…, Reveal in Finder ⌥⌘R) sends SSE `menu` events;
+⇧⌘N, New Scratch Note ⌥⌘N, Open Folder… ⌘O, Import Boostnote Storage…, Reveal in Finder ⌥⌘R) sends SSE `menu` events;
 the workspace performs them because it knows the selected folder and open note.
 
 ### Routes
@@ -316,6 +316,14 @@ vault left fails, the other vault still shows (the switch counts) and the store 
   are skipped by rebase and forget, and stay open when the vault switches or closes (an active scratch tab
   stays active); navigating from one opens a new note tab. Closing one does not put it on the closed-tab
   stack, so ⇧⌘T does not bring it back.
+- File › New Scratch Note (⌥⌘N, also with no vault open) creates a scratch note (`Navigation.newScratch`, after
+  the leave-note gate) and opens it in a new scratch tab, the cursor in the editor. The one `NoteSession` holds it
+  (`openScratch`; `note` is then `null`, so the note header and the properties panel do not show): it
+  is read through `GET /api/scratch/read` when its tab shows, and its text autosaves as typed through
+  `POST /api/scratch/write` like a note's body, so the leave-note gate saves it before another tab shows (a
+  failed save keeps the tab, as for notes). A tab whose scratch note is gone (`404`) closes with the notice. A
+  vault switch or close leaves an open scratch note in the session as it is. The tab shows a "Scratch" badge and
+  the `scratchTitle` of the text as typed.
 
 ### Properties panel
 
@@ -376,7 +384,7 @@ Every app command is one row of the command table `COMMANDS` in `src/shared/comm
 accelerator, whether it needs a vault); `MenuCommand` is derived from it, `src/main/menu.ts` builds
 each command item from it, and the renderer reserves its accelerators. Every app shortcut is a native
 menu accelerator: File (New Note ⌘N,
-New Folder ⇧⌘N, Open Folder ⌘O, Import, Export ▸ Note as HTML/PDF/Markdown, Folder/Vault as HTML,
+New Folder ⇧⌘N, New Scratch Note ⌥⌘N, Open Folder ⌘O, Import, Export ▸ Note as HTML/PDF/Markdown, Folder/Vault as HTML,
 Print ⌘P, Reveal ⌥⌘R, Close Tab ⌘W, Reopen Closed Tab ⇧⌘T), Edit (roles,
 Find… ⌘F → the editor's search panel), View (Toggle Sidebar ⇧⌘E, Toggle Note List ⇧⌘J, Toggle
 Properties ⇧⌘P, Back ⌘[, Forward ⌘], reload/devtools, zoom roles, full screen), Window (Next/Previous

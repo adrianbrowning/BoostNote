@@ -257,6 +257,7 @@ describe('NoteSession', () => {
         throw new Error('Not JSON')
       },
       uploadAsset: api.uploadAsset,
+      writeScratch: api.writeScratch,
     }
     session = new NoteSession(throwing)
     session.open(await api.createNote(''))

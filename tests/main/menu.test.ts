@@ -33,6 +33,7 @@ function itemsById(template: MenuItemConstructorOptions[]): Record<string, [stri
 const COMMON = {
   'new-note': ['New Note', 'CmdOrCtrl+N'],
   'new-folder': ['New Folder…', 'CmdOrCtrl+Shift+N'],
+  'new-scratch-note': ['New Scratch Note', 'CmdOrCtrl+Alt+N'],
   'open-folder': ['Open Folder…', 'CmdOrCtrl+O'],
   'import-storage': ['Import Boostnote Storage…', undefined],
   'rename-from-titles': ['Rename Files From Titles…', undefined],
@@ -124,6 +125,7 @@ describe('native menu template', () => {
     const file = [
       'new-note',
       'new-folder',
+      'new-scratch-note',
       'open-folder',
       'import-storage',
       'rename-from-titles',

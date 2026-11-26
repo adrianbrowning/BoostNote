@@ -37,6 +37,8 @@ export type CommandRow =
 export const COMMANDS = [
   { id: 'new-note', label: 'New Note', accelerator: 'CmdOrCtrl+N', needsVault: true },
   { id: 'new-folder', label: 'New Folder…', accelerator: 'CmdOrCtrl+Shift+N', needsVault: true },
+  /** A scratch note: outside every vault, so it works with no vault open. */
+  { id: 'new-scratch-note', label: 'New Scratch Note', accelerator: 'CmdOrCtrl+Alt+N', needsVault: false },
   { id: 'open-folder', label: 'Open Folder…', accelerator: 'CmdOrCtrl+O', needsVault: false },
   { id: 'import-storage', label: 'Import Boostnote Storage…', needsVault: false },
   /** The bulk rename of slug-named (imported) notes. */

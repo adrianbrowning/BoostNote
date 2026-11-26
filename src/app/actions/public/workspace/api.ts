@@ -82,12 +82,17 @@ export interface NoteSaveInput {
   frontmatter?: Record<string, JsonValue>
 }
 
-/** A client's note calls (all `NoteSession` uses: reads, saves, image uploads); `createClient` types its own with these. */
+/**
+ * A client's note calls (all `NoteSession` uses: reads, saves, image uploads, scratch-note saves); `createClient`
+ * types its own with these.
+ */
 export interface NoteApi {
   readNote: (id: string) => Promise<NoteDocument>
   saveNote: (input: NoteSaveInput) => Promise<NoteDocument>
   /** Stores an image next to note `noteId`; `href` is the link to it, relative to the note. */
   uploadAsset: (noteId: string, file: File) => Promise<{ href: string }>
+  /** Replaces scratch note `id`'s text (no hash: last write wins). */
+  writeScratch: (id: string, text: string) => Promise<ScratchNote>
 }
 
 function withQuery(href: string, params: Record<string, string>): string {
@@ -130,6 +135,7 @@ export function createClient(transport: Transport) {
       body: file,
     })
   }
+  const writeScratch: NoteApi['writeScratch'] = (id, text) => post(api.scratchWrite.href(), { id, text })
 
   return {
     workspace: () => request<WorkspaceData>(api.workspace.href()),
@@ -195,7 +201,7 @@ export function createClient(transport: Transport) {
     listScratch: () => request<ScratchSummary[]>(api.scratchList.href()),
     createScratch: () => post<ScratchNote>(api.scratchCreate.href()),
     readScratch: (id: string) => request<ScratchNote>(withQuery(api.scratchRead.href(), { id })),
-    writeScratch: (id: string, text: string) => post<ScratchNote>(api.scratchWrite.href(), { id, text }),
+    writeScratch,
     discardScratch: (id: string) => post<unknown>(api.scratchDiscard.href(), { id }),
   }
 }
@@ -203,10 +209,18 @@ export function createClient(transport: Transport) {
 /** The typed client of every `/api` route (`createClient`): the page's `client`, or one over the router in tests. */
 export type Client = ReturnType<typeof createClient>
 
-/** A client's calls `Navigation` uses (notes it opens, creates and deletes; reader tabs). */
+/** A client's calls `Navigation` uses (notes it opens, creates and deletes; reader tabs; scratch notes it creates and opens). */
 export type NavigationApi = Pick<
   Client,
-  'readNote' | 'saveNote' | 'createNote' | 'deleteNote' | 'deleteFolder' | 'readReader' | 'closeReader'
+  | 'readNote'
+  | 'saveNote'
+  | 'createNote'
+  | 'deleteNote'
+  | 'deleteFolder'
+  | 'readReader'
+  | 'closeReader'
+  | 'createScratch'
+  | 'readScratch'
 >
 
 /** The page's client of the `/api` routes. */

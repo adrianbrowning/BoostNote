@@ -15,7 +15,9 @@ import { type TaskProgress, taskProgress } from './tasks.ts'
 /**
  * The open note: its name (the file name, or the frontmatter `title` when it has one), renamed in
  * place by clicking it (or F2/Enter), note actions, the conflict bar, and the live-preview editor.
- * The editor is created once and shows whatever note the session holds; it only ever sees the body.
+ * The editor is created once and shows whatever note or scratch note the session holds; it only ever
+ * sees the body. A scratch note gets the editor (and its save-error bar) without the note's header
+ * and properties.
  */
 export function EditorPane(handle: Handle<{ model: WorkspaceModel }>) {
   const session = () => handle.props.model.session
@@ -82,16 +84,23 @@ export function EditorPane(handle: Handle<{ model: WorkspaceModel }>) {
       },
       { signal },
     )
+    const focusEditor = (atEnd: boolean) => {
+      if (atEnd) instance.view.dispatch({ selection: { anchor: instance.view.state.doc.length } })
+      instance.focus()
+    }
     handle.props.model.addEventListener(
       'focus-editor',
       (event) => {
-        handle.queueTask(() => {
-          if (event.atEnd) instance.view.dispatch({ selection: { anchor: instance.view.state.doc.length } })
-          instance.focus()
-        })
+        // Taken here, so no pane that mounts later takes it again.
+        handle.props.model.takeEditorFocus()
+        // Focused once this pane rendered the open note (its own update: the workspace's may not reach it at once).
+        void handle.update().then(() => focusEditor(event.atEnd))
       },
       { signal },
     )
+    // Asked for before this pane mounted: the first tab of a page with no vault open.
+    const wanted = handle.props.model.takeEditorFocus()
+    if (wanted) focusEditor(wanted.atEnd)
     // Leaving the editor saves right away instead of waiting for the autosave delay.
     parent.addEventListener(
       'focusout',
@@ -253,6 +262,7 @@ export function EditorPane(handle: Handle<{ model: WorkspaceModel }>) {
   return () => {
     const { model } = handle.props
     const note = session().note
+    const editing = note !== null || session().scratch !== null
     const folder = note ? parentOf(note.id) : ''
     const active = model.tabs.active
     const reader = active?.kind === 'reader' ? active : undefined
@@ -310,8 +320,8 @@ export function EditorPane(handle: Handle<{ model: WorkspaceModel }>) {
             </button>
           </header>
         ) : null}
-        {note ? conflictBar() : null}
-        {note && progress.total > 0 ? (
+        {editing ? conflictBar() : null}
+        {editing && progress.total > 0 ? (
           <div
             mix={progressStyle}
             role="progressbar"
@@ -329,7 +339,7 @@ export function EditorPane(handle: Handle<{ model: WorkspaceModel }>) {
             </span>
           </div>
         ) : null}
-        {note || reader ? null : (
+        {editing || reader ? null : (
           <div mix={emptyState}>
             {model.data.notes.length === 0 ? (
               <>
@@ -347,12 +357,12 @@ export function EditorPane(handle: Handle<{ model: WorkspaceModel }>) {
             </button>
           </div>
         )}
-        <div mix={bodyStyle} hidden={note ? undefined : true}>
+        <div mix={bodyStyle} hidden={editing ? undefined : true}>
           <div
             mix={[editorHostStyle, mountEditor]}
             data-rmx-preserve-dom
             data-editor
-            hidden={note ? undefined : true}
+            hidden={editing ? undefined : true}
           />
           {note && model.preferences.panes.propertiesOpen ? <PropertiesPanel model={model} /> : null}
         </div>

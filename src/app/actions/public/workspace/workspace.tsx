@@ -222,7 +222,7 @@ export const Workspace = clientEntry(
 
     return () => {
       const { vault } = model.data
-      const state = model.session.note ? model.session.state : undefined
+      const state = model.session.note || model.session.scratch ? model.session.state : undefined
       const { panes, editorFont, fontSize, lineWidth, tableWidth } = model.preferences
       const sidebar = !panes.sidebarCollapsed
       const list = !panes.listCollapsed
@@ -260,7 +260,7 @@ export const Workspace = clientEntry(
               <EditorPane model={model} />
             </>
           ) : model.tabs.tabs.length > 0 ? (
-            // No vault, but reader tabs of outside files are open.
+            // No vault, but reader tabs of outside files or scratch tabs are open.
             <EditorPane model={model} />
           ) : (
             welcome()

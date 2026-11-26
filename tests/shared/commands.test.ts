@@ -18,6 +18,7 @@ describe('command table', () => {
       [
         'new-note',
         'new-folder',
+        'new-scratch-note',
         'open-folder',
         'import-storage',
         'rename-from-titles',
@@ -51,6 +52,7 @@ describe('command table', () => {
     expect(accelerators).toEqual({
       'new-note': 'CmdOrCtrl+N',
       'new-folder': 'CmdOrCtrl+Shift+N',
+      'new-scratch-note': 'CmdOrCtrl+Alt+N',
       'open-folder': 'CmdOrCtrl+O',
       'reveal-note': 'CmdOrCtrl+Alt+R',
       'close-tab': 'CmdOrCtrl+W',
@@ -115,6 +117,7 @@ describe('command table', () => {
     const free = COMMANDS.filter((command) => !command.needsVault).map((command) => command.id)
     expect([...free].sort()).toEqual(
       [
+        'new-scratch-note',
         'open-folder',
         'import-storage',
         'preferences',
