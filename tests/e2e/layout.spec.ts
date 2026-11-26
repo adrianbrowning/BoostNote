@@ -1,6 +1,6 @@
 import type { Locator, Page } from '@playwright/test'
 
-import { expect, readSettings, test } from './fixtures.ts'
+import { captureContextMenus, expect, readSettings, test } from './fixtures.ts'
 
 /** Waits `frames` animation frames in the page, so pending renders have run. */
 async function settleFrames(page: Page, frames = 2): Promise<void> {
@@ -171,8 +171,9 @@ test('a note-list drag that starts before a sidebar drag settles leaves no sideb
   await expect.poll(async () => (await box(notes)).x).toBe(0)
 })
 
-test('the context menu opens at the pointer, 200px wide', async ({ app }) => {
+test('the context menu opens at the pointer, 200px wide, and no native menu pops up', async ({ app }) => {
   const { page } = app
+  const nativeMenus = await captureContextMenus(app.electronApp)
   const row = await box(page.locator('[data-note="tasks.md"]'))
   await page.locator('[data-note="tasks.md"]').click({ button: 'right', position: { x: 30, y: 12 } })
   const menu = page.getByRole('menu')
@@ -182,6 +183,7 @@ test('the context menu opens at the pointer, 200px wide', async ({ app }) => {
   expect(rect.width).toBe(200)
   expect(Math.abs(rect.x - (row.x + 30))).toBeLessThanOrEqual(1)
   expect(Math.abs(rect.y - (row.y + 12))).toBeLessThanOrEqual(1)
+  expect(await nativeMenus.labels()).toEqual([])
 })
 
 test('folder colour swatches show the palette and the picked colour paints the folder dot', async ({ app }) => {

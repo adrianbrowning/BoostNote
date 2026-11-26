@@ -520,7 +520,9 @@ are the only tabs while no vault is open. Grants live in memory, so reader tabs 
 Playwright `_electron` launches the app from source with a temp vault and `--user-data-dir` profile
 (settings preset with `lastVault` and the global hotkey off) and waits for the SSE connection before
 sending menu commands. Native dialogs are answered by replacing `dialog.showSaveDialog` /
-`showOpenDialog` in main via `electronApp.evaluate`. On macOS the window opens inactive and can never
+`showOpenDialog` in main via `electronApp.evaluate`; native context menus are captured the same way
+(`captureContextMenus` in `tests/e2e/fixtures.ts` replaces `Menu.prototype.popup`, records each menu
+and clicks its items). On macOS the window opens inactive and can never
 become the key window (`tests/e2e/background-windows.cjs`, preloaded with `-r`), and the page gets
 CDP focus emulation (Playwright skips it for Electron): key presses made in other apps while the
 suite runs used to land in a test (`eWeekly plan`, arrow keys moving the note list). Covered: a note
@@ -529,7 +531,20 @@ write live-reloads; tabs survive a reload; importing the legacy fixture storage 
 HTML export contains mermaid `<svg>` and KaTeX markup (and is screenshotted in a window); PDF export;
 a `.md` passed on argv and via `open-file`; no CSP violation in the main window (startup, a Mermaid
 and KaTeX note, editing, the reader) or the hidden Mermaid renderer, recorded from the start of each
-window's load by a session preload (`tests/e2e/csp-violations-preload.cjs`, registered by `tests/e2e/csp-violations.cjs`). `pnpm test` stays unit-only
+window's load by a session preload (`tests/e2e/csp-violations-preload.cjs`, registered by `tests/e2e/csp-violations.cjs`);
+spelling replacement (`tests/e2e/spelling.spec.ts`): a misspelled word typed in the editor and
+right-clicked (Chromium's real `context-menu` event) gets the native spelling menu, its first
+suggestion replaces the word in the editor and on disk (`webContents.replaceMisspelling` reaches
+CodeMirror as an input change), and ⌘Z / Ctrl+Z restores the word; a right-click on a note-list row
+opens the renderer's note menu and pops up no native menu (`tests/e2e/layout.spec.ts`).
+Chromium marks words only with a spellcheck dictionary: where it marks none (Windows or Linux
+without one) the spelling test skips with a reason naming the platform, and the replacement is
+checked by hand there: `pnpm build`, then `pnpm dev --user-data-dir="$(mktemp -d)"` (pnpm forwards
+the flag to `electron .`; the fresh profile keeps your own settings and vaults out of it, and the
+app stays open until you quit), open a
+scratch copy of `tests/fixtures/sample-vault` as the vault, type a misspelled word
+followed by a space in a note, right-click it, choose a suggestion, check the note file on disk
+holds it, press Ctrl+Z and check the word is back. On macOS the test always runs. `pnpm test` stays unit-only
 (Vitest excludes `tests/e2e`). A Biome Grit plugin (`tests/e2e/rules.grit`, loaded by a `biome.json`
 override on `tests/e2e/**`) makes `pnpm check` reject `getComputedStyle` (use
 `expect(locator).toHaveCSS`) and parent traversal with `locator('..')` in any quoting, `xpath=..` or
