@@ -175,8 +175,9 @@ export class WorkspaceModel extends TypedEventTarget<{
   #noticeTimer: ReturnType<typeof setTimeout> | undefined
   /**
    * The work running in open order (`#inOpenOrder`): an open-request drain, a reader's "Open folder
-   * as vault", or a reader's "Add to vault…" from its folder dialog to main's answer. Later ones
-   * queue behind it, so vault switches, imports and the tabs they open never interleave.
+   * as vault", a reader's "Add to vault…", or a scratch note's "Save to vault…", each from its
+   * folder dialog to main's answer. Later ones queue behind it, so vault switches, imports, saves
+   * and the tabs they open never interleave.
    */
   #openRequests: Promise<void> = Promise.resolve()
   /** An "Update links?" question waiting for the dialog over it to close (`#showDialog`). */
@@ -790,8 +791,8 @@ export class WorkspaceModel extends TypedEventTarget<{
 
   /**
    * Runs `task` after the work in open order running now (and that queued before): an open-request
-   * drain, a reader's "Open folder as vault", or a reader's "Add to vault…" (its folder dialog
-   * included, so a drain waits while the user chooses).
+   * drain, a reader's "Open folder as vault", a reader's "Add to vault…", or a scratch note's
+   * "Save to vault…" (their folder dialogs included, so a drain waits while the user chooses).
    */
   #inOpenOrder(task: () => Promise<void>): Promise<void> {
     const run = this.#openRequests.then(task)
