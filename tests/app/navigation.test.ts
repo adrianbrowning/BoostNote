@@ -1,6 +1,6 @@
 import { access, readdir, readFile, realpath, writeFile } from 'node:fs/promises'
 import * as path from 'node:path'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { type Client, setPageVault } from '../../src/app/actions/public/workspace/api.ts'
 import { Navigation, type NavigationHost, type TabStore } from '../../src/app/actions/public/workspace/navigation.ts'
 import { NoteSession } from '../../src/app/actions/public/workspace/note-session.ts'
@@ -1376,14 +1376,24 @@ describe('Navigation of scratch tabs', () => {
     await navigation.activate(tab(0))
     net.fail = null
     session.edit('Typed.\n')
-    net.hold((url) => (url.pathname === '/api/scratch/write' ? 'write' : undefined))
     const scratchKey = tab(1)
+    // The close's gate (the second flush) passes only once the activate is done and its scratch tab is active.
+    const { promise: closeGate, resolve: releaseClose } = Promise.withResolvers<void>()
+    const flush = session.flush.bind(session)
+    let closeFlush: 'waiting' | 'gated' | 'done' = 'waiting'
+    vi.spyOn(session, 'flush').mockImplementation(async () => {
+      const gated = closeFlush === 'gated'
+      if (gated) closeFlush = 'done'
+      const saved = await flush()
+      if (gated) await closeGate
+      return saved
+    })
     const activating = navigation.activate(scratchKey)
-    await expect.poll(() => net.held.length).toBe(1)
+    closeFlush = 'gated'
     const closing = navigation.close(scratchKey)
-    net.hold(null)
-    net.held[0]?.release()
     await activating
+    expect(navigation.tabs.active?.key).toBe(scratchKey)
+    releaseClose()
     await closing
     expect(navigation.tabs.tabs.map((item) => item.kind)).toEqual(['note'])
     expect(session.scratch).toBeNull()
