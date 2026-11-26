@@ -43,6 +43,8 @@ const store: TabStore = {
     if (storeFails !== undefined) throw new DOMException(storeFails, 'QuotaExceededError')
     snapshots.set(root, structuredClone(snapshot))
   },
+  loadScratch: () => null,
+  saveScratch: () => {},
 }
 
 beforeEach(async () => {

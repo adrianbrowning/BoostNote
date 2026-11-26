@@ -396,7 +396,7 @@ export class WorkspaceModel extends TypedEventTarget<{
   /** Whether the vault has a note with this id (as of the last list refresh). */
   hasNote = (id: string): boolean => this.data.notes.some((note) => note.id === id)
 
-  /** Restores the open vault's tabs (after hydration) and loads the active one. */
+  /** Restores the tabs after hydration (the open vault's, then the scratch tabs of the last run) and loads the active one. */
   restoreTabs(): Promise<void> {
     return this.navigation.restore()
   }

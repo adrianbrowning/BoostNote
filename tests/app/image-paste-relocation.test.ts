@@ -6,7 +6,7 @@ import type { Client } from '../../src/app/actions/public/workspace/api.ts'
 import { WorkspaceModel } from '../../src/app/actions/public/workspace/model.ts'
 import { createLivePreviewEditor, type LivePreviewEditor } from '../../src/editor/index.ts'
 import { DEFAULT_UI } from '../../src/main/settings.ts'
-import { folderWith, type HeldClient, heldClient, TestApp } from './helpers.ts'
+import { folderWith, type HeldClient, heldClient, noTabStore, TestApp } from './helpers.ts'
 
 /**
  * An image pasted into the editor while the open note is renamed: the real editor (paste, `trackInsertion`) wired
@@ -29,7 +29,7 @@ beforeEach(async () => {
   workspace = new WorkspaceModel(
     await api.workspace(),
     { ui: DEFAULT_UI, hotkeyRegistered: false, update: null },
-    { api, store: { load: () => null, save: () => {} } },
+    { api, store: noTabStore },
   )
   await workspace.openNote('in first.md')
   const session = workspace.session

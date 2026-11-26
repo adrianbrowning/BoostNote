@@ -101,6 +101,50 @@ export async function launchApp(files: VaultFiles, options: LaunchOptions = {}):
     path.join(userDataDir, 'settings.json'),
     JSON.stringify({ vaults: [vault], lastVault: vault, ui: { globalHotkey: '', ...ui } }),
   )
+  const started = await startApp(
+    root,
+    Object.keys(openFiles).map((rel) => path.join(root, 'loose', ...rel.split('/'))),
+  )
+  const handle: AppHandle = {
+    ...started,
+    dir: root,
+    vault,
+    userDataDir,
+    // `handle.electronApp`: the app of the current run, also after `relaunchApp`.
+    clickMenu: (id) =>
+      handle.electronApp.evaluate(({ Menu }, menuId) => {
+        const item = Menu.getApplicationMenu()?.getMenuItemById(menuId)
+        if (!item) throw new Error(`No menu item ${menuId}`)
+        item.click()
+      }, id),
+    answerSaveDialog: (file) =>
+      handle.electronApp.evaluate(({ dialog }, filePath) => {
+        dialog.showSaveDialog = (async () => ({ canceled: false, filePath })) as typeof dialog.showSaveDialog
+      }, file),
+    answerOpenDialog: (folder) =>
+      handle.electronApp.evaluate(({ dialog }, folderPath) => {
+        dialog.showOpenDialog = (async () => ({
+          canceled: false,
+          filePaths: [folderPath],
+        })) as typeof dialog.showOpenDialog
+      }, folder),
+  }
+  return handle
+}
+
+/**
+ * Quits the app (`quitWithoutDialog`) and launches it again on the same temp root and `--user-data-dir` profile, so
+ * its settings, the page's `localStorage` and the scratch notes carry over (the loose files launchApp opened are not
+ * passed again).
+ * `app` then drives the new run: its `electronApp` and `page` are replaced, so read them from `app` after this.
+ */
+export async function relaunchApp(app: AppHandle): Promise<void> {
+  await quitWithoutDialog(app.electronApp)
+  Object.assign(app, await startApp(app.dir))
+}
+
+/** Starts Electron on the app with the profile of the temp root `root`, `args` after it; resolves once the workspace listens. */
+async function startApp(root: string, args: string[] = []): Promise<Pick<AppHandle, 'electronApp' | 'page'>> {
   const electronApp = await electron.launch({
     args: [
       '-r',
@@ -108,8 +152,8 @@ export async function launchApp(files: VaultFiles, options: LaunchOptions = {}):
       '-r',
       cspViolationRecorder,
       projectRoot,
-      `--user-data-dir=${userDataDir}`,
-      ...Object.keys(openFiles).map((rel) => path.join(root, 'loose', ...rel.split('/'))),
+      `--user-data-dir=${path.join(root, 'profile')}`,
+      ...args,
     ],
     cwd: projectRoot,
     // No asset watcher: tests never change browser sources, and its thousands of file watchers
@@ -124,30 +168,7 @@ export async function launchApp(files: VaultFiles, options: LaunchOptions = {}):
   await page.waitForLoadState('domcontentloaded')
   // Menu commands arrive over SSE: wait until the workspace is listening.
   await page.locator('[data-connection="connected"]').waitFor()
-  return {
-    electronApp,
-    page,
-    dir: root,
-    vault,
-    userDataDir,
-    clickMenu: (id) =>
-      electronApp.evaluate(({ Menu }, menuId) => {
-        const item = Menu.getApplicationMenu()?.getMenuItemById(menuId)
-        if (!item) throw new Error(`No menu item ${menuId}`)
-        item.click()
-      }, id),
-    answerSaveDialog: (file) =>
-      electronApp.evaluate(({ dialog }, filePath) => {
-        dialog.showSaveDialog = (async () => ({ canceled: false, filePath })) as typeof dialog.showSaveDialog
-      }, file),
-    answerOpenDialog: (folder) =>
-      electronApp.evaluate(({ dialog }, folderPath) => {
-        dialog.showOpenDialog = (async () => ({
-          canceled: false,
-          filePaths: [folderPath],
-        })) as typeof dialog.showOpenDialog
-      }, folder),
-  }
+  return { electronApp, page }
 }
 
 /**

@@ -316,6 +316,14 @@ vault left fails, the other vault still shows (the switch counts) and the store 
   are skipped by rebase and forget, and stay open when the vault switches or closes (an active scratch tab
   stays active); navigating from one opens a new note tab. Closing one does not put it on the closed-tab
   stack, so ⇧⌘T does not bring it back.
+- The open scratch tabs are kept across restarts by the tab store in one entry of their own (`localTabStore`:
+  `localStorage` under `boostnote.scratch-tabs`, apart from the `boostnote.tabs:<vault root>` entries), saved
+  whenever they change: `ScratchTabsSnapshot`, their ids in strip order and the index of the active one (`-1`: none
+  is active). At start-up `Navigation.restore` reopens them after the vault's note tabs (also with no vault open),
+  the one that was active active again unless a transition changed the active tab while the scratch list was out;
+  ids whose scratch note is gone (not in `GET /api/scratch`) are dropped, without a notice, and the entry is not
+  saved until the restore merged it. Vault switches leave them as they are. The e2e tests restart the app on the
+  same temp root and profile with `relaunchApp` (`tests/e2e/fixtures.ts`).
 - File › New Scratch Note (⌥⌘N, also with no vault open) creates a scratch note (`Navigation.newScratch`, after
   the leave-note gate) and opens it in a new scratch tab, the cursor in the editor. The one `NoteSession` holds it
   (`openScratch`; `note` is then `null`, so the note header and the properties panel do not show): it

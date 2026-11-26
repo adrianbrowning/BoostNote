@@ -1,10 +1,20 @@
 import { isUnder } from '../../../../shared/vault-ids.ts'
 import { ApiError, type NavigationApi } from './api.ts'
 import type { NoteSession } from './note-session.ts'
-import { type ReaderTab, type ScratchTab, Tabs, type TabsSnapshot } from './tabs.ts'
+import {
+  type ReaderTab,
+  type ScratchTab,
+  type ScratchTabsSnapshot,
+  scratchTabsOf,
+  Tabs,
+  type TabsSnapshot,
+} from './tabs.ts'
 import type { AssetsLeftBehind, NoteDocument, ReaderDocument, ScratchNote, WorkspaceData } from './types.ts'
 
-/** Where each vault's tabs are kept between runs, by vault root: `localStorage` in the app, a map in tests. */
+/**
+ * Where tabs are kept between runs: each vault's tabs by vault root, and the scratch tabs in one entry of their own
+ * (they belong to no vault). `localStorage` in the app, a map in tests.
+ */
 export interface TabStore {
   /**
    * The vault's saved snapshot (`TabsSnapshot` as written; `null` when there is none, or it cannot be read:
@@ -13,20 +23,37 @@ export interface TabStore {
   load(root: string): unknown
   /** Throws when the snapshot cannot be written (`localStorage` over its quota); the transition then rejects. */
   save(root: string, snapshot: TabsSnapshot): void
+  /** The scratch tabs' saved entry (`ScratchTabsSnapshot` as written; `null` when there is none, or it cannot be read). Never throws. */
+  loadScratch(): unknown
+  /** Throws, as `save` does, when the entry cannot be written. */
+  saveScratch(snapshot: ScratchTabsSnapshot): void
 }
 
-/** The tab store of the app: `localStorage` under `boostnote.tabs:<vault root>`, where existing users' tabs are. */
+/** Where the app keeps the scratch tabs: one `localStorage` key, apart from the `boostnote.tabs:<vault root>` entries. */
+const SCRATCH_TABS_KEY = 'boostnote.scratch-tabs'
+
+/** `localStorage` entry `key` as JSON (`null`: none, or corrupt). */
+function loadJson(key: string): unknown {
+  try {
+    return JSON.parse(localStorage.getItem(key) ?? 'null')
+  } catch {
+    // A corrupt entry restores no tabs.
+    return null
+  }
+}
+
+/**
+ * The tab store of the app: `localStorage` under `boostnote.tabs:<vault root>`, where existing users' tabs are, and the
+ * scratch tabs under `boostnote.scratch-tabs`.
+ */
 export const localTabStore: TabStore = {
-  load(root) {
-    try {
-      return JSON.parse(localStorage.getItem(`boostnote.tabs:${root}`) ?? 'null')
-    } catch {
-      // A corrupt entry restores no tabs.
-      return null
-    }
-  },
+  load: (root) => loadJson(`boostnote.tabs:${root}`),
   save(root, snapshot) {
     localStorage.setItem(`boostnote.tabs:${root}`, JSON.stringify(snapshot))
+  },
+  loadScratch: () => loadJson(SCRATCH_TABS_KEY),
+  saveScratch(snapshot) {
+    localStorage.setItem(SCRATCH_TABS_KEY, JSON.stringify(snapshot))
   },
 }
 
@@ -93,6 +120,13 @@ export class Navigation {
   }
   /** The tabs changed since they were last saved to the tab store. */
   #unsaved = false
+  /** The scratch tabs' entry as last saved to the tab store, or loaded from it (`JSON.stringify`ed). */
+  #savedScratch = JSON.stringify(scratchTabsOf(null))
+  /**
+   * A start-up restore is listing the scratch notes: the scratch tabs are not saved until it merged the kept entry
+   * into them, so a transition that lands meanwhile cannot overwrite that entry.
+   */
+  #scratchRestoring = false
 
   constructor({ session, api, store, host }: NavigationOptions) {
     this.#session = session
@@ -165,20 +199,72 @@ export class Navigation {
   }
 
   /**
-   * Restores the vault's tabs from the tab store (after hydration, after a vault switch). `change` then
-   * edits the restored tabs before the active one loads (and they are saved).
+   * Restores the tabs after hydration: the vault's from the tab store (none without a vault), then after them the
+   * scratch tabs of the last run (`TabStore.loadScratch`) whose scratch note still exists (`GET /api/scratch`;
+   * the others are dropped, without a notice); then the active tab loads and the tabs are saved. The one that was
+   * active becomes active again unless a transition changed the active tab while the list was out (that tab stays
+   * active); when no tab is active then, a kept scratch tab is (`Tabs.restoreScratch`). When the scratch list cannot
+   * be read, its failure is reported (`fail`) and every kept scratch tab is
+   * restored: each is read when it shows.
    */
-  async restore(change?: (tabs: Tabs) => unknown): Promise<void> {
+  async restore(): Promise<void> {
     await this.hold(
       async () => {
-        const root = this.#host.root()
         this.#transitions++
-        this.tabs.restore(root ? this.#store.load(root) : null, (id) => this.#host.hasNote(id))
+        this.#restoreNoteTabs()
+        const scratch = scratchTabsOf(this.#store.loadScratch())
+        if (scratch.ids.length > 0) {
+          const current = this.token()
+          this.#scratchRestoring = true
+          try {
+            const exists = await this.#scratchExists()
+            // The entry as loaded: saving the restored tabs drops the ids left out from it.
+            this.#savedScratch = JSON.stringify(scratch)
+            this.#edit((tabs) => tabs.restoreScratch(scratch, exists, current()))
+          } finally {
+            this.#scratchRestoring = false
+          }
+        }
+        await this.#loadActive()
+      },
+      { gate: false },
+    )
+  }
+
+  /**
+   * A vault switch's restore: the vault's tabs from the tab store (scratch tabs stay as they are), then `change`
+   * edits them before the active one loads (and they are saved).
+   */
+  async #restoreVault(change?: (tabs: Tabs) => unknown): Promise<void> {
+    await this.hold(
+      async () => {
+        this.#transitions++
+        this.#restoreNoteTabs()
         if (change) this.#edit(change)
         await this.#loadActive()
       },
       { gate: false },
     )
+  }
+
+  /** Replaces the note tabs with the saved ones of the vault on screen (none without a vault). */
+  #restoreNoteTabs(): void {
+    const root = this.#host.root()
+    this.tabs.restore(root ? this.#store.load(root) : null, (id) => this.#host.hasNote(id))
+  }
+
+  /**
+   * Whether a scratch id still has its scratch note (`GET /api/scratch`). Every id has when the list cannot be
+   * read: the failure goes to the host (`fail`).
+   */
+  async #scratchExists(): Promise<(id: string) => boolean> {
+    try {
+      const ids = new Set((await this.#api.listScratch()).map((scratch) => scratch.id))
+      return (id) => ids.has(id)
+    } catch (error) {
+      this.#host.fail(error)
+      return () => true
+    }
   }
 
   /** Opens a note after the gate: in the active tab, pushing onto its back trail, or with `newTab` in a new tab after it. */
@@ -383,7 +469,7 @@ export class Navigation {
         unsaved = { error }
       }
       this.#host.showVault(data)
-      await this.restore(change)
+      await this.#restoreVault(change)
       if (unsaved) this.#host.fail(unsaved.error)
       return true
     })
@@ -463,8 +549,18 @@ export class Navigation {
     return tab.kind === 'reader' ? `${tab.key}:reader:${tab.ticket}` : `${tab.key}:scratch:${tab.id}`
   }
 
-  /** Saves the tabs for the vault on screen when they changed since the last save (it throws when the store does). */
+  /**
+   * Saves the scratch tabs when they differ from the entry last saved (or loaded) and no start-up restore is listing
+   * the scratch notes, and the tabs of the vault on screen when they changed since the last save (it throws when the
+   * store does).
+   */
   #persist(): void {
+    const scratch = this.tabs.scratchJSON()
+    const json = JSON.stringify(scratch)
+    if (!this.#scratchRestoring && json !== this.#savedScratch) {
+      this.#store.saveScratch(scratch)
+      this.#savedScratch = json
+    }
     const root = this.#host.root()
     if (!this.#unsaved || !root) return
     this.#store.save(root, this.tabs.toJSON())

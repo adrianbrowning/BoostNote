@@ -2,7 +2,7 @@ import { readdir, readFile } from 'node:fs/promises'
 import * as path from 'node:path'
 import type { Page } from '@playwright/test'
 
-import { type AppHandle, expect, test } from './fixtures.ts'
+import { type AppHandle, expect, relaunchApp, test } from './fixtures.ts'
 
 test.use({ files: { 'a.md': '# A\n' } })
 
@@ -163,4 +163,41 @@ test('an image pasted over selected text in a scratch tab is refused with the no
   const names = await readdir(path.join(app.userDataDir, 'scratch'))
   expect(names.filter((name) => name !== `${id}.md` && name !== `${id}.json`)).toEqual([])
   expect((await readdir(vault, { recursive: true })).sort()).toEqual(vaultFiles)
+})
+
+test('a scratch tab comes back after a restart, active, with the text typed in it', async ({ app }) => {
+  await expect(app.page.locator('[data-note="a.md"]')).toBeVisible()
+  await app.page.locator('[data-note="a.md"]').click()
+  await expect(app.page.locator('[data-note-title]')).toHaveText('a')
+  await app.clickMenu('new-scratch-note')
+  await expect(editor(app.page)).toBeFocused()
+  await app.page.keyboard.type('# Kept\n\nAcross restarts')
+  const id = (await scratchTab(app.page).getAttribute('data-scratch-tab')) ?? ''
+  await expect.poll(() => scratchFiles(app)).toEqual({ [`${id}.md`]: '# Kept\n\nAcross restarts' })
+
+  await relaunchApp(app)
+  const { page } = app
+  await expect(page.locator('[role="tab"][data-tab="a.md"]')).toBeVisible()
+  await expect(scratchTab(page)).toHaveAttribute('data-scratch-tab', id)
+  await expect(scratchTab(page)).toHaveAttribute('aria-selected', 'true')
+  await expect(scratchTab(page)).toContainText('Kept')
+  await expect(editor(page)).toContainText('Across restarts')
+  await expect(page.locator('[data-notice]')).toHaveCount(0)
+})
+
+test('a scratch tab comes back after a restart with no vault open', async ({ app }) => {
+  await app.clickMenu('new-scratch-note')
+  await expect(editor(app.page)).toBeFocused()
+  await app.page.keyboard.type('No vault needed')
+  const id = (await scratchTab(app.page).getAttribute('data-scratch-tab')) ?? ''
+  await expect.poll(() => scratchFiles(app)).toEqual({ [`${id}.md`]: 'No vault needed' })
+  await closeVault(app.page)
+
+  await relaunchApp(app)
+  const { page } = app
+  await expect(page.locator('[data-vault="none"]')).toBeVisible()
+  await expect(scratchTab(page)).toHaveAttribute('data-scratch-tab', id)
+  await expect(scratchTab(page)).toHaveAttribute('aria-selected', 'true')
+  await expect(editor(page)).toHaveText('No vault needed')
+  await expect(page.locator('[data-notice]')).toHaveCount(0)
 })

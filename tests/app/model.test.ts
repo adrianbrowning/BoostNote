@@ -6,7 +6,7 @@ import { WorkspaceModel } from '../../src/app/actions/public/workspace/model.ts'
 import type { TabStore } from '../../src/app/actions/public/workspace/navigation.ts'
 import type { TabsSnapshot } from '../../src/app/actions/public/workspace/tabs.ts'
 import { DEFAULT_UI } from '../../src/main/settings.ts'
-import { folderWith, type HeldClient, heldClient, TestApp } from './helpers.ts'
+import { folderWith, type HeldClient, heldClient, noTabStore, TestApp } from './helpers.ts'
 
 /**
  * `WorkspaceModel` over the in-process router (`createClient` over `TestApp.fetch`) and a memory tab store:
@@ -28,6 +28,8 @@ const store: TabStore = {
   save: () => {
     throw new DOMException(QUOTA, 'QuotaExceededError')
   },
+  loadScratch: () => null,
+  saveScratch: () => {},
 }
 
 /** Holds the requests to API path `pathname` (by that path). */
@@ -101,7 +103,7 @@ describe('WorkspaceModel operations that change the open note after a request', 
     workspace = new WorkspaceModel(
       await api.workspace(),
       { ui: DEFAULT_UI, hotkeyRegistered: false, update: null },
-      { api, store: { load: () => null, save: () => {} } },
+      { api, store: noTabStore },
     )
   })
 
@@ -324,6 +326,8 @@ describe('WorkspaceModel relocations that return after a vault switch', () => {
           save: (root, snapshot) => {
             saved.set(root, structuredClone(snapshot))
           },
+          loadScratch: () => null,
+          saveScratch: () => {},
         },
       },
     )
@@ -392,7 +396,7 @@ describe('WorkspaceModel link questions', () => {
     workspace = new WorkspaceModel(
       await api.workspace(),
       { ui: DEFAULT_UI, hotkeyRegistered: false, update: null },
-      { api, store: { load: () => null, save: () => {} } },
+      { api, store: noTabStore },
     )
   })
 
