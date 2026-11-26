@@ -1,5 +1,5 @@
 import { isDeepStrictEqual } from 'node:util'
-import { isMap, isNode, isScalar, parseDocument, stringify } from 'yaml'
+import { isMap, isNode, isScalar, parseDocument, stringify, type YAMLMap } from 'yaml'
 
 /** Frontmatter as a plain object; key order is insertion order and is preserved on write. */
 export type Frontmatter = Record<string, unknown>
@@ -96,7 +96,7 @@ export function updateYaml(yaml: string, before: Frontmatter, after: Frontmatter
   if (isDeepStrictEqual(before, after)) return yaml
   const spliced = spliceYaml(yaml, after)
   if (spliced !== undefined && isDeepStrictEqual(parseYamlMapping(spliced), after)) return spliced
-  // Unusual layouts (flow mappings, anchors, reordered keys): re-emit through the document model,
+  // Unusual layouts (flow mappings whose keys change or go, anchors, reordered keys): re-emit through the document model,
   // which still keeps comments and the order of surviving keys.
   const doc = parseDocument(yaml)
   if (!isMap(doc.contents)) return stringifyMapping(after)
@@ -122,11 +122,12 @@ interface PairSpan {
   end: number
 }
 
-/** Text-level edit of a block mapping; `undefined` when the layout is not simple enough. */
+/** Text-level edit of a block mapping, or keys added to a flow mapping; `undefined` when the layout is not simple enough. */
 function spliceYaml(yaml: string, after: Frontmatter): string | undefined {
   const doc = parseDocument(yaml)
   const map = doc.contents
-  if (doc.errors.length > 0 || !isMap(map) || map.flow) return undefined
+  if (doc.errors.length > 0 || !isMap(map)) return undefined
+  if (map.flow) return appendToFlowMap(yaml, map, toMapping(doc.toJS()), after)
   const spans: PairSpan[] = []
   for (const item of map.items) {
     if (!isScalar(item.key) || !item.key.range) return undefined
@@ -161,4 +162,28 @@ function spliceYaml(yaml: string, after: Frontmatter): string | undefined {
     text += stringify(added, STRINGIFY_OPTIONS)
   }
   return text
+}
+
+/**
+ * `yaml`, a flow mapping (`{a: 1}`) that parses to `before`, with the keys `after` adds written inline after its last
+ * entry, so everything else keeps its bytes. `undefined` when `after` changes or drops a key, or an added entry
+ * would not fit on one line.
+ */
+function appendToFlowMap(yaml: string, map: YAMLMap, before: Frontmatter, after: Frontmatter): string | undefined {
+  const keys = Object.keys(before)
+  if (keys.some((key) => !(key in after) || !isDeepStrictEqual(before[key], after[key]))) return undefined
+  const entries = Object.entries(after)
+    .filter(([key]) => !keys.includes(key))
+    .map(([key, value]) => `${stringify(key, STRINGIFY_OPTIONS).trim()}: ${stringify(value, STRINGIFY_OPTIONS).trim()}`)
+  if (entries.some((entry) => entry.includes('\n'))) return undefined
+  if (entries.length === 0) return yaml
+  const last = map.items.at(-1)
+  // After the last entry's value (or key, for `{a}`), or right after `{` when there is none.
+  const at = last
+    ? (isNode(last.value) ? last.value : isNode(last.key) ? last.key : undefined)?.range?.[1]
+    : map.range?.[0]
+  if (at === undefined) return undefined
+  return last
+    ? `${yaml.slice(0, at)}, ${entries.join(', ')}${yaml.slice(at)}`
+    : `${yaml.slice(0, at + 1)}${entries.join(', ')}${yaml.slice(at + 1)}`
 }

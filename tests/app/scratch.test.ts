@@ -248,6 +248,16 @@ describe('/api/scratch/save', () => {
     expect(updated).toMatch(/^\d{4}-\d{2}-\d{2}T/)
     expect(saved).toBe(partly.replace('---\n# Partly', `updated: ${updated}\n---\n# Partly`))
     expect(await readFile(path.join(vault.root, 'Complete.md'), 'utf8')).toBe(complete)
+
+    const flow = await create()
+    await write(flow.id, "---\n{title: 'quoted', tags: [a,b]} # kept\n---\n# Flow\n")
+    expect((await app.post('/api/scratch/save', { id: flow.id, folder: '' })).status).toBe(201)
+    const flowSaved = await readFile(path.join(vault.root, 'Flow.md'), 'utf8')
+    const stamp = /, created: (\S+), updated: \1\}/.exec(flowSaved)?.[1] ?? ''
+    expect(stamp).toMatch(/^\d{4}-\d{2}-\d{2}T/)
+    expect(flowSaved).toBe(
+      `---\n{title: 'quoted', tags: [a,b], created: ${stamp}, updated: ${stamp}} # kept\n---\n# Flow\n`,
+    )
   })
 
   it('saves into the vault the request names, not the active one, and answers that vault’s lists', async () => {
