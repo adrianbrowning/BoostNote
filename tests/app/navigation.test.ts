@@ -1178,7 +1178,8 @@ describe('Navigation of scratch tabs', () => {
     expect(navigation.tabs.tabs.map((item) => item.kind)).toEqual(['note'])
     expect(session.note?.id).toBe('a.md')
     expect(session.scratch).toBeNull()
-    expect(session.locked).toBe(false)
+    // The gate's save found the scratch note gone: the tab's close loads the active tab in a hold of its own.
+    await expect.poll(() => session.locked).toBe(false)
     expect(await scratchIds()).toEqual([])
 
     // Nothing is stuck: the next transition goes through the gate.
