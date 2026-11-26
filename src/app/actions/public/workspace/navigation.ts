@@ -298,7 +298,8 @@ export class Navigation {
    * folder as the vault is left to that action. A scratch tab's scratch note is discarded once its tab
    * closed when its text (saved by the gate first, when the session held it) is empty or whitespace only, and
    * kept otherwise; when that read or discard fails, the tab stays closed, the scratch note is kept and the
-   * failure is reported.
+   * failure is reported. The tabs are saved to the tab store after that discard, so a store that throws rejects
+   * the close with the blank scratch note already gone.
    */
   async close(key = this.tabs.activeKey, options: { discard?: boolean } = {}): Promise<void> {
     await this.#close(key, options, this.#hostReport)
@@ -333,9 +334,20 @@ export class Navigation {
         })
         return
       }
-      this.#edit((tabs) => tabs.close(key))
-      this.#host.changed()
-      if (tab?.kind === 'scratch') await this.#discardBlank(tab.id, report)
+      if (tab?.kind !== 'scratch') {
+        this.#edit((tabs) => tabs.close(key))
+        this.#host.changed()
+        return
+      }
+      // Held so the tabs are saved after the discard: a store that throws then rejects with the blank note gone.
+      await this.hold(
+        async () => {
+          this.#edit((tabs) => tabs.close(key))
+          this.#host.changed()
+          await this.#discardBlank(tab.id, report)
+        },
+        { gate: false },
+      )
       return
     }
     if (options.discard) this.#session.close()

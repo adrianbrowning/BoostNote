@@ -900,6 +900,26 @@ describe('Navigation of scratch tabs', () => {
     expect(notices).toEqual([])
   })
 
+  it('discards a blank scratch note when its background tab closes while the tab store throws, then rejects with the store error', async () => {
+    let full = false
+    navigation = createNavigation({
+      load: (root) => store.load(root),
+      save: (root, snapshot) => store.save(root, snapshot),
+      loadScratch: () => store.loadScratch(),
+      saveScratch: (snapshot) => {
+        if (full) throw new Error('QuotaExceededError')
+        store.saveScratch(snapshot)
+      },
+    })
+    await scratchAfterA()
+    await navigation.activate(tab(0))
+    full = true
+    await expect(navigation.close(tab(1))).rejects.toThrow('QuotaExceededError')
+    expect(navigation.tabs.tabs.map((item) => item.kind)).toEqual(['note'])
+    expect(session.locked).toBe(false)
+    expect(await scratchIds()).toEqual([])
+  })
+
   it('discards a blank scratch note when its background tab closes while the session still holds it after a note read failed', async () => {
     await scratchAfterA()
     net.fail = (url) => url.pathname === '/api/notes/read'
