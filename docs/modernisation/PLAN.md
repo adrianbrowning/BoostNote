@@ -419,7 +419,10 @@ folder has its own `index.md` in any case, which then becomes `index.html` with 
 by `nameKey`, with one already given out, with a folder a note sits in (`a.html/`) or with the
 listing's gets ` 2`, ` 3`... in `vault.notes()` order, so case, NFC/NFD and stem twins get
 distinct pages (`a.md`, `a.MD` or `a.mdx` → `a.html`, `a 2.html`), each linked from its own note's links; `exportNoteMarkdown` copies the file and its
-`<stem>.assets/` (renamed after the new file name, links rewritten).
+`<stem>.assets/` (renamed after the new file name, links rewritten); the save dialog offers `<stem>.mdx`
+with an `mdx` filter for an `.mdx` note and `<stem>.md` for an `.md` note. MDX-only syntax has no MDX
+support: `import`/`export` lines and `{expressions}` render as paragraph text, and the sanitizer drops
+component tags such as `<Callout>` but keeps their inner text, in preview and HTML export alike.
 
 ### Mermaid, PDF and printing (`src/main/export.ts`)
 
