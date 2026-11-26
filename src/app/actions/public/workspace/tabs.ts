@@ -1,6 +1,6 @@
 /**
  * The workspace's tabs (Hubble semantics). A note tab records which note it shows plus its own
- * back/forward trail. A reader tab shows an outside `.md` read-only through a `ReaderGrants` ticket:
+ * back/forward trail. A reader tab shows an outside `.md`/`.mdx` read-only through a `ReaderGrants` ticket:
  * it has no trail, is never persisted, and is left alone by rebase/forget and by restoring another
  * vault's tabs, so it stays open across vault switches. There is one editor; activating a tab loads
  * its note, so background tabs hold no unsaved text. Pure state, no I/O: `Navigation` saves/loads

@@ -69,7 +69,7 @@ export const Workspace = clientEntry(
     handle.queueTask(() => {
       const { signal } = handle
       const isMac = /Mac/.test(navigator.platform)
-      // A `.md` opened from the OS before or while the window loaded waits in main until taken.
+      // A `.md`/`.mdx` opened from the OS before or while the window loaded waits in main until taken.
       void model.restoreTabs().then(() => model.takeOpenRequest())
 
       const source = new EventSource(routes.events.href())

@@ -82,7 +82,7 @@ export interface NoteRelocationResult extends AssetsLeftBehind {
 }
 
 /**
- * `GET /api/reader/:ticket`: an outside `.md` shown read-only in a reader tab; `name` is its base
+ * `GET /api/reader/:ticket`: an outside `.md`/`.mdx` shown read-only in a reader tab; `name` is its base
  * name, never a path. `html` is the body rendered and sanitised by `src/markdown/render.ts` in main.
  */
 export interface ReaderDocument {

@@ -680,7 +680,7 @@ export class WorkspaceModel extends TypedEventTarget<{
   }
 
   /**
-   * `.md` files opened from Finder/Explorer, taken from main until its queue is empty. A note of a
+   * `.md`/`.mdx` files opened from Finder/Explorer, taken from main until its queue is empty. A note of a
    * known vault switches to that vault (unless it is already open) and opens in a new tab (or its
    * existing tab); an outside file opens in a reader tab (its existing one when it already has one)
    * and leaves the vault alone. Called after hydration and on SSE `open-request`; a call made while
@@ -728,7 +728,7 @@ export class WorkspaceModel extends TypedEventTarget<{
   }
 
   /**
-   * Drag and drop: copies the `.md` files and folders behind a preload drop ticket into `folder`.
+   * Drag and drop: copies the `.md`/`.mdx` files and folders behind a preload drop ticket into `folder`.
    * A single dropped note opens in a new tab; the notice sums up the import and lists what was skipped.
    */
   async importDropped(drop: DropTicket | undefined, folder: string): Promise<void> {

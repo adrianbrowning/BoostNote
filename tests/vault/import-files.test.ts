@@ -163,6 +163,52 @@ describe('importFiles', () => {
     ])
   })
 
+  it('imports a lowercase .mdx file as .mdx and skips a .MDX file', async () => {
+    const mdx = await put(src, 'doc.mdx', '# Doc\n\n<Box prop="x">text</Box>\n')
+    const upper = await put(src, 'up/doc.MDX', 'upper')
+
+    const report = await vault.importFiles([mdx, upper], '')
+
+    expect(report.notes).toEqual([{ source: mdx, id: 'doc.mdx' }])
+    expect(await read('doc.mdx')).toBe('# Doc\n\n<Box prop="x">text</Box>\n')
+    expect(report.skipped).toEqual([{ source: upper, reason: 'not a Markdown file' }])
+    expect(await listFiles(root)).toEqual(['doc.mdx'])
+  })
+
+  it('imports a folder of .md and .mdx notes with their extensions and links between them', async () => {
+    await put(src, 'Mixed/a.md', '[b](b.mdx)\n')
+    await put(src, 'Mixed/b.mdx', '[a](./a.md)\n')
+
+    const report = await vault.importFiles([path.join(src, 'Mixed')], '')
+
+    expect(report.notes.map((note) => note.id)).toEqual(['Mixed/a.md', 'Mixed/b.mdx'])
+    expect(await read('Mixed/a.md')).toBe('[b](b.mdx)\n')
+    expect(await read('Mixed/b.mdx')).toBe('[a](./a.md)\n')
+    expect(await listFiles(root)).toEqual(['Mixed/a.md', 'Mixed/b.mdx'])
+  })
+
+  it('rewrites a link to a dropped .mdx note to its new id', async () => {
+    await put(root, 'b.md', 'taken')
+    await vault.refresh()
+    const a = await put(src, 'a.md', '[b](b.mdx)\n')
+    const b = await put(src, 'b.mdx', 'mdx')
+
+    const report = await vault.importFiles([a, b], '')
+
+    expect(report.notes.map((note) => note.id)).toEqual(['a.md', 'b 2.mdx'])
+    expect(await read('a.md')).toBe('[b](b%202.mdx)\n')
+    expect(await read('b 2.mdx')).toBe('mdx')
+  })
+
+  it('imports x.markdown and x.MD as .md notes', async () => {
+    const a = await put(src, 'x.markdown', 'a')
+    const b = await put(src, 'other/x.MD', 'b')
+
+    const report = await vault.importFiles([a, b], '')
+
+    expect(report.notes.map((note) => note.id)).toEqual(['x.md', 'x 2.md'])
+  })
+
   it('rewrites links between notes dropped together, and reports links to other notes', async () => {
     await put(src, 'Other Note.md', 'other')
     await put(src, 'not dropped.md', 'x')

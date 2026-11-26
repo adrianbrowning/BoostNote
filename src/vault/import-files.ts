@@ -104,11 +104,31 @@ interface Source {
 
 const MARKDOWN = /\.(?:md|markdown)$/i
 
+/** A dropped file's stem and the extension its imported note gets. */
+interface NoteSource {
+  stem: string
+  extension: '.md' | '.mdx'
+}
+
 /**
- * Plans copying `sources` (absolute paths of `.md`/`.markdown` files and folders) into the vault
+ * The `NoteSource` of a dropped file name that imports as a note: `.md`/`.markdown` in any case
+ * become `.md`, a lowercase `.mdx` stays `.mdx`; anything else (`.MDX`, `.txt`, a bare `.md`) is
+ * `undefined`.
+ */
+function noteSource(name: string): NoteSource | undefined {
+  const extension = name.endsWith('.mdx') ? '.mdx' : MARKDOWN.test(name) ? '.md' : undefined
+  if (extension === undefined) return undefined
+  const stem = extension === '.mdx' ? name.slice(0, -'.mdx'.length) : name.replace(MARKDOWN, '')
+  return stem === '' ? undefined : { stem, extension }
+}
+
+/**
+ * Plans copying `sources` (absolute paths of `.md`/`.markdown`/`.mdx` files and folders) into the vault
  * folder `folder` (real path `dir`). Nothing is written.
  *
- * - A file becomes `<noteFileName(stem)>.md`, unique (ignoring case) in the target folder.
+ * - A file becomes `<noteFileName(stem)>.md` (`.mdx` for a lowercase `.mdx` file), its stem unique
+ *   (ignoring case) among the target folder's `.md`/`.mdx` notes and `.assets` folders; a `.MDX` file
+ *   is not Markdown.
  * - A folder becomes a new folder of the same name (unique) holding its Markdown files with their
  *   sub-folder structure; other files, dot-entries and symlinks in it are skipped.
  * - A source already directly in the target folder is skipped ("already in …"), as is a folder
@@ -152,11 +172,11 @@ export async function planImport(options: {
     }
     return names
   }
-  const pickNoteId = (parent: string, stem: string) => {
+  const pickNoteId = (parent: string, { stem, extension }: NoteSource) => {
     const names = takenIn(parent)
-    const picked = uniqueName(noteFileName(stem), (candidate) => stemTaken(names, candidate, '.md'))
-    takeStem(names, picked, '.md')
-    const id = joinId(parent, `${picked}.md`)
+    const picked = uniqueName(noteFileName(stem), (candidate) => stemTaken(names, candidate, extension))
+    takeStem(names, picked, extension)
+    const id = joinId(parent, `${picked}${extension}`)
     noteSegments(id)
     return id
   }
@@ -195,7 +215,8 @@ export async function planImport(options: {
     const stats = await stat(real)
     const parentDir = path.dirname(real)
     if (stats.isFile()) {
-      if (!MARKDOWN.test(real) || path.basename(real).replace(MARKDOWN, '') === '') {
+      const note = noteSource(path.basename(real))
+      if (note === undefined) {
         report.skipped.push({ source, reason: 'not a Markdown file' })
       } else if (parentDir === dir) {
         report.skipped.push({ source, reason: `already in ${where}` })
@@ -203,7 +224,7 @@ export async function planImport(options: {
         notes.push({
           path: source,
           real,
-          id: pickNoteId(folder, path.basename(real).replace(MARKDOWN, '')),
+          id: pickNoteId(folder, note),
           root: parentDir,
         })
         tooMany()
@@ -224,7 +245,7 @@ export async function planImport(options: {
     }
     // Walk first, then name the new folders: folders without Markdown files are not created, and
     // a dropped folder without any is reported once rather than file by file.
-    const found: Array<{ path: string; real: string; segments: string[] }> = []
+    const found: Array<{ path: string; real: string; segments: string[]; note: NoteSource }> = []
     const skippedInside: ImportFilesReport['skipped'] = []
     const othersInside = new Map<string, string>()
     const walk = async (abs: string, display: string, segments: string[]): Promise<void> => {
@@ -243,9 +264,10 @@ export async function planImport(options: {
         if (isHiddenName(entry.name)) continue
         const child = path.join(abs, entry.name)
         const childDisplay = path.join(display, entry.name)
+        const note = entry.isFile() ? noteSource(entry.name) : undefined
         if (entry.isDirectory()) await walk(child, childDisplay, [...segments, entry.name])
-        else if (entry.isFile() && MARKDOWN.test(entry.name) && entry.name.replace(MARKDOWN, '') !== '') {
-          found.push({ path: childDisplay, real: child, segments: [...segments, entry.name] })
+        else if (note !== undefined) {
+          found.push({ path: childDisplay, real: child, segments: [...segments, entry.name], note })
           if (notes.length + found.length > limits.maxFiles) {
             throw new VaultError('TOO_LARGE', `Too many files to import (more than ${limits.maxFiles})`)
           }
@@ -272,8 +294,7 @@ export async function planImport(options: {
       return id
     }
     for (const file of found) {
-      const name = file.segments.at(-1) ?? ''
-      const id = pickNoteId(folderOf(file.segments.slice(0, -1)), name.replace(MARKDOWN, ''))
+      const id = pickNoteId(folderOf(file.segments.slice(0, -1)), file.note)
       notes.push({ path: file.path, real: file.real, id, root: real })
     }
   }
@@ -325,7 +346,7 @@ export async function planImport(options: {
         targets.set(relPath, null)
       } else if (noteIds.has(resolved.real)) {
         targets.set(relPath, { note: noteIds.get(resolved.real) ?? '' })
-      } else if (MARKDOWN.test(resolved.real)) {
+      } else if (noteSource(path.basename(resolved.real)) !== undefined) {
         unresolved.set(relPath, 'note not part of this import')
         targets.set(relPath, null)
       } else {

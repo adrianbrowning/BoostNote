@@ -81,7 +81,7 @@ async function useRegular<T>(file: string, use: (handle: FileHandle) => Promise<
 }
 
 /**
- * Tickets for `.md` files outside every known vault, opened read-only in reader tabs. Main grants
+ * Tickets for `.md`/`.mdx` files outside every known vault, opened read-only in reader tabs. Main grants
  * one when such a file is opened from the OS (`VaultSession.takeOpenRequest`). The page gets the
  * ticket and the file's base name, never its path, and reads the file through
  * `GET /api/reader/:ticket` as often as it likes. A ticket is exactly 48 lowercase hex characters

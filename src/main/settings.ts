@@ -12,7 +12,7 @@ export interface WindowBounds {
 
 export type ThemePreference = 'system' | 'light' | 'dark'
 
-/** Opening a `.md` outside every known vault: a read-only reader tab, or its folder as the vault. */
+/** Opening a `.md`/`.mdx` outside every known vault: a read-only reader tab, or its folder as the vault. */
 export type OutsideFilePreference = 'reader' | 'vault'
 
 /** Table width: `'line'` keeps the line width, `'full'` allows the whole pane, a number is px (400–2000). */
