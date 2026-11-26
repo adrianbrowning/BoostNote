@@ -49,7 +49,6 @@ import { findH1, hashText, type Note, type ReadonlyNoteMeta, toNote } from './no
 import {
   ASSETS_SUFFIX,
   assetFileName,
-  CONFIG_DIR,
   encodeLinkPath,
   folderSegments,
   isHiddenName,
@@ -81,9 +80,9 @@ export interface OpenVaultOptions {
   /** Quiet period before a burst of file-system events is processed (default 100 ms). */
   debounceMs?: number
   /**
-   * An absolute folder that is no part of any vault (the scratch notes' folder): opening a vault on it, inside it, or
-   * on a folder that holds it in the vault's trash or config folder or in a `*.assets` folder is refused (`ScratchOverlapError`); a vault that
-   * holds it elsewhere leaves it out (see `openVault`), so its files are never notes of a vault.
+   * An absolute folder that is no part of any vault (the scratch notes' folder): opening a vault on it or inside it is
+   * refused (`ScratchOverlapError`); a vault that holds it leaves it out (see `openVault`), so its files are never
+   * notes of a vault.
    */
   exclude?: string
 }
@@ -239,9 +238,9 @@ const WATCHER_SETTLE_MS = 1000
 
 /**
  * Opens the folder at `root` as a vault and indexes its notes. Throws `VaultError('NOT_A_VAULT')` when the folder is
- * missing, and `ScratchOverlapError` (code `NOT_A_VAULT`) when it is the `exclude` folder, lies inside it, or holds it
- * in the vault's own trash or config folder or in a `*.assets` folder. A vault that holds it elsewhere opens and leaves it out: it is never
- * listed, read, written, moved or trashed, nor is any folder that holds it moved, renamed or trashed.
+ * missing, and `ScratchOverlapError` (code `NOT_A_VAULT`) when it is the `exclude` folder or lies inside it. A vault
+ * that holds it opens and leaves it out: it is never listed, read, written, moved or trashed, nor is any folder or
+ * note assets folder that holds it moved, renamed, trashed or restored, and emptying the trash keeps it.
  */
 export async function openVault(root: string, options: OpenVaultOptions = {}): Promise<Vault> {
   let real: string
@@ -257,10 +256,7 @@ export async function openVault(root: string, options: OpenVaultOptions = {}): P
     const exclude = await realPathOf(options.exclude)
     if (isInside(exclude, real)) throw new ScratchOverlapError()
     if (isInside(real, exclude)) {
-      // Trash, config and a note's assets folder move or vanish wholesale (empty trash, note move or trash).
-      const segments = path.relative(real, exclude).split(path.sep)
-      if (segments[0] === TRASH_DIR || segments[0] === CONFIG_DIR) throw new ScratchOverlapError()
-      if (segments.some((segment) => segment.endsWith(ASSETS_SUFFIX))) throw new ScratchOverlapError()
+      // A holder opens; its scan skips the folder, and every move or removal that would carry it is refused.
       excluded = exclude
     }
   }
@@ -315,10 +311,10 @@ export class Vault {
     return resolveInside(this.root, segments, this.#excluded)
   }
 
-  /** Refuses to move, rename or trash folder `id` when it holds the excluded folder. */
-  #guardHolder(id: string): void {
-    if (this.#excluded !== undefined && isInside(path.join(this.root, ...folderSegments(id)), this.#excluded)) {
-      throw new VaultError('INVALID_PATH', `${id} holds the scratch notes’ folder; it cannot be moved or deleted`)
+  /** Refuses to move, rename or remove the file-system entry `target` (named `name`) when it holds the excluded folder. */
+  #guardHolder(target: string, name: string): void {
+    if (this.#excluded !== undefined && isInside(target, this.#excluded)) {
+      throw new VaultError('INVALID_PATH', `${name} holds the scratch notes’ folder; it cannot be moved or deleted`)
     }
   }
 
@@ -747,6 +743,7 @@ export class Vault {
       const trashName = `${trashStem}${extension}`
       const trashId = joinId(parentOf(id), trashName)
       const assetsLeftBehind = await sharedAssetsOf(id, file)
+      if (assetsLeftBehind === undefined) this.#guardHolder(assetsDirOf(file), id)
       await rename(file, path.join(trashDir, trashName))
       if (assetsLeftBehind === undefined) {
         await renameIfExists(assetsDirOf(file), path.join(trashDir, `${trashStem}${ASSETS_SUFFIX}`))
@@ -793,6 +790,8 @@ export class Vault {
       if (!entry) throw new VaultError('NOT_FOUND', `Not in trash: ${trashId}`)
       const source = await this.#trashPath(trashId, entry.kind)
       if (!(await exists(source))) throw new VaultError('NOT_FOUND', `Not in trash: ${trashId}`)
+      this.#guardHolder(source, trashId)
+      if (entry.kind === 'note' && entry.assetsLeftBehind === undefined) this.#guardHolder(assetsDirOf(source), trashId)
       const parent = parentOf(entry.originalPath)
       const parentDir = await this.#resolve(folderSegments(parent))
       await mkdir(parentDir, { recursive: true })
@@ -837,10 +836,10 @@ export class Vault {
     })
   }
 
-  /** Permanently deletes everything in the trash. */
+  /** Permanently deletes everything in the trash, except the excluded folder and the folders that hold it. */
   emptyTrash(): Promise<void> {
     return this.#exclusive(async () => {
-      await rm(path.join(this.root, TRASH_DIR), { recursive: true, force: true })
+      await removeExcept(path.join(this.root, TRASH_DIR), this.#excluded)
     })
   }
 
@@ -882,7 +881,7 @@ export class Vault {
   deleteFolder(id: string): Promise<TrashEntry> {
     return this.#exclusive(async () => {
       if (id === '') throw new VaultError('INVALID_PATH', 'Cannot delete the vault root')
-      this.#guardHolder(id)
+      this.#guardHolder(path.join(this.root, ...folderSegments(id)), id)
       const dir = await this.#existingFolder(id)
       const trashParent = await resolveInside(this.root, [TRASH_DIR, ...folderSegments(parentOf(id))])
       await mkdir(trashParent, { recursive: true })
@@ -1087,6 +1086,10 @@ export class Vault {
     if (fromId === toId) return { note: await this.#track(fromId, from, raw), moves: [] }
     const assetsLeftBehind = await sharedAssetsOf(fromId, from)
     const assetsMove = assetsLeftBehind === undefined
+    if (assetsMove) {
+      this.#guardHolder(assetsDirOf(from), fromId)
+      this.#guardHolder(assetsDirOf(to), toId)
+    }
     if (
       !(await sameOrMissing(from, to)) ||
       (await stemTakenByOthers(to, from)) ||
@@ -1113,7 +1116,7 @@ export class Vault {
    */
   async #relocateFolder(id: string, toId: string): Promise<FolderRelocation> {
     if (id === '') throw new VaultError('INVALID_PATH', 'Cannot move the vault root')
-    this.#guardHolder(id)
+    this.#guardHolder(path.join(this.root, ...folderSegments(id)), id)
     const from = await this.#existingFolder(id)
     const to = await this.#resolve(folderSegments(toId))
     if (id === toId) return { folder: id, moves: [] }
@@ -1278,6 +1281,23 @@ function keepTypedFrontmatter(raw: string, now: string): string {
 
 function assetsDirOf(noteFile: string): string {
   return path.join(path.dirname(noteFile), `${noteStem(noteFile)}${ASSETS_SUFFIX}`)
+}
+
+/** Removes `target` recursively, keeping `keep` (when inside it) and the folders on the way to it. */
+async function removeExcept(target: string, keep: string | undefined): Promise<void> {
+  if (keep === undefined || !isInside(target, keep)) {
+    await rm(target, { recursive: true, force: true })
+    return
+  }
+  if (target === keep) return
+  let names: string[]
+  try {
+    names = await readdir(target)
+  } catch (error) {
+    if (isNodeError(error, 'ENOENT')) return
+    throw error
+  }
+  for (const name of names) await removeExcept(path.join(target, name), keep)
 }
 
 /** The file's text, or `undefined` when it does not exist. */

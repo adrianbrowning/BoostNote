@@ -50,24 +50,41 @@ describe('openVault exclude', () => {
     expect((await vault.tree()).notes.map((note) => note.id)).toEqual(['kept.md'])
   })
 
-  it.each([
-    ['.trash', '.trash/app/scratch'],
-    ['.boostnote', '.boostnote/app/scratch'],
-  ])('refuses a root that holds the excluded folder in its own %s folder', async (_, rel) => {
-    await mkdir(path.join(root, rel), { recursive: true })
-    await expect(openVault(root, { exclude: path.join(root, rel) })).rejects.toMatchObject({ code: 'NOT_A_VAULT' })
+  it('opens a root that holds the excluded folder in its trash; emptying the trash keeps the excluded folder', async () => {
+    await put('.trash/app/scratch/a.md', '# Scratch')
+    await put('gone.md', '# Gone')
+    vault = await openVault(root, { exclude: path.join(root, '.trash', 'app', 'scratch') })
+    await vault.deleteNote('gone.md')
+    await vault.emptyTrash()
+    expect(await read('.trash/app/scratch/a.md')).toBe('# Scratch')
+    expect(await vault.listTrash()).toEqual([])
+    expect((await readdir(path.join(root, '.trash'))).sort()).toEqual(['app'])
+  })
+
+  it('opens a root that holds the excluded folder in its config folder', async () => {
+    await put('.boostnote/app/scratch/a.md', '# Scratch')
+    await put('kept.md', '# Kept')
+    vault = await openVault(root, { exclude: path.join(root, '.boostnote', 'app', 'scratch') })
+    expect((await vault.tree()).notes.map((note) => note.id)).toEqual(['kept.md'])
+    expect(await read('.boostnote/app/scratch/a.md')).toBe('# Scratch')
   })
 
   it.each([
     ['foo.md', 'foo.assets/app/scratch'],
     ['notes/foo.md', 'notes/foo.assets/scratch'],
   ])(
-    'refuses a root that holds the excluded folder in the assets folder of %s, so no note move or trash carries it',
+    'opens a root that holds the excluded folder in the assets folder of %s, which never moves or trashes it',
     async (note, rel) => {
       await put(note, '# Foo')
       await put(`${rel}/a.md`, '# Scratch')
-      await expect(openVault(root, { exclude: path.join(root, rel) })).rejects.toMatchObject({ code: 'NOT_A_VAULT' })
+      await mkdir(path.join(root, 'elsewhere'))
+      vault = await openVault(root, { exclude: path.join(root, rel) })
+      expect((await vault.notes()).map((entry) => entry.id)).toEqual([note])
+      await expect(vault.deleteNote(note)).rejects.toMatchObject({ code: 'INVALID_PATH' })
+      await expect(vault.moveNote(note, 'elsewhere')).rejects.toMatchObject({ code: 'INVALID_PATH' })
+      await expect(vault.renameNote(note, 'bar')).rejects.toMatchObject({ code: 'INVALID_PATH' })
       expect(await read(`${rel}/a.md`)).toBe('# Scratch')
+      expect(await read(note)).toBe('# Foo')
     },
   )
 
