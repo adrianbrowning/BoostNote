@@ -571,13 +571,13 @@ export class WorkspaceModel extends TypedEventTarget<{
    * so text typed while the dialog is open is saved too; a refused save sends nothing), asks for a folder of the open
    * vault (`dropFolder` first) in the dialog of a reader's "Add to vault…", then main creates the note there, named by the
    * scratch note's title (`scratchTitle`), and removes the scratch note. Its tab becomes the new note's tab at its
-   * position (`Navigation.saveScratch`); saved from the scratch list with no tab, the new note opens in a new tab, and
-   * the scratch list is read again. A vault switch while the folder dialog is open saves nothing (an error
-   * notice). The request names the vault on screen, so a vault switch while it is out does not move the note: its
-   * lists are not shown, the scratch tab closes and the notice says where the note went. On failure the scratch note
-   * and its tab stay and the notice says why. Nothing happens without an open vault (the button is disabled) or
-   * while this scratch note is being saved. Runs in open order, as "Add to vault…" does, so no open-request drain
-   * switches the vault while the user chooses.
+   * position (`Navigation.saveScratch`); saved from the scratch list with no tab, the new note opens in a new tab.
+   * The scratch list is read again after every save that ran. A vault switch while the folder dialog is open saves
+   * nothing (an error notice). The request names the vault on screen, so a vault switch while it is out does not
+   * move the note: its lists are not shown, the scratch tab closes and the notice says where the note went. On
+   * failure the scratch note and its tab stay and the notice says why. Nothing happens without an open vault (the
+   * button is disabled) or while this scratch note is being saved. Runs in open order, as "Add to vault…" does, so no
+   * open-request drain switches the vault while the user chooses.
    */
   async saveScratchToVault(id: string): Promise<void> {
     if (!this.data.vault || this.#savingScratch.has(id)) return
