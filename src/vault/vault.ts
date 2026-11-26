@@ -28,7 +28,7 @@ import {
   writeConfig,
   writeTrashIndex,
 } from './config.ts'
-import { isNodeError, VaultError } from './errors.ts'
+import { isNodeError, ScratchOverlapError, VaultError } from './errors.ts'
 import { copyFileAtomic, exists, isFile, writeFileAtomic } from './files.ts'
 import { type Frontmatter, keepUnchangedValues, parseNoteText, serializeNoteText } from './frontmatter.ts'
 import { type ImportFilesReport, type ImportOptions, planImport } from './import-files.ts'
@@ -81,7 +81,8 @@ export interface OpenVaultOptions {
   debounceMs?: number
   /**
    * An absolute folder that no vault overlaps (the scratch notes' folder): opening a vault on it, inside it, or on a
-   * folder that holds it is refused, so its files are never notes of a vault.
+   * folder that holds it outside hidden names is refused (`ScratchOverlapError`), so its files are never notes of a
+   * vault.
    */
   exclude?: string
 }
@@ -237,7 +238,9 @@ const WATCHER_SETTLE_MS = 1000
 
 /**
  * Opens the folder at `root` as a vault and indexes its notes. Throws `VaultError('NOT_A_VAULT')` when the folder is
- * missing, or overlaps the `exclude` folder (is it, is inside it, or holds it).
+ * missing, and `ScratchOverlapError` (code `NOT_A_VAULT`) when it overlaps the `exclude` folder: is it, is inside it,
+ * or holds it where the vault would index it (a holder whose path to it crosses a hidden name opens, as the vault
+ * never reads or names hidden entries).
  */
 export async function openVault(root: string, options: OpenVaultOptions = {}): Promise<Vault> {
   let real: string
@@ -250,12 +253,8 @@ export async function openVault(root: string, options: OpenVaultOptions = {}): P
   }
   if (options.exclude !== undefined) {
     const excluded = await realPathOf(options.exclude)
-    if (isInside(excluded, real) || isInside(real, excluded)) {
-      throw new VaultError(
-        'NOT_A_VAULT',
-        'This folder overlaps the scratch notes’ folder; it cannot be opened as a vault',
-      )
-    }
+    const reachable = isInside(real, excluded) && !path.relative(real, excluded).split(path.sep).some(isHiddenName)
+    if (isInside(excluded, real) || reachable) throw new ScratchOverlapError()
   }
   const vault = new Vault(real, await readConfig(real))
   await vault.refresh()

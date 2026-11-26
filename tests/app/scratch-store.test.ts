@@ -1,5 +1,5 @@
 import type * as FsPromises from 'node:fs/promises'
-import { mkdtemp, readdir, rm } from 'node:fs/promises'
+import { mkdtemp, readdir, rm, stat } from 'node:fs/promises'
 import * as os from 'node:os'
 import * as path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -45,6 +45,47 @@ describe('ScratchStore.create', () => {
     expect(await readdir(dir)).toEqual([])
     failing.rename = null
     expect(await store.list()).toEqual([])
+  })
+
+  it('leaves no file in the scratch folder when the note’s sidecar cannot be written', async () => {
+    const store = new ScratchStore(dir)
+    failing.rename = (target) => target.endsWith('.json')
+
+    await expect(store.create()).rejects.toThrow('ENOSPC')
+
+    expect(await readdir(dir)).toEqual([])
+    failing.rename = null
+    expect(await store.list()).toEqual([])
+  })
+})
+
+describe('ScratchStore with a lost sidecar', () => {
+  it('still reads and lists the note, with its file’s birth time, when the sidecar cannot be written again', async () => {
+    const store = new ScratchStore(dir)
+    const { id } = await store.create()
+    await rm(path.join(dir, `${id}.json`))
+    const born = (await stat(path.join(dir, `${id}.md`))).birthtime.toISOString()
+    failing.rename = (target) => target.endsWith('.json')
+
+    expect((await store.read(id)).created).toBe(born)
+    expect((await store.list()).map((note) => ({ id: note.id, created: note.created }))).toEqual([
+      { id, created: born },
+    ])
+    failing.rename = null
+    expect((await store.read(id)).created).toBe(born)
+    expect(await readdir(dir)).toEqual([`${id}.json`, `${id}.md`].sort())
+  })
+
+  it('keeps the note’s original birth time when the first operation after the loss is a write', async () => {
+    const store = new ScratchStore(dir)
+    const { id } = await store.create()
+    await rm(path.join(dir, `${id}.json`))
+    const born = (await stat(path.join(dir, `${id}.md`))).birthtime.toISOString()
+    // A real pause: the replacement file's birth time comes from the file system's clock.
+    await new Promise((resolve) => setTimeout(resolve, 20))
+
+    expect((await store.write(id, 'text')).created).toBe(born)
+    expect((await store.read(id)).created).toBe(born)
   })
 })
 

@@ -15,6 +15,8 @@ describe('scratchTitle', () => {
     ['# #\n# Plan', 'Plan'],
     ['## ##\ntext\n## Next', 'Next'],
     ['### Kept # ###', 'Kept #'],
+    ['# # #\n# Plan', '#'],
+    ['# ## ##\ntext', '##'],
     ['~~~~md\n# inside\n~~~\n# still inside\n~~~~\n# After fence', 'After fence'],
   ])('%j → the first heading outside fenced code, %j', (text, title) => {
     expect(scratchTitle(text, created)).toBe(title)

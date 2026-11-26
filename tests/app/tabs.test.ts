@@ -331,6 +331,18 @@ describe('Tabs', () => {
       expect(tabs.replaceScratch(tabs.tabs[0]?.key ?? 0, 'x.md')).toBeUndefined()
       expect(paths(tabs)).toEqual(['a.md', 'c.md', 'new.md'])
     })
+
+    it('leave a reader tab turned into a note tab under its key, at its slot, active', () => {
+      const tabs = new Tabs()
+      tabs.navigate('a.md')
+      tabs.openNew('b.md')
+      tabs.select(0)
+      const reader = tabs.openReader('t1', 'r.md')
+      const note = tabs.replaceReader(reader.key, 'r.md')
+      expect(note).toEqual({ key: reader.key, kind: 'note', path: 'r.md', back: [], forward: [] })
+      expect(paths(tabs)).toEqual(['a.md', 'r.md', 'b.md'])
+      expect(tabs.activeKey).toBe(reader.key)
+    })
   })
 })
 

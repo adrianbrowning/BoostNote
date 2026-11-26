@@ -136,6 +136,8 @@ export class Navigation {
   #scratchCreates: Promise<unknown> = Promise.resolve()
   /** A transition changed the scratch notes since the host last listed them (`#relistScratch`). */
   #scratchListStale = false
+  /** The blank discards of background scratch tab closes still out, by scratch note id. */
+  readonly #discarding = new Map<string, Promise<void>>()
 
   constructor({ session, api, store, host }: NavigationOptions) {
     this.#session = session
@@ -147,13 +149,13 @@ export class Navigation {
 
   /**
    * A save found the open scratch note `id` gone (deleted on disk; the session let it go): its tab closes with the
-   * notice, as a `404` read does, and when it was active the next tab loads. Failures go to the host.
+   * notice, as a `404` read does, and the active tab loads (the event fires only while the session held the scratch
+   * note, so it holds nothing now, also when that tab was in the background). Failures go to the host.
    */
   #scratchGone(id: string, message: string): void {
     this.#host.notify('error', message)
     this.#scratchListStale = true
     const tab = this.#scratchTab(id)
-    const wasActive = tab !== undefined && tab.key === this.tabs.activeKey
     if (tab) {
       try {
         this.#edit((tabs) => tabs.close(tab.key))
@@ -162,9 +164,8 @@ export class Navigation {
       }
       this.#host.changed()
     }
-    // The load's hold lists the scratch notes again once it is done; without one, they are listed now.
-    const done = wasActive ? this.hold(() => this.#loadActive(), { gate: false }) : this.#relistScratch()
-    void done.catch((error: unknown) => this.#host.fail(error))
+    // The session held it and now holds nothing: the active tab loads (its hold lists the scratch notes again).
+    void this.hold(() => this.#loadActive(), { gate: false }).catch((error: unknown) => this.#host.fail(error))
   }
 
   /** Lets the host list the scratch notes again when a transition changed them, once no hold runs. */
@@ -388,7 +389,14 @@ export class Navigation {
       // store that throws rejects the close with the blank note gone (inside another hold, that hold saves them).
       this.#edit((tabs) => tabs.close(key), { save: false })
       this.#host.changed()
-      await this.#discardBlank(tab.id, report)
+      // A reopen from the scratch list meanwhile reads it only once this discard answered (`#loadScratch`).
+      const discarding = this.#discardBlank(tab.id, report)
+      this.#discarding.set(tab.id, discarding)
+      try {
+        await discarding
+      } finally {
+        if (this.#discarding.get(tab.id) === discarding) this.#discarding.delete(tab.id)
+      }
       await this.#relistScratch()
       if (this.#holds === 0) this.#persist()
       return
@@ -530,12 +538,12 @@ export class Navigation {
     if (!active && this.#session.scratch?.id !== id) {
       await this.#discard(id)
       // The tab may have become active, or the session may hold it, while the request was out.
-      const shown = this.#session.scratch?.id === id || this.tabs.active === this.#scratchTab(id)
+      const open = this.#scratchTab(id)
+      const shown = this.#session.scratch?.id === id || (open !== undefined && open.key === this.tabs.activeKey)
       if (shown) {
         await this.hold(() => this.#closeDiscarded(id), { gate: false })
         return
       }
-      const open = this.#scratchTab(id)
       if (open) this.#edit((tabs) => tabs.close(open.key))
       this.#host.changed()
       await this.#relistScratch()
@@ -852,6 +860,8 @@ export class Navigation {
     }
     // As for notes, a read that returns after a later transition is dropped (its error too).
     const current = this.token()
+    // A background close's blank discard still out: read once it answered, so a deleted note answers 404.
+    await this.#discarding.get(tab.id)
     let scratch: ScratchNote
     try {
       scratch = await this.#api.readScratch(tab.id)

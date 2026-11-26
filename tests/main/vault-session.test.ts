@@ -457,4 +457,25 @@ describe('VaultSession', () => {
     expect(fsHooks.beforeRealpath).toBeUndefined()
     await session.dispose()
   })
+
+  it('"Open folder as vault" answers "gone" without the path when a parent of the folder became a file while it loaded', async () => {
+    const parent = await realpath(await folder('parent-turns-file'))
+    const loose = await folder('parent-turns-file/inner')
+    await writeFile(path.join(loose, 'readme.md'), '# Readme\n')
+    const session = new VaultSession({ settings: new SettingsStore(file), events })
+    session.requestOpen(path.join(loose, 'readme.md'))
+    const request = await session.takeOpenRequest()
+    const ticket = request?.kind === 'external' ? request.ticket : ''
+    fsHooks.beforeRealpath = {
+      path: path.join(parent, 'inner'),
+      run: async () => {
+        await rename(parent, `${parent}-moved`)
+        await writeFile(parent, 'not a folder\n')
+      },
+    }
+    const refused = session.openReaderFolder(ticket)
+    await expect(refused).rejects.toMatchObject({ code: 'NOT_FOUND', message: 'readme.md is gone; open it again' })
+    expect(fsHooks.beforeRealpath).toBeUndefined()
+    await session.dispose()
+  })
 })

@@ -4,6 +4,7 @@
  * serves the same operations to MCP clients over stdio instead.
  */
 import { fstatSync } from 'node:fs'
+import * as path from 'node:path'
 import { parse as parseYaml } from 'yaml'
 
 import type { ReadonlyNoteMeta, Vault } from '../vault/index.ts'
@@ -35,7 +36,7 @@ import {
   writeNote,
 } from './commands.ts'
 import { serveMcp } from './mcp.ts'
-import { resolveVaultDir } from './vault-dir.ts'
+import { appUserDataDir, resolveVaultDir } from './vault-dir.ts'
 
 export interface CliIo {
   stdout(text: string): void
@@ -213,9 +214,13 @@ export async function runCli(argv: string[], io: CliIo): Promise<number> {
   }
   const json = values.json === true
   try {
-    const vault = await openVault(resolveVaultDir(values.vault as string | undefined, io.env)).catch((error) => {
-      throw toCommandError(error)
-    })
+    // The app's scratch notes live outside every vault: a folder that overlaps their folder is no vault here either.
+    const exclude = path.join(appUserDataDir(io.env), 'scratch')
+    const vault = await openVault(resolveVaultDir(values.vault as string | undefined, io.env), { exclude }).catch(
+      (error) => {
+        throw toCommandError(error)
+      },
+    )
     if (command === 'mcp') {
       await serveMcp(vault)
       return EXIT_CODES.ok

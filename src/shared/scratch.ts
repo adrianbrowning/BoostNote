@@ -6,6 +6,7 @@
 
 /** An ATX heading (`# Title`, `## Title ##`), indented at most three spaces; group 1 is its text. */
 const HEADING = /^ {0,3}#{1,6}(?:[ \t]+(.*?))?(?:[ \t]+#+)?[ \t]*$/
+const EMPTY_HEADING = /^ {0,3}#{1,6}(?:[ \t]+#*)?[ \t]*$/
 /** The opening or closing line of a fenced code block; group 1 is the fence (```` ``` ```` or `~~~`, or longer). */
 const FENCE = /^ {0,3}(`{3,}|~{3,})/
 /** The opening line of a leading frontmatter block, as `parseNoteText` finds it. */
@@ -47,8 +48,8 @@ export function scratchTitle(text: string, created: string): string {
       continue
     }
     const heading = HEADING.exec(line)?.[1]?.trim()
-    // `# #`, `## ##`: one space between, so the closing sequence came out as the text; an empty heading, skipped.
-    if (heading && !/^#+$/.test(heading)) return heading
+    // An empty heading (`#`, `# #`, `## ##`: the opening run, then at most one closing run), skipped; `# # #` is `#`.
+    if (heading && !EMPTY_HEADING.test(line)) return heading
   }
   const first = lines.find((line) => line.trim() !== '')
   if (first !== undefined) return first.trim()

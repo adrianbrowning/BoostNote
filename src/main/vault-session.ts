@@ -1,10 +1,11 @@
-import { realpath, stat } from 'node:fs/promises'
+import { realpath } from 'node:fs/promises'
 import * as path from 'node:path'
 
 import { HttpError } from '../app/http.ts'
 import { ReaderGrants } from '../app/reader-grants.ts'
 import { isNoteFileName } from '../shared/vault-ids.ts'
-import { type ImportFilesReport, openVault, type Vault, VaultError } from '../vault/index.ts'
+import { isNodeError } from '../vault/errors.ts'
+import { type ImportFilesReport, openVault, ScratchOverlapError, type Vault, VaultError } from '../vault/index.ts'
 import { isInside, noteSegments } from '../vault/paths.ts'
 import type { EventHub } from './events.ts'
 import type { SettingsStore } from './settings.ts'
@@ -143,7 +144,8 @@ export class VaultSession {
    * (also while this waited its turn behind another vault switch), its file is no longer a regular
    * file at its real path, or the folder resolved to another folder while it loaded (a parent swapped
    * for a symlink), and `VaultError('INVALID_PATH')` when its name can be no note (a
-   * dot-name); the vault and the ticket then stay as they were. Runs in the vault
+   * dot-name), and `ScratchOverlapError` (`VaultError('NOT_A_VAULT')`) when the folder overlaps the scratch
+   * notes' folder (`exclude`); the vault and the ticket then stay as they were. Runs in the vault
    * queue, as `closeReader` does, so a close either comes first (and this opens nothing) or finds
    * the ticket revoked. Messages name the file's base name at most.
    */
@@ -163,15 +165,14 @@ export class VaultSession {
       const root = path.dirname(granted)
       let vault = this.#vaults.get(root)
       if (!vault) {
-        const loaded = await this.#load(root).catch(async (error: unknown) => {
-          // `NOT_A_VAULT` means the folder went away (or stopped being a folder) meanwhile, and
-          // `openVault`'s message would name its path, or it overlaps the scratch notes' folder. Only
-          // a folder that is still there keeps its message (the overlap); the rest is "gone".
-          const isFolder = await stat(root).then(
-            (stats) => stats.isDirectory(),
-            () => false,
-          )
-          throw error instanceof VaultError && error.code === 'NOT_A_VAULT' && !isFolder ? gone() : error
+        const loaded = await this.#load(root).catch((error: unknown) => {
+          // The overlap with the scratch notes' folder keeps its message. Any other refusal, or a path that stopped
+          // resolving to a folder meanwhile, means the folder went away; `openVault`'s message would name its path.
+          if (error instanceof ScratchOverlapError) throw error
+          const missing =
+            (error instanceof VaultError && error.code === 'NOT_A_VAULT') ||
+            ['ENOENT', 'ENOTDIR', 'ELOOP'].some((code) => isNodeError(error, code))
+          throw missing ? gone() : error
         })
         // A parent folder swapped for a symlink while it loaded: that is another folder, not the granted one.
         if (loaded.root !== root) {

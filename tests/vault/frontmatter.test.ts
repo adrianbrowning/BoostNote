@@ -153,4 +153,12 @@ describe('frontmatter whose keys are reordered on a note save', () => {
     expect(Object.keys(parsed.frontmatter)).toEqual(['b', 'a'])
     expect(parsed.body).toBe('body')
   })
+
+  it('keeps the typed order of array-index keys when only a value of a flow mapping changes', () => {
+    const yaml = '{title: x, 2024: y}\n'
+    const before = parseNoteText(`---\n${yaml}---\n`).frontmatter
+    const text = updateYaml(yaml, before, { ...before, title: 'z' })
+    expect(text.indexOf('title')).toBeLessThan(text.indexOf('2024'))
+    expect(parseNoteText(`---\n${text}---\n`).frontmatter).toEqual({ title: 'z', 2024: 'y' })
+  })
 })

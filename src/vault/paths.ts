@@ -56,7 +56,7 @@ export function noteSegments(id: string): string[] {
 
 export function isInside(parent: string, child: string): boolean {
   const relative = path.relative(parent, child)
-  return relative === '' || (!relative.startsWith('..') && !path.isAbsolute(relative))
+  return relative === '' || (relative !== '..' && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative))
 }
 
 /**

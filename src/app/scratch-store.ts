@@ -35,13 +35,18 @@ export class ScratchStore {
     this.#dir = dir
   }
 
-  /** A new, empty scratch note: its file first, then its sidecar, so a failed create leaves no stray sidecar. */
+  /** A new, empty scratch note: its file, then its sidecar; a failed create removes what it wrote, leaving no file. */
   async create(): Promise<ScratchNote> {
     const id = randomBytes(16).toString('hex')
     const created = new Date().toISOString()
     return this.#serial(id, async () => {
       await writeFileAtomic(this.#file(id), '')
-      await writeJsonFile(this.#meta(id), { created })
+      try {
+        await writeJsonFile(this.#meta(id), { created })
+      } catch (error) {
+        await rm(this.#file(id), { force: true })
+        throw error
+      }
       return this.#read(id)
     })
   }
@@ -71,7 +76,8 @@ export class ScratchStore {
 
   /**
    * Note `id`. A note whose sidecar is missing or unreadable takes its file's birth time as its creation time and
-   * keeps it from then on (the sidecar is written again), so later writes do not move it.
+   * keeps it from then on (the sidecar is written again, best effort: a failed write is retried on the next read
+   * or write), so later writes do not move it.
    */
   read(id: string): Promise<ScratchNote> {
     return this.#serial(id, () => this.#read(id))
@@ -84,6 +90,8 @@ export class ScratchStore {
   write(id: string, text: string): Promise<ScratchNote> {
     return this.#serial(id, async () => {
       const file = await this.#existing(id)
+      // Keep the creation time of the file about to be replaced, when its sidecar is lost.
+      await this.#created(id, file)
       if (!(await writeFileAtomic(file, text, () => isFile(file)))) throw notFound()
       return this.#read(id)
     })
@@ -126,22 +134,27 @@ export class ScratchStore {
   async #read(id: string): Promise<ScratchNote> {
     const file = await this.#existing(id)
     const text = await this.#text(file)
-    let stats: Stats
+    const stats = await this.#stat(file)
+    const created = await this.#created(id, file, stats)
+    return { id, text, title: scratchTitle(text, created), created, updated: stats.mtime.toISOString() }
+  }
+
+  /** Note `id`'s creation time: its sidecar's, else its file's birth time, persisted best effort. */
+  async #created(id: string, file: string, stats?: Stats): Promise<string> {
+    const meta = await readJsonFile(this.#meta(id))
+    if (isJsonObject(meta) && typeof meta.created === 'string') return meta.created
+    const created = (stats ?? (await this.#stat(file))).birthtime.toISOString()
+    await writeJsonFile(this.#meta(id), { created }).catch(() => {})
+    return created
+  }
+
+  async #stat(file: string): Promise<Stats> {
     try {
-      stats = await stat(file)
+      return await stat(file)
     } catch (error) {
       if (isNodeError(error, 'ENOENT')) throw notFound()
       throw error
     }
-    const meta = await readJsonFile(this.#meta(id))
-    let created: string
-    if (isJsonObject(meta) && typeof meta.created === 'string') {
-      created = meta.created
-    } else {
-      created = stats.birthtime.toISOString()
-      await writeJsonFile(this.#meta(id), { created })
-    }
-    return { id, text, title: scratchTitle(text, created), created, updated: stats.mtime.toISOString() }
   }
 
   async #text(file: string): Promise<string> {

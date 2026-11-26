@@ -417,6 +417,17 @@ describe('WorkspaceModel Save to vault of a scratch note', () => {
     expect(workspace.notice).toBeNull()
   })
 
+  it('shows no folder dialog when the gate’s save finds the scratch note gone, closing its tab with the notice', async () => {
+    const { id } = await scratchBetweenNotes('# Gone\n')
+    await rm(path.join(app.scratchDir, `${id}.md`))
+
+    await workspace.saveScratchToVault(id)
+
+    expect(workspace.dialog).toBeNull()
+    expect(strip()).toEqual(['meeting.md', 'f/n.md'])
+    expect(workspace.notice).toEqual({ kind: 'error', text: 'This scratch note no longer exists' })
+  })
+
   it('turns the scratch tab into the note’s tab in the background when another tab was activated while it saved', async () => {
     const { id } = await scratchBetweenNotes('# Later\n')
     const meeting = workspace.tabs.tabs[0]?.key
@@ -906,6 +917,40 @@ describe('WorkspaceModel scratch list', () => {
     await workspace.refreshScratch()
     net.fail = null
     expect(workspace.notice).toEqual({ kind: 'error', text: 'Disk full' })
+  })
+
+  it('lists the open scratch note first once its save makes it the newest', async () => {
+    await start(false)
+    const older = await keptScratch('# Older\n')
+    const newer = await keptScratch('# Newer\n')
+    expect(rows()).toEqual([
+      { id: newer, title: 'Newer' },
+      { id: older, title: 'Older' },
+    ])
+    await workspace.openScratch(older)
+    workspace.session.edit('# Older, edited\n')
+    expect(await workspace.session.flush()).toBe(true)
+    expect(rows()).toEqual([
+      { id: older, title: 'Older, edited' },
+      { id: newer, title: 'Newer' },
+    ])
+  })
+
+  it('keeps the open scratch note’s saved title over a listing read before that save', async () => {
+    await start(false)
+    const id = await keptScratch('# Before\n')
+    await workspace.openScratch(id)
+    net.hold(onPath('/api/scratch'), { once: true, answered: true })
+    const stale = workspace.refreshScratch()
+    await expect.poll(() => net.held.length).toBe(1)
+    workspace.session.edit('# After\n')
+    expect(await workspace.session.flush()).toBe(true)
+    net.held[0]?.release()
+    await stale
+    await workspace.activateTab(workspace.tabs.tabs[0]?.key ?? -1)
+    expect(workspace.session.scratch).toBeNull()
+    expect(workspace.scratchTabTitle(id)).toBe('After')
+    expect(rows()).toEqual([{ id, title: 'After' }])
   })
 
   it('opens the saved note’s tab in the background when another tab was activated while a row with no tab saved', async () => {

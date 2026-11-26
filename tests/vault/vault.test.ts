@@ -24,6 +24,40 @@ afterEach(async () => {
   await rm(root, { recursive: true, force: true })
 })
 
+describe('openVault exclude', () => {
+  it('refuses a root inside the excluded folder under a `..`-prefixed name', async () => {
+    const excluded = path.join(root, 'scratch')
+    await mkdir(path.join(excluded, '..inner'), { recursive: true })
+    await expect(openVault(path.join(excluded, '..inner'), { exclude: excluded })).rejects.toMatchObject({
+      code: 'NOT_A_VAULT',
+    })
+  })
+
+  it.each([
+    ['present', true],
+    ['not yet created', false],
+  ])('opens a root that holds the excluded folder under a `..`-prefixed (hidden) name (%s)', async (_, made) => {
+    const excluded = path.join(root, '..profile', 'scratch')
+    if (made) await put('..profile/scratch/a.md', '# Scratch')
+    vault = await openVault(root, { exclude: excluded })
+    expect((await vault.tree()).notes).toEqual([])
+  })
+
+  it('opens a root that holds the excluded folder under a hidden folder, which it never indexes', async () => {
+    await put('.config/app/scratch/a.md', '# Scratch')
+    await put('kept.md', '# Kept')
+    vault = await openVault(root, { exclude: path.join(root, '.config', 'app', 'scratch') })
+    expect((await vault.tree()).notes.map((note) => note.id)).toEqual(['kept.md'])
+  })
+
+  it('still refuses a root that holds the excluded folder where it would be indexed', async () => {
+    await mkdir(path.join(root, 'app', 'scratch'), { recursive: true })
+    await expect(openVault(root, { exclude: path.join(root, 'app', 'scratch') })).rejects.toMatchObject({
+      code: 'NOT_A_VAULT',
+    })
+  })
+})
+
 describe('vault notes', () => {
   it('lists the tree and reads notes with metadata', async () => {
     await put('inbox.md', '# Inbox\n\nHello\n')

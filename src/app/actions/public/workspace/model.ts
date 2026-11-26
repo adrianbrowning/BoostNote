@@ -253,18 +253,23 @@ export class WorkspaceModel extends TypedEventTarget<{
     this.session.addEventListener('saved', (event) => this.#putSummary(event.note))
     this.session.addEventListener('change', () => {
       // The open scratch note's last save titles its row, and its tab once another tab shows (`scratchTabTitle`).
-      const scratch = this.session.scratch
-      const at = scratch ? this.#scratchListed.findIndex((note) => note.id === scratch.id) : -1
-      const listed = this.#scratchListed[at]
-      if (scratch && listed && (listed.title !== scratch.title || listed.updated !== scratch.updated)) {
-        this.#scratchListed = this.#scratchListed.with(at, {
-          ...listed,
-          title: scratch.title,
-          updated: scratch.updated,
-        })
-      }
+      this.#scratchListed = this.#withOpenScratch(this.#scratchListed)
       this.changed()
     })
+  }
+
+  /**
+   * `notes` with the open scratch note's row taking its last save's title and updated when that save is newer than
+   * the row (a listing read before it), newest updated first again; `notes` itself when nothing changes.
+   */
+  #withOpenScratch(notes: ScratchSummary[]): ScratchSummary[] {
+    const scratch = this.session.scratch
+    const at = scratch ? notes.findIndex((note) => note.id === scratch.id) : -1
+    const listed = notes[at]
+    if (!scratch || !listed || scratch.updated <= listed.updated) return notes
+    return notes
+      .with(at, { ...listed, title: scratch.title, updated: scratch.updated })
+      .toSorted((a, b) => b.updated.localeCompare(a.updated))
   }
 
   changed(): void {
@@ -309,7 +314,10 @@ export class WorkspaceModel extends TypedEventTarget<{
     )
   }
 
-  /** Whether scratch note `id`'s Save to vault is in flight (its row's Discard waits it out). */
+  /**
+   * Whether scratch note `id`'s Save to vault is in flight (its row's Discard is disabled meanwhile, and
+   * `discardScratch` does nothing).
+   */
   savingScratch(id: string): boolean {
     return this.#savingScratch.has(id)
   }
@@ -324,7 +332,7 @@ export class WorkspaceModel extends TypedEventTarget<{
     try {
       const notes = await this.#api.listScratch()
       if (at !== this.#scratchListings) return
-      this.#scratchListed = notes
+      this.#scratchListed = this.#withOpenScratch(notes)
       this.changed()
     } catch (error) {
       if (at === this.#scratchListings) this.fail(error)
@@ -599,7 +607,10 @@ export class WorkspaceModel extends TypedEventTarget<{
     this.changed()
     try {
       await this.#inOpenOrder(async () => {
+        const hadTab = this.tabs.tabs.some((tab) => tab.kind === 'scratch' && tab.id === id)
         if (!(await this.navigation.leave())) return
+        // The gate's save found the scratch note gone: its tab closed with the notice, and there is nothing to save.
+        if (hadTab && !this.tabs.tabs.some((tab) => tab.kind === 'scratch' && tab.id === id)) return
         // One check after the gate's save, which can take a while: the vault may have closed while this waited in
         // open order or while the gate saved.
         const vault = this.data.vault?.name

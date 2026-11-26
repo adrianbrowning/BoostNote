@@ -106,6 +106,8 @@ test('closing a scratch tab with nothing typed removes its file; one with text k
 
   await app.clickMenu('new-scratch-note')
   const tab = scratchTab(page)
+  // The new scratch tab is active, so the editor checked below shows it, not a.md.
+  await expect(tab).toHaveAttribute('aria-selected', 'true')
   await expect(editor(page)).toBeFocused()
   await expect(editor(page)).not.toHaveAttribute('aria-readonly', 'true')
   await page.keyboard.type('Keep this')

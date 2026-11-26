@@ -1370,6 +1370,53 @@ describe('Navigation of scratch tabs', () => {
     expect(session.locked).toBe(false)
   })
 
+  it('loads the active note tab when an autosave finds the background scratch note the session held gone', async () => {
+    const id = await scratchOverFailedA()
+    expect(session.note).toBeNull()
+    await api.discardScratch(id)
+    session.edit('Typed.\n')
+
+    expect(await session.flush()).toBe(true)
+    await expect.poll(() => session.note?.id).toBe('a.md')
+    expect(navigation.tabs.tabs.map((item) => item.kind)).toEqual(['note'])
+    expect(notices).toEqual(['Disk full', 'This scratch note no longer exists'])
+    await expect.poll(() => session.locked).toBe(false)
+  })
+
+  it('reopens a blank scratch note from the list only after its background close’s discard answered', async () => {
+    const id = await scratchAfterA()
+    await navigation.activate(tab(0))
+    net.hold((url) => (url.pathname === '/api/scratch/discard' ? 'discard' : undefined), { once: true })
+    const closing = navigation.close(tab(1))
+    await expect.poll(() => net.held.length).toBe(1)
+    const reopening = navigation.openScratch(id)
+    // The reopen waits on the discard: the editor does not take the scratch note meanwhile.
+    await expect.poll(() => navigation.tabs.active?.kind).toBe('scratch')
+    expect(session.scratch).toBeNull()
+    net.held[0]?.release()
+    await closing
+    await reopening
+    expect(session.scratch).toBeNull()
+    expect(navigation.tabs.tabs.map((item) => item.kind)).toEqual(['note'])
+    expect(notices).toEqual(['This scratch note no longer exists'])
+  })
+
+  it('closes a tab-less discarded row without holding the open note while no tab is active', async () => {
+    await navigation.open('a.md')
+    await navigation.close(tab(0))
+    expect(navigation.tabs.active).toBeUndefined()
+    const { id: other } = await api.createScratch()
+    let holds = 0
+    const lock = session.lock.bind(session)
+    session.lock = (locked: boolean) => {
+      if (locked) holds++
+      lock(locked)
+    }
+    await navigation.discardScratch(other)
+    expect(holds).toBe(0)
+    expect(await scratchIds()).not.toContain(other)
+  })
+
   it('loads the next tab when a held scratch tab closes while an activate of it waits on the same gate', async () => {
     const id = await scratchAfterA()
     net.fail = (url) => url.pathname === '/api/notes/read'
