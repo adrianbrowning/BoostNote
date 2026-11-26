@@ -55,8 +55,8 @@ export function parseUiPatch(body: Record<string, unknown>): UiPatch {
 
 /**
  * Merges `patch` into the stored preferences and applies them. A new show/hide or Quick capture
- * hotkey is registered first; when the OS refuses it nothing is stored and the previous hotkeys stay
- * registered (`409 HOTKEY_UNAVAILABLE`). The two hotkeys never share an accelerator, aliases included
+ * hotkey is registered first; when the OS refuses it nothing is stored and the previous hotkeys are
+ * registered again (`409 HOTKEY_UNAVAILABLE`). The two hotkeys never share an accelerator, aliases included
  * (`CommandOrControl+Shift+Space` and `Command+Shift+Space` on macOS): a hotkey in the patch equal to
  * the other hotkey, current or as patched, is refused the same way before anything is registered.
  */
