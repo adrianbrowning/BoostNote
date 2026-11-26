@@ -21,6 +21,7 @@ import type {
   ReaderFolderResult,
   ReaderImportResult,
   SaveConflictBody,
+  ScratchDiscardResult,
   ScratchSaveResult,
 } from '../public/workspace/types.ts'
 import { exportFolder, exportNote } from './export.ts'
@@ -450,8 +451,15 @@ export function createApiController(services: AppServices) {
       }),
 
       scratchDiscard: guarded(async ({ request }: { request: Request }) => {
-        await services.scratch.discard(requireString((await readJsonObject(request)).id, 'id', { allowEmpty: true }))
-        return json({ ok: true })
+        const body = await readJsonObject(request)
+        const id = requireString(body.id, 'id', { allowEmpty: true })
+        if (body.ifBlank !== undefined && typeof body.ifBlank !== 'boolean') {
+          throw new HttpError(400, 'BAD_REQUEST', 'Missing or invalid "ifBlank"')
+        }
+        const result: ScratchDiscardResult = {
+          discarded: await services.scratch.discard(id, { ifBlank: body.ifBlank === true }),
+        }
+        return json(result)
       }),
 
       /**
@@ -459,9 +467,11 @@ export function createApiController(services: AppServices) {
        * without one, or once it is closed): the scratch text, read as a note file (a valid frontmatter block is kept
        * byte for byte, a missing `created`/`updated` line appended only when the block still parses to the typed
        * mapping plus those keys), becomes a note in `folder` named by its title (`scratchTitle`, made unique as
-       * `createNote` does), then the scratch note is removed; the answer has that vault's lists. When the note cannot
-       * be created the scratch note stays; when removing it fails afterwards, the note stays in the vault and the
-       * scratch note stays listed.
+       * `createNote` does), then the scratch note is removed; the answer has that vault's lists, read before the
+       * removal, so no failure after it turns the save into an error. When the note cannot be created (or the lists
+       * cannot be read) the scratch note stays; when removing it fails afterwards, the note stays in the vault and the
+       * scratch note stays listed. A scratch note discarded meanwhile (the list's Discard, after this save read it)
+       * counts as removed.
        */
       scratchSave: guarded(async ({ request, url }: { request: Request; url: URL }) => {
         const body = await readJsonObject(request)
@@ -476,8 +486,11 @@ export function createApiController(services: AppServices) {
           async (vault): Promise<ScratchSaveResult> => {
             const scratch = await services.scratch.read(id)
             const created = await vault.createNote(folder, scratch.title, { text: scratch.text })
-            await services.scratch.discard(id)
-            return { id: created.id, workspace: await workspaceData(services, vault.root) }
+            const workspace = await workspaceData(services, vault.root)
+            await services.scratch.discard(id).catch((error: unknown) => {
+              if (!(error instanceof HttpError && error.code === 'NOT_FOUND')) throw error
+            })
+            return { id: created.id, workspace }
           },
         )
         return json(result, { status: 201 })

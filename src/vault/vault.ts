@@ -78,6 +78,11 @@ export interface OpenVaultOptions {
   watch?: boolean
   /** Quiet period before a burst of file-system events is processed (default 100 ms). */
   debounceMs?: number
+  /**
+   * An absolute folder kept out of the vault when the vault holds it (the scratch notes' folder): never scanned, so
+   * its files are no notes, folders or search results of the vault.
+   */
+  exclude?: string
 }
 
 export interface FolderNode {
@@ -239,7 +244,7 @@ export async function openVault(root: string, options: OpenVaultOptions = {}): P
     if (isNodeError(error, 'ENOENT')) throw new VaultError('NOT_A_VAULT', `Vault folder does not exist: ${root}`)
     throw error
   }
-  const vault = new Vault(real, await readConfig(real))
+  const vault = new Vault(real, await readConfig(real), options.exclude)
   await vault.refresh()
   if (options.watch) vault.startWatching(options.debounceMs ?? 100)
   return vault
@@ -263,11 +268,13 @@ export class Vault {
   #timer: NodeJS.Timeout | undefined
   #settleTimer: NodeJS.Timeout | undefined
   #queue: Promise<unknown> = Promise.resolve()
+  readonly #exclude: string | undefined
 
   /** Use `openVault`. */
-  constructor(root: string, config: VaultConfig) {
+  constructor(root: string, config: VaultConfig, exclude?: string) {
     this.root = root
     this.#config = config
+    this.#exclude = exclude
   }
 
   get config(): VaultConfig {
@@ -1128,6 +1135,8 @@ export class Vault {
   async #scan(emit: boolean): Promise<VaultEvent[]> {
     const found = new Map<string, string>()
     const folders = new Set<string>()
+    // Real path, as the root's: a folder that does not exist (yet) holds nothing to leave out.
+    const excluded = this.#exclude === undefined ? undefined : await realpath(this.#exclude).catch(() => undefined)
     const walk = async (dir: string, folder: string): Promise<void> => {
       let entries: Dirent[]
       try {
@@ -1140,6 +1149,7 @@ export class Vault {
         if (isHiddenName(entry.name) || entry.name.includes('\\')) continue
         const id = joinId(folder, entry.name)
         if (entry.isDirectory()) {
+          if (path.join(dir, entry.name) === excluded) continue
           folders.add(id)
           await walk(path.join(dir, entry.name), id)
         } else if (entry.isFile() && isNoteFileName(entry.name)) {

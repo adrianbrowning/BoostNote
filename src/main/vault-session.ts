@@ -17,6 +17,8 @@ export interface VaultSessionOptions {
   events: EventHub
   /** Watcher debounce passed to `openVault` (default: the vault's own default). */
   debounceMs?: number
+  /** A folder every vault leaves out when it holds it (`openVault`'s `exclude`): the scratch notes' folder. */
+  exclude?: string
 }
 
 /**
@@ -47,6 +49,7 @@ export class VaultSession {
   readonly #settings: SettingsStore
   readonly #events: EventHub
   readonly #debounceMs: number | undefined
+  readonly #exclude: string | undefined
   /** Open vaults by root, in the order they were opened. */
   readonly #vaults = new Map<string, Vault>()
   #active: Vault | undefined
@@ -59,6 +62,7 @@ export class VaultSession {
     this.#settings = options.settings
     this.#events = options.events
     this.#debounceMs = options.debounceMs
+    this.#exclude = options.exclude
   }
 
   /** The active vault, if any vault is open. */
@@ -316,6 +320,7 @@ export class VaultSession {
     return openVault(root, {
       watch: true,
       ...(this.#debounceMs === undefined ? {} : { debounceMs: this.#debounceMs }),
+      ...(this.#exclude === undefined ? {} : { exclude: this.#exclude }),
     })
   }
 

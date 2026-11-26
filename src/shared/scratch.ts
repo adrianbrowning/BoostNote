@@ -47,7 +47,8 @@ export function scratchTitle(text: string, created: string): string {
       continue
     }
     const heading = HEADING.exec(line)?.[1]?.trim()
-    if (heading) return heading
+    // `# #`, `## ##`: one space between, so the closing sequence came out as the text; an empty heading, skipped.
+    if (heading && !/^#+$/.test(heading)) return heading
   }
   const first = lines.find((line) => line.trim() !== '')
   if (first !== undefined) return first.trim()

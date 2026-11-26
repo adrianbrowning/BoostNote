@@ -96,3 +96,32 @@ describe('frontmatter', () => {
     expect(empty).toMatchObject({ frontmatter: {}, yaml: '', body: 'body' })
   })
 })
+
+describe('frontmatter with aliases', () => {
+  it.each(['x: *missing', 'a: &a {self: *a}', 'a: &a [*a]'])('treats a leading block with %j as body', (yaml) => {
+    const raw = `---\n${yaml}\n---\nbody`
+    expect(parseNoteText(raw)).toMatchObject({ frontmatter: {}, yaml: null, body: raw })
+  })
+})
+
+describe('frontmatter as a flow mapping, on a note save', () => {
+  const raw = '---\n{a: 1} # c\n---\nb\n'
+
+  it.each([
+    ['adds a key', { a: 1, b: 2 }],
+    ['changes a key', { a: 3 }],
+    ['drops a key', {}],
+    ['adds a value over several lines', { a: 1, b: 'one\ntwo' }],
+  ])('%s and parses back as the new frontmatter, keeping the body', (_, after) => {
+    const text = serializeNoteText(after, 'b\n', parseNoteText(raw))
+    expect(parseNoteText(text)).toMatchObject({ frontmatter: after, body: 'b\n' })
+  })
+
+  it('adds a key to a key-only entry', () => {
+    const text = serializeNoteText({ a: null, b: 1 }, '', parseNoteText('---\n{a}\n---\n'))
+    expect(Object.entries(parseNoteText(text).frontmatter)).toEqual([
+      ['a', null],
+      ['b', 1],
+    ])
+  })
+})

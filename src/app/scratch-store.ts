@@ -7,7 +7,7 @@ import { scratchTitle } from '../shared/scratch.ts'
 import { isNodeError } from '../vault/errors.ts'
 import { isFile, readJsonFile, writeFileAtomic, writeJsonFile } from '../vault/files.ts'
 import type { ScratchNote, ScratchSummary } from './actions/public/workspace/types.ts'
-import { HttpError } from './http.ts'
+import { HttpError, isJsonObject } from './http.ts'
 
 /** A scratch note's id: 32 random lowercase hex characters. */
 const SCRATCH_ID = /^[0-9a-f]{32}$/
@@ -28,18 +28,22 @@ function notFound(): HttpError {
  */
 export class ScratchStore {
   readonly #dir: string
+  /** The last operation queued on each note id (see `#serial`). */
+  readonly #queues = new Map<string, Promise<unknown>>()
 
   constructor(dir: string) {
     this.#dir = dir
   }
 
-  /** A new, empty scratch note. */
+  /** A new, empty scratch note: its file first, then its sidecar, so a failed create leaves no stray sidecar. */
   async create(): Promise<ScratchNote> {
     const id = randomBytes(16).toString('hex')
     const created = new Date().toISOString()
-    await writeJsonFile(this.#meta(id), { created })
-    await writeFileAtomic(this.#file(id), '')
-    return this.read(id)
+    return this.#serial(id, async () => {
+      await writeFileAtomic(this.#file(id), '')
+      await writeJsonFile(this.#meta(id), { created })
+      return this.#read(id)
+    })
   }
 
   /** Every scratch note, newest updated first. */
@@ -65,41 +69,84 @@ export class ScratchStore {
     return notes.sort((a, b) => b.updated.localeCompare(a.updated))
   }
 
-  async read(id: string): Promise<ScratchNote> {
+  /**
+   * Note `id`. A note whose sidecar is missing or unreadable takes its file's birth time as its creation time and
+   * keeps it from then on (the sidecar is written again), so later writes do not move it.
+   */
+  read(id: string): Promise<ScratchNote> {
+    return this.#serial(id, () => this.#read(id))
+  }
+
+  /**
+   * Replaces note `id`'s text (atomically). Writes, discards and reads of one note run one at a time, so a note
+   * discarded before the write gets its turn answers `404` and stays gone.
+   */
+  write(id: string, text: string): Promise<ScratchNote> {
+    return this.#serial(id, async () => {
+      const file = await this.#existing(id)
+      if (!(await writeFileAtomic(file, text, () => isFile(file)))) throw notFound()
+      return this.#read(id)
+    })
+  }
+
+  /**
+   * Deletes note `id`: its creation time first, then its file, so a failure leaves the note listed with its text
+   * (at worst with its file's birth time as its creation time). With `ifBlank`, deletes it only when its text is
+   * empty or whitespace only. Answers whether it deleted the note.
+   */
+  discard(id: string, options: { ifBlank?: boolean } = {}): Promise<boolean> {
+    return this.#serial(id, async () => {
+      const file = await this.#existing(id)
+      if (options.ifBlank && (await this.#text(file)).trim() !== '') return false
+      await rm(this.#meta(id), { force: true })
+      try {
+        await rm(file)
+      } catch (error) {
+        if (isNodeError(error, 'ENOENT')) throw notFound()
+        throw error
+      }
+      return true
+    })
+  }
+
+  /** Runs `task` after every operation queued earlier on note `id` has settled. */
+  #serial<T>(id: string, task: () => Promise<T>): Promise<T> {
+    const run = (this.#queues.get(id) ?? Promise.resolve()).then(task, task)
+    const settled = run.then(
+      () => {},
+      () => {},
+    )
+    this.#queues.set(id, settled)
+    void settled.then(() => {
+      if (this.#queues.get(id) === settled) this.#queues.delete(id)
+    })
+    return run
+  }
+
+  async #read(id: string): Promise<ScratchNote> {
     const file = await this.#existing(id)
-    let text: string
+    const text = await this.#text(file)
     let stats: Stats
     try {
-      text = await readFile(file, 'utf8')
       stats = await stat(file)
     } catch (error) {
       if (isNodeError(error, 'ENOENT')) throw notFound()
       throw error
     }
     const meta = await readJsonFile(this.#meta(id))
-    const created =
-      typeof meta === 'object' && meta !== null && 'created' in meta && typeof meta.created === 'string'
-        ? meta.created
-        : stats.birthtime.toISOString()
+    let created: string
+    if (isJsonObject(meta) && typeof meta.created === 'string') {
+      created = meta.created
+    } else {
+      created = stats.birthtime.toISOString()
+      await writeJsonFile(this.#meta(id), { created })
+    }
     return { id, text, title: scratchTitle(text, created), created, updated: stats.mtime.toISOString() }
   }
 
-  /** Replaces note `id`'s text (atomically); a note discarded meanwhile stays gone. */
-  async write(id: string, text: string): Promise<ScratchNote> {
-    const file = await this.#existing(id)
-    if (!(await writeFileAtomic(file, text, () => isFile(file)))) throw notFound()
-    return this.read(id)
-  }
-
-  /**
-   * Deletes note `id`: its creation time first, then its file, so a failure leaves the note listed with its text
-   * (at worst with its file's birth time as its creation time).
-   */
-  async discard(id: string): Promise<void> {
-    const file = await this.#existing(id)
-    await rm(this.#meta(id), { force: true })
+  async #text(file: string): Promise<string> {
     try {
-      await rm(file)
+      return await readFile(file, 'utf8')
     } catch (error) {
       if (isNodeError(error, 'ENOENT')) throw notFound()
       throw error

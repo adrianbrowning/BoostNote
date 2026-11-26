@@ -40,7 +40,8 @@ if (!app.commandLine.hasSwitch('user-data-dir')) {
 registerBoostScheme()
 
 const settings = new SettingsStore(path.join(app.getPath('userData'), 'settings.json'))
-const vaults = new VaultSession({ settings, events: eventHub })
+const scratchDir = path.join(app.getPath('userData'), 'scratch')
+const vaults = new VaultSession({ settings, events: eventHub, exclude: scratchDir })
 const preferences = createPreferenceServices(
   toggleMainWindow,
   createCaptureHandler({ show: bringMainWindowToFront, send: (event) => eventHub.broadcast(event) }),
@@ -105,7 +106,7 @@ const router = createAppRouter({
   showItemInFolder: (fullPath) => shell.showItemInFolder(fullPath),
   findLegacyStorages: () => findLegacyStorages({ appDataDir: path.join(app.getPath('appData'), 'Boostnote') }),
   drops,
-  scratch: new ScratchStore(path.join(app.getPath('userData'), 'scratch')),
+  scratch: new ScratchStore(scratchDir),
   exports: createExportServices(liveWindow),
   updates: updater,
 })

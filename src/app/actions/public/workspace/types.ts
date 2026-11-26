@@ -110,6 +110,11 @@ export interface ReaderImportResult {
   workspace: WorkspaceData
 }
 
+/** `POST /api/scratch/discard` (`{ id, ifBlank? }`): whether the scratch note was deleted (`false`: kept, not blank). */
+export interface ScratchDiscardResult {
+  discarded: boolean
+}
+
 /**
  * `POST /api/scratch/save` (`{ id, folder }`): the scratch note became note `id` in `folder` of the vault named by
  * `?vault=`, and the scratch note is gone; `workspace` is that vault's lists with the note in them.

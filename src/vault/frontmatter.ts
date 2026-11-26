@@ -69,9 +69,13 @@ function parseYamlMapping(yaml: string): Frontmatter | undefined {
   const doc = parseDocument(yaml)
   if (doc.errors.length > 0 || !isMap(doc.contents)) return undefined
   try {
-    return toMapping(doc.toJS())
+    const value = toMapping(doc.toJS())
+    // A recursive alias (`a: &a {self: *a}`) gives a cyclic value, which no note document can carry.
+    JSON.stringify(value)
+    return value
   } catch {
-    // An unresolved alias or alias bomb is not reported in `doc.errors`; it is still invalid YAML.
+    // An unresolved alias, an alias bomb or a recursive alias is not reported in `doc.errors`; it is still invalid
+    // frontmatter, left in the body.
     return undefined
   }
 }

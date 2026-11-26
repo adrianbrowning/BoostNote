@@ -76,8 +76,13 @@ export class TestApp {
   private constructor(dir: string) {
     this.dir = dir
     this.settings = new SettingsStore(path.join(dir, 'userData', 'settings.json'))
-    this.vaults = new VaultSession({ settings: this.settings, events: this.events, debounceMs: 20 })
     this.scratchDir = path.join(dir, 'userData', 'scratch')
+    this.vaults = new VaultSession({
+      settings: this.settings,
+      events: this.events,
+      debounceMs: 20,
+      exclude: this.scratchDir,
+    })
     const preferences = {
       registeredHotkey: undefined as string | undefined,
       registeredCaptureHotkey: undefined as string | undefined,
