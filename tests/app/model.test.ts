@@ -412,6 +412,38 @@ describe('WorkspaceModel Save to vault of a scratch note', () => {
     expect(await readFile(path.join(app.scratchDir, `${id}.md`), 'utf8')).toBe('Keep me')
   })
 
+  it('saves nothing, keeping the scratch tab, when the vault switched while the folder dialog was open', async () => {
+    const second = await realpath(await folderWith(app, 'second', { 'in second.md': '# In second\n' }))
+    await workspace.newScratchNote()
+    const key = workspace.tabs.activeKey
+    const id = workspace.session.scratch?.id
+    if (key === null || id === undefined) throw new Error('No scratch tab')
+    workspace.session.edit('# Chosen in first\n')
+    net.hold(onPath('/api/scratch/save'))
+
+    const saving = workspace.saveScratchToVault(id)
+    await expect.poll(() => workspace.dialog?.kind).toBe('choose')
+    await workspace.openVault(second)
+    const dialog = workspace.dialog
+    if (dialog?.kind !== 'choose') throw new Error('No choose dialog')
+    // The first vault's folder, from the options the dialog was opened with.
+    expect(dialog.options.map((option) => option.value)).toContain('f')
+    dialog.resolve('f')
+    await saving
+
+    expect(net.held).toEqual([])
+    expect(workspace.tabs.active).toEqual({ key, kind: 'scratch', id })
+    expect(workspace.session.body).toBe('# Chosen in first\n')
+    expect(workspace.notice).toEqual({
+      kind: 'error',
+      text: 'The vault changed while the folder was chosen; nothing was saved.',
+    })
+    expect(await readFile(path.join(app.scratchDir, `${id}.md`), 'utf8')).toBe('# Chosen in first\n')
+    expect((await readdir(second, { recursive: true })).filter((file) => file.endsWith('.md'))).toEqual([
+      'in second.md',
+    ])
+  })
+
   it.each([
     { what: 'held before main saw it', answered: false },
     { what: 'answered and held on its way back', answered: true },
