@@ -337,7 +337,18 @@ vault left fails, the other vault still shows (the switch counts) and the store 
   browser), a pasted or dropped image is not uploaded (`NoteSession.saveAsset` refuses it with the
   images-need-a-vault-note notice), the note header (rename, properties, pin, star, the note menu with reveal,
   export, move and delete) does not show, and Toggle Properties (⇧⌘P) leaves the properties pane as it is.
-  Edit › Find and the live preview work as in notes. No request with a scratch id reaches a vault route.
+  Edit › Find and the live preview work as in notes. No request with a scratch id reaches a vault route other than
+  the save below.
+- The banner's "Save to vault…" (`WorkspaceModel.saveScratchToVault`; disabled with no vault open, the reason next
+  to it) saves the typed text first (the leave-note gate), asks for a folder of the open vault in the choose dialog
+  of a reader's "Add to vault…" (`folderOptions`, `dropFolder` first), then posts `{ id, folder }` to
+  `POST /api/scratch/save`. Main runs it in `VaultSession`'s vault queue (`inActiveVault`; `409 NO_VAULT` without
+  an open vault): the scratch text parsed as a note's text (valid frontmatter stays frontmatter) becomes
+  `vault.createNote(folder, scratchTitle, { body, frontmatter })` (a taken name gets ` 2`), then the scratch note
+  and its sidecar are removed, and it answers the note id and the workspace lists (`ScratchSaveResult`). The
+  scratch tab becomes the note's tab at its position (`Navigation.saveScratch`), active when it was active. When
+  the note cannot be created (a folder gone meanwhile) the scratch note and its tab stay and the notice says why;
+  when removing the scratch note fails after the note was written, the note stays and so does the scratch note.
 
 ### Properties panel
 

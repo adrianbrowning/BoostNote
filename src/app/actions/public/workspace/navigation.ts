@@ -404,6 +404,27 @@ export class Navigation {
   }
 
   /**
+   * Save to vault of scratch note `id`, after the gate: `save` asks main to turn it into a note (main removes the
+   * scratch note) and answers the note's id. The scratch note's tab then becomes that note's tab at its position:
+   * active when it was active (the note then loads into the session), else in the background with the active tab
+   * left as it is. `null` when the gate refused (`save` does not run); when `save` rejects, the tab stays.
+   */
+  async saveScratch<T extends { id: string }>(id: string, save: () => Promise<T>): Promise<T | null> {
+    return this.hold(async () => {
+      const saved = await save()
+      const tab = this.tabs.tabs.find((item) => item.kind === 'scratch' && item.id === id)
+      if (!tab) return saved
+      const active = this.tabs.activeKey
+      this.#edit((tabs) => {
+        tabs.replaceScratch(tab.key, saved.id)
+        if (active !== null && active !== tab.key) tabs.activate(active)
+      })
+      await this.#loadActive()
+      return saved
+    })
+  }
+
+  /**
    * Moves note `id` to the trash, its latest edits included; its tabs close and the session follows the
    * active tab. When that can replace the open note (`#replaces`) the gate runs first: `null`, and nothing
    * is trashed, when it refused.

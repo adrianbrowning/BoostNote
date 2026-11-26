@@ -74,5 +74,10 @@ export const routes = route({
     /** `{ id, text }`: replaces the note's text (last write wins). */
     scratchWrite: post('/scratch/write'),
     scratchDiscard: post('/scratch/discard'),
+    /**
+     * Save to vault (`{ id, folder }`): the scratch note becomes a note in `folder` of the open vault and is removed
+     * (`ScratchSaveResult`); `409 NO_VAULT` without an open vault.
+     */
+    scratchSave: post('/scratch/save'),
   }),
 })

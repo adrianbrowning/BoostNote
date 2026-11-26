@@ -2,7 +2,12 @@ import { mkdir, readdir, readFile, utimes, writeFile } from 'node:fs/promises'
 import * as path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 
-import type { ScratchNote, ScratchSummary, WorkspaceData } from '../../src/app/actions/public/workspace/types.ts'
+import type {
+  ScratchNote,
+  ScratchSaveResult,
+  ScratchSummary,
+  WorkspaceData,
+} from '../../src/app/actions/public/workspace/types.ts'
 import { TestApp } from './helpers.ts'
 
 let app: TestApp
@@ -160,5 +165,61 @@ describe('/api/scratch', () => {
     expect((await filesUnder(vault.root)).filter((file) => file.endsWith('.md'))).toEqual(['Kept.md'])
 
     expect((await app.post('/api/scratch/discard', { id })).status).toBe(200)
+  })
+})
+
+describe('/api/scratch/save', () => {
+  async function save(id: string, folder: string): Promise<Response> {
+    return app.post('/api/scratch/save', { id, folder })
+  }
+
+  it('creates the note in the folder from the scratch text, removes the scratch note and answers its id', async () => {
+    const vault = await app.openVault()
+    await mkdir(path.join(vault.root, 'work'))
+    const first = await create()
+    await write(first.id, '# Plan\n\n- one\n')
+    const second = await create()
+    await write(second.id, '---\ntags: [x]\n---\n# Plan\n\nTwo\n')
+
+    const saved = await save(first.id, 'work')
+    expect(saved.status).toBe(201)
+    const result: ScratchSaveResult = await saved.json()
+    expect(result.id).toBe('work/Plan.md')
+    expect(result.workspace.notes.map((note) => note.id)).toEqual(['work/Plan.md'])
+    const raw = await readFile(path.join(vault.root, 'work', 'Plan.md'), 'utf8')
+    expect(raw).toMatch(/^---\ncreated: .+\nupdated: .+\n---\n# Plan\n\n- one\n$/)
+
+    const again: ScratchSaveResult = await (await save(second.id, 'work')).json()
+    expect(again.id).toBe('work/Plan 2.md')
+    const note = await vault.readNote('work/Plan 2.md')
+    expect(note.body).toBe('# Plan\n\nTwo\n')
+    expect(note.frontmatter.tags).toEqual(['x'])
+
+    expect(await filesUnder(app.scratchDir)).toEqual([])
+    expect(await list()).toEqual([])
+  })
+
+  it('answers 409 NO_VAULT with no vault open and keeps the scratch note', async () => {
+    const { id } = await create()
+    await write(id, 'Keep me')
+
+    const response = await save(id, '')
+    expect(response.status).toBe(409)
+    expect((await readJson<{ error: string }>(response)).error).toBe('NO_VAULT')
+    expect(await readFile(path.join(app.scratchDir, `${id}.md`), 'utf8')).toBe('Keep me')
+    expect(await filesUnder(app.scratchDir)).toEqual([`${id}.json`, `${id}.md`])
+  })
+
+  it('answers an error for a missing folder and keeps the scratch note, writing no note', async () => {
+    const vault = await app.openVault()
+    const { id } = await create()
+    await write(id, 'Keep me')
+
+    const response = await save(id, 'gone')
+    expect(response.status).toBe(404)
+    expect((await readJson<{ error: string }>(response)).error).toBe('NOT_FOUND')
+    expect(await readFile(path.join(app.scratchDir, `${id}.md`), 'utf8')).toBe('Keep me')
+    expect(await filesUnder(app.scratchDir)).toEqual([`${id}.json`, `${id}.md`])
+    expect((await filesUnder(vault.root)).filter((file) => file.endsWith('.md'))).toEqual([])
   })
 })

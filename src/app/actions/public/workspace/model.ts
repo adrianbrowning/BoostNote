@@ -195,6 +195,8 @@ export class WorkspaceModel extends TypedEventTarget<{
   #focusWanted: FocusEditorEvent | null = null
   /** Scratch notes' titles by id, as last shown in the editor (`scratchTabTitle`). */
   readonly #scratchTitles = new Map<string, string>()
+  /** Ids of the scratch notes whose Save to vault is in flight (one at a time each). */
+  readonly #savingScratch = new Set<string>()
 
   constructor(initial: WorkspaceData, preferences: PreferencesState, { api, store }: WorkspaceOptions) {
     super()
@@ -488,6 +490,45 @@ export class WorkspaceModel extends TypedEventTarget<{
       })
     } finally {
       busy.delete(key)
+    }
+  }
+
+  /**
+   * A scratch note's "Save to vault…": saves its text first (the leave-note gate), asks for a folder of the open vault
+   * (`dropFolder` first) in the dialog of a reader's "Add to vault…", then main creates the note there, named by the
+   * scratch note's title (`scratchTitle`), and removes the scratch note. Its tab becomes the new note's tab at its
+   * position (`Navigation.saveScratch`). On failure the scratch note and its tab stay and the notice says why.
+   * Nothing happens without an open vault (the button is disabled) or while this scratch note is being saved. Runs
+   * in open order, as "Add to vault…" does, so no open-request drain switches the vault while the user chooses.
+   */
+  async saveScratchToVault(id: string): Promise<void> {
+    if (!this.data.vault || this.#savingScratch.has(id)) return
+    this.#savingScratch.add(id)
+    try {
+      await this.#inOpenOrder(async () => {
+        if (!this.data.vault) {
+          this.notify('error', 'Open a vault first, then save the scratch note to it.')
+          return
+        }
+        if (!(await this.navigation.leave())) return
+        const folder = await this.choose({
+          title: 'Save to vault',
+          label: 'Folder',
+          options: this.folderOptions,
+          value: this.dropFolder,
+          confirm: 'Save',
+        })
+        if (folder === null) return
+        await this.attempt(() =>
+          this.navigation.saveScratch(id, async () => {
+            const saved = await this.#snapshot(() => this.#api.saveScratch(id, folder))
+            this.#showData(saved.workspace)
+            return saved
+          }),
+        )
+      })
+    } finally {
+      this.#savingScratch.delete(id)
     }
   }
 

@@ -310,6 +310,109 @@ describe('WorkspaceModel operations that change the open note after a request', 
   })
 })
 
+describe('WorkspaceModel Save to vault of a scratch note', () => {
+  let workspace: WorkspaceModel
+
+  beforeEach(async () => {
+    workspace = new WorkspaceModel(
+      await api.workspace(),
+      { ui: DEFAULT_UI, hotkeyRegistered: false, update: null },
+      { api, store: noTabStore },
+    )
+  })
+
+  afterEach(() => {
+    workspace.session.close()
+  })
+
+  /** The strip: note tabs by path, other tabs by kind. */
+  const strip = () => workspace.tabs.tabs.map((tab) => (tab.kind === 'note' ? tab.path : tab.kind))
+
+  /** Opens meeting.md, then a scratch note after it and f/n.md after that; the scratch tab is active with `text` typed. */
+  async function scratchBetweenNotes(text: string): Promise<{ id: string; key: number }> {
+    await workspace.openNote('meeting.md')
+    await workspace.newScratchNote()
+    const key = workspace.tabs.activeKey
+    const id = workspace.session.scratch?.id
+    if (key === null || id === undefined) throw new Error('No scratch tab')
+    await workspace.openNote('f/n.md', { newTab: true })
+    await workspace.activateTab(key)
+    workspace.session.edit(text)
+    return { id, key }
+  }
+
+  /** Answers the open choose dialog with `folder`, once it shows. */
+  async function chooseFolder(folder: string): Promise<void> {
+    await expect.poll(() => workspace.dialog?.kind).toBe('choose')
+    const dialog = workspace.dialog
+    if (dialog?.kind !== 'choose') throw new Error('No choose dialog')
+    expect(dialog).toMatchObject({
+      title: 'Save to vault',
+      label: 'Folder',
+      options: workspace.folderOptions,
+      value: '',
+      confirm: 'Save',
+    })
+    dialog.resolve(folder)
+  }
+
+  it('saves the typed text into the chosen folder; the scratch tab becomes the note’s active tab at its place', async () => {
+    const { id } = await scratchBetweenNotes('# Groceries\n\nMilk\n')
+
+    const saving = workspace.saveScratchToVault(id)
+    await chooseFolder('f')
+    await saving
+
+    expect(strip()).toEqual(['meeting.md', 'f/Groceries.md', 'f/n.md'])
+    expect(workspace.tabs.active).toMatchObject({ kind: 'note', path: 'f/Groceries.md' })
+    expect(workspace.session.scratch).toBeNull()
+    expect(workspace.session.note?.id).toBe('f/Groceries.md')
+    expect(workspace.session.body).toBe('# Groceries\n\nMilk\n')
+    expect(workspace.data.notes.map((note) => note.id)).toContain('f/Groceries.md')
+    expect(await readFile(path.join(app.dir, 'vault', 'f', 'Groceries.md'), 'utf8')).toMatch(
+      /^---\ncreated: .+\nupdated: .+\n---\n# Groceries\n\nMilk\n$/,
+    )
+    expect(await readdir(app.scratchDir)).toEqual([])
+    expect(workspace.notice).toBeNull()
+  })
+
+  it('turns the scratch tab into the note’s tab in the background when another tab was activated while it saved', async () => {
+    const { id } = await scratchBetweenNotes('# Later\n')
+    const meeting = workspace.tabs.tabs[0]?.key
+    if (meeting === undefined) throw new Error('No meeting.md tab')
+    net.hold(onPath('/api/scratch/save'))
+
+    const saving = workspace.saveScratchToVault(id)
+    await chooseFolder('')
+    await expect.poll(() => net.held.length).toBe(1)
+    await workspace.activateTab(meeting)
+    net.held[0]?.release()
+    await saving
+
+    expect(strip()).toEqual(['meeting.md', 'Later.md', 'f/n.md'])
+    expect(workspace.tabs.activeKey).toBe(meeting)
+    expect(workspace.session.note?.id).toBe('meeting.md')
+    expect(await readdir(app.scratchDir)).toEqual([])
+  })
+
+  it('keeps the scratch tab and its text, with the error notice, when the folder went away after it was chosen', async () => {
+    const { id, key } = await scratchBetweenNotes('Keep me')
+
+    const saving = workspace.saveScratchToVault(id)
+    await expect.poll(() => workspace.dialog?.kind).toBe('choose')
+    await rm(path.join(app.dir, 'vault', 'g'), { recursive: true })
+    await chooseFolder('g')
+    await saving
+
+    expect(strip()).toEqual(['meeting.md', 'scratch', 'f/n.md'])
+    expect(workspace.tabs.active).toEqual({ key, kind: 'scratch', id })
+    expect(workspace.session.scratch?.id).toBe(id)
+    expect(workspace.session.body).toBe('Keep me')
+    expect(workspace.notice).toEqual({ kind: 'error', text: 'Folder not found: g' })
+    expect(await readFile(path.join(app.scratchDir, `${id}.md`), 'utf8')).toBe('Keep me')
+  })
+})
+
 describe('WorkspaceModel relocations that return after a vault switch', () => {
   let workspace: WorkspaceModel
   let saved: Map<string, TabsSnapshot>

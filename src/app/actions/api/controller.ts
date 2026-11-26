@@ -21,6 +21,7 @@ import type {
   ReaderFolderResult,
   ReaderImportResult,
   SaveConflictBody,
+  ScratchSaveResult,
 } from '../public/workspace/types.ts'
 import { exportFolder, exportNote } from './export.ts'
 import { parseUiPatch, preferencesState, savePreferences } from './preferences.ts'
@@ -451,6 +452,32 @@ export function createApiController(services: AppServices) {
       scratchDiscard: guarded(async ({ request }: { request: Request }) => {
         await services.scratch.discard(requireString((await readJsonObject(request)).id, 'id', { allowEmpty: true }))
         return json({ ok: true })
+      }),
+
+      /**
+       * Save to vault, in the vault queue: the scratch text, parsed as a note's (valid frontmatter stays frontmatter),
+       * becomes a note in `folder` named by its title (`scratchTitle`, made unique as `createNote` does), then the
+       * scratch note is removed. When the note cannot be created the scratch note stays; when removing it fails
+       * afterwards, the note stays in the vault and the scratch note stays listed.
+       */
+      scratchSave: guarded(async ({ request }: { request: Request }) => {
+        const body = await readJsonObject(request)
+        const id = requireString(body.id, 'id', { allowEmpty: true })
+        const folder = requireString(body.folder, 'folder', { allowEmpty: true })
+        const result = await services.vaults.inActiveVault(
+          'Open a vault first, then save the scratch note to it',
+          async (vault): Promise<ScratchSaveResult> => {
+            const scratch = await services.scratch.read(id)
+            const note = parseNoteText(scratch.text)
+            const created = await vault.createNote(folder, scratch.title, {
+              body: note.body,
+              frontmatter: note.frontmatter,
+            })
+            await services.scratch.discard(id)
+            return { id: created.id, workspace: await workspaceData(services) }
+          },
+        )
+        return json(result, { status: 201 })
       }),
     },
   })

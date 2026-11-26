@@ -17,8 +17,8 @@ import { type TaskProgress, taskProgress } from './tasks.ts'
  * place by clicking it (or F2/Enter), note actions, the conflict bar, and the live-preview editor.
  * The editor is created once and shows whatever note or scratch note the session holds; it only ever
  * sees the body. A scratch note gets the editor (and its save-error bar) with a banner saying links to
- * notes, images and properties need a vault note, without the note's header and properties; its relative
- * links open nothing.
+ * notes, images and properties need a vault note, and its "Save to vault…" (disabled, with the reason,
+ * without an open vault), without the note's header and properties; its relative links open nothing.
  */
 export function EditorPane(handle: Handle<{ model: WorkspaceModel }>) {
   const session = () => handle.props.model.session
@@ -263,7 +263,9 @@ export function EditorPane(handle: Handle<{ model: WorkspaceModel }>) {
   return () => {
     const { model } = handle.props
     const note = session().note
-    const editing = note !== null || session().scratch !== null
+    const scratch = session().scratch
+    const editing = note !== null || scratch !== null
+    const noVault = model.data.vault === null
     const folder = note ? parentOf(note.id) : ''
     const active = model.tabs.active
     const reader = active?.kind === 'reader' ? active : undefined
@@ -321,9 +323,23 @@ export function EditorPane(handle: Handle<{ model: WorkspaceModel }>) {
             </button>
           </header>
         ) : null}
-        {session().scratch ? (
+        {scratch ? (
           <div role="note" mix={[muted, scratchBannerStyle]} data-scratch-banner>
-            Scratch note, kept outside the vault. Links to notes, images and properties need a vault note.
+            <span>Scratch note, kept outside the vault. Links to notes, images and properties need a vault note.</span>
+            {noVault ? (
+              <small id="scratch-save-reason" data-scratch-save-reason>
+                Open a vault to save this scratch note to it
+              </small>
+            ) : null}
+            <button
+              type="button"
+              disabled={noVault}
+              aria-describedby={noVault ? 'scratch-save-reason' : undefined}
+              mix={[button, on('click', () => void model.saveScratchToVault(scratch.id))]}
+              data-scratch-save
+            >
+              Save to vault…
+            </button>
           </div>
         ) : null}
         {editing ? conflictBar() : null}
@@ -426,9 +442,13 @@ const titleInputStyle = css({ fontSize: '15px', fontWeight: 600, padding: '0 6px
 const renameErrorStyle = css({ color: 'var(--danger)', fontSize: '12px' })
 
 const scratchBannerStyle = css({
+  display: 'flex',
+  alignItems: 'center',
+  gap: '8px',
   padding: '6px 16px',
   fontSize: '12px',
   borderBottom: '1px solid var(--border)',
+  '& > span': { flex: 1 },
 })
 
 const pathStyle = css({ fontSize: '11px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' })

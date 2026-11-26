@@ -217,6 +217,19 @@ export class VaultSession {
   }
 
   /**
+   * Runs `task` on the active vault in the vault queue, so no vault switch, close or reader action lands in the
+   * middle of it (a scratch note's Save to vault). Throws `HttpError(409, 'NO_VAULT', noVault)` without an open
+   * vault; `task` then does not run.
+   */
+  inActiveVault<T>(noVault: string, task: (vault: Vault) => Promise<T>): Promise<T> {
+    return this.#exclusive(async () => {
+      const vault = this.#active
+      if (!vault) throw new HttpError(409, 'NO_VAULT', noVault)
+      return task(vault)
+    })
+  }
+
+  /**
    * Makes the vault at `root` active, opening (and starting to watch) it unless it is open already;
    * other open vaults stay open. Throws `VaultError('NOT_A_VAULT')` when the folder is missing; the
    * active vault then stays as it was.
