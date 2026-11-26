@@ -1166,4 +1166,206 @@ describe('Navigation of scratch tabs', () => {
     expect(navigation.relocationReplaces((path) => path === 'a.md')).toBe(true)
     expect(navigation.relocationReplaces((path) => path === 'c.md')).toBe(false)
   })
+
+  it('closes the scratch tab with the notice when its save finds the scratch note gone, so the user can leave it', async () => {
+    const id = await scratchAfterA()
+    await api.discardScratch(id)
+    session.edit('Typed into a note deleted on disk.\n')
+
+    await navigation.activate(tab(0))
+    expect(notices).toEqual(['This scratch note no longer exists'])
+    expect(navigation.tabs.tabs.map((item) => item.kind)).toEqual(['note'])
+    expect(session.note?.id).toBe('a.md')
+    expect(session.scratch).toBeNull()
+    expect(session.locked).toBe(false)
+    expect(await scratchIds()).toEqual([])
+
+    // Nothing is stuck: the next transition goes through the gate.
+    await navigation.open('b.md', { newTab: true })
+    expect(session.note?.id).toBe('b.md')
+  })
+
+  it('closes the active scratch tab and loads the next one when an autosave finds its scratch note gone', async () => {
+    const id = await scratchAfterA()
+    await api.discardScratch(id)
+    session.edit('Typed.\n')
+
+    expect(await session.flush()).toBe(true)
+    await expect.poll(() => session.note?.id).toBe('a.md')
+    expect(navigation.tabs.tabs.map((item) => item.kind)).toEqual(['note'])
+    expect(navigation.tabs.active).toMatchObject({ kind: 'note', path: 'a.md' })
+    expect(notices).toEqual(['This scratch note no longer exists'])
+    await expect.poll(() => session.locked).toBe(false)
+  })
+
+  it('creates no scratch note when the gate refuses New Scratch Note', async () => {
+    await navigation.open('a.md')
+    session.edit('# A\n\nMine.\n')
+    net.fail = saves
+    expect(await navigation.newScratch()).toBeNull()
+    expect(notices).toEqual([UNSAVED])
+    expect(navigation.tabs.tabs.map((item) => item.kind)).toEqual(['note'])
+    expect(await readdir(app.scratchDir).catch(() => [])).toEqual([])
+  })
+
+  it('does not show a scratch note whose create returns after another tab was activated', async () => {
+    await navigation.open('a.md')
+    await navigation.open('b.md', { newTab: true })
+    net.hold((url) => (url.pathname === '/api/scratch/create' ? 'create' : undefined), { once: true })
+    const created = navigation.newScratch()
+    await expect.poll(() => net.held.length).toBe(1)
+    await navigation.activate(tab(0))
+    net.held[0]?.release()
+    expect(await created).toMatchObject({ shown: false })
+    expect(navigation.tabs.active).toMatchObject({ kind: 'note', path: 'a.md' })
+    expect(session.scratch).toBeNull()
+    expect(session.note?.id).toBe('a.md')
+  })
+
+  it('shows both scratch notes of two overlapping New Scratch Notes, leaving none without a tab', async () => {
+    await navigation.open('a.md')
+    net.hold((url) => (url.pathname === '/api/scratch/create' ? 'create' : undefined), { once: true })
+    const first = navigation.newScratch()
+    await expect.poll(() => net.held.length).toBe(1)
+    const second = navigation.newScratch()
+    net.held[0]?.release()
+
+    const [one, two] = await Promise.all([first, second])
+    expect(one?.shown).toBe(true)
+    expect(two?.shown).toBe(true)
+    expect(navigation.tabs.tabs.map((item) => (item.kind === 'scratch' ? item.id : item.kind))).toEqual([
+      'note',
+      one?.scratch.id,
+      two?.scratch.id,
+    ])
+    expect(navigation.tabs.active).toMatchObject({ kind: 'scratch', id: two?.scratch.id })
+    expect(session.scratch?.id).toBe(two?.scratch.id)
+    expect((await scratchIds()).sort()).toEqual([one?.scratch.id, two?.scratch.id].sort())
+  })
+
+  it('saves the scratch text and lets the session go when a reader tab opens over a scratch tab', async () => {
+    const id = await scratchAfterA()
+    session.edit('Saved before the reader shows.\n')
+    const outside = path.join(await folderWith(app, 'outside', { 'outside.md': '# Outside\n' }), 'outside.md')
+    const ticket = await app.vaults.readers.grant(await realpath(outside))
+    if (ticket === undefined) throw new Error('No reader ticket for outside.md')
+
+    await navigation.openReader(ticket, 'outside.md')
+    expect((await api.readScratch(id)).text).toBe('Saved before the reader shows.\n')
+    expect(session.scratch).toBeNull()
+    expect(session.note).toBeNull()
+    expect(navigation.reader?.ticket).toBe(ticket)
+  })
+
+  it('surfaces a scratch tab save the tab store refuses, and saves both entries on the next transition', async () => {
+    let full = false
+    navigation = createNavigation({
+      load: (root) => store.load(root),
+      save: (root, snapshot) => store.save(root, snapshot),
+      loadScratch: () => store.loadScratch(),
+      saveScratch: (snapshot) => {
+        if (full) throw new Error('QuotaExceededError')
+        store.saveScratch(snapshot)
+      },
+    })
+    await navigation.open('a.md')
+    full = true
+    await expect(navigation.newScratch()).rejects.toThrow('QuotaExceededError')
+    expect(session.locked).toBe(false)
+    const id = navigation.tabs.tabs.find((item) => item.kind === 'scratch')
+    expect(id).toMatchObject({ kind: 'scratch' })
+
+    full = false
+    await navigation.open('b.md', { newTab: true })
+    expect(store.scratch).toEqual({ ids: [id?.kind === 'scratch' ? id.id : ''], active: -1 })
+    expect(saved()).toEqual({ tabs: ['a.md', 'b.md'], active: 1, closed: [] })
+  })
+
+  it('restores two kept scratch tabs in order after one before the active one is gone, the active one with its text', async () => {
+    await navigation.open('a.md')
+    const gone = (await navigation.newScratch())?.scratch.id ?? ''
+    const keptA = (await navigation.newScratch())?.scratch.id ?? ''
+    const keptB = (await navigation.newScratch())?.scratch.id ?? ''
+    session.edit('B’s text.\n')
+    await navigation.activate(tab(0))
+    await navigation.activate(tab(3))
+    expect(store.scratch).toEqual({ ids: [gone, keptA, keptB], active: 2 })
+    await api.discardScratch(gone)
+
+    restart()
+    await navigation.restore()
+    expect(navigation.tabs.tabs.map((item) => (item.kind === 'scratch' ? item.id : item.kind))).toEqual([
+      'note',
+      keptA,
+      keptB,
+    ])
+    expect(navigation.tabs.active).toMatchObject({ kind: 'scratch', id: keptB })
+    expect(session.body).toBe('B’s text.\n')
+    expect(store.scratch).toEqual({ ids: [keptA, keptB], active: 1 })
+    expect(notices).toEqual([])
+  })
+
+  it('lets the deleted scratch note go when the new note cannot be read after Save to vault', async () => {
+    const id = await scratchAfterA()
+    session.edit('# Saved\n')
+    net.fail = (url) => url.pathname === '/api/notes/read'
+    const result = await navigation.saveScratch(id, () => api.saveScratch(id, ''))
+    net.fail = null
+    expect(result).toMatchObject({ shown: true, saved: { id: 'Saved.md' } })
+    expect(navigation.tabs.active).toMatchObject({ kind: 'note', path: 'Saved.md' })
+    expect(session.scratch).toBeNull()
+    expect(notices).toEqual(['Disk full'])
+  })
+
+  it('closes a background scratch tab whose scratch note is gone without a notice', async () => {
+    const id = await scratchAfterA()
+    await navigation.activate(tab(0))
+    await api.discardScratch(id)
+    await navigation.close(tab(1))
+    expect(navigation.tabs.tabs.map((item) => item.kind)).toEqual(['note'])
+    expect(notices).toEqual([])
+  })
+
+  it('keeps the active note editable while a background scratch tab’s blank check is out', async () => {
+    await scratchAfterA()
+    await navigation.activate(tab(0))
+    net.hold((url) => (url.pathname === '/api/scratch/discard' ? 'discard' : undefined), { once: true })
+    const closing = navigation.close(tab(1))
+    await expect.poll(() => net.held.length).toBe(1)
+    expect(session.locked).toBe(false)
+    session.edit('# A\n\nTyped while the close is out.\n')
+    expect(session.body).toBe('# A\n\nTyped while the close is out.\n')
+    net.held[0]?.release()
+    await closing
+    expect(navigation.tabs.tabs.map((item) => item.kind)).toEqual(['note'])
+    expect(await scratchIds()).toEqual([])
+  })
+
+  it('keeps a background scratch tab the session holds, with its text, when the gate cannot save it', async () => {
+    const id = await scratchAfterA()
+    net.fail = (url) => url.pathname === '/api/notes/read'
+    await navigation.activate(tab(0))
+    net.fail = null
+    session.edit('Typed.\n')
+    net.fail = (url) => url.pathname === '/api/scratch/write'
+    await navigation.close(tab(1))
+    net.fail = null
+    expect(navigation.tabs.tabs.map((item) => item.kind)).toEqual(['note', 'scratch'])
+    expect(session.scratch?.id).toBe(id)
+    expect(session.body).toBe('Typed.\n')
+    expect(await scratchIds()).toEqual([id])
+    expect(notices).toContain(UNSAVED)
+  })
+
+  it('loads the active note tab once a background scratch tab the session held closes', async () => {
+    await scratchAfterA()
+    net.fail = (url) => url.pathname === '/api/notes/read'
+    await navigation.activate(tab(0))
+    net.fail = null
+    expect(session.note).toBeNull()
+    await navigation.close(tab(1))
+    expect(session.scratch).toBeNull()
+    expect(session.note?.id).toBe('a.md')
+    expect(session.locked).toBe(false)
+  })
 })

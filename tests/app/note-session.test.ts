@@ -403,3 +403,39 @@ describe('NoteSession.saveAsset', () => {
     await expect(access(path.join(vault.root, `${note.id.replace(/\.md$/, '')}.assets`))).rejects.toThrow()
   })
 })
+
+describe('NoteSession with a scratch note', () => {
+  /** A session over a client whose scratch writes are held (answered `held` until released). */
+  async function heldScratchWrite() {
+    const net = heldClient(app)
+    session = new NoteSession(net.client)
+    const scratch = await api.createScratch()
+    session.openScratch(scratch)
+    session.edit('text\n')
+    net.hold((url) => (url.pathname === '/api/scratch/write' ? 'write' : undefined), { once: true })
+    const flushing = session.flush()
+    await vi.waitFor(() => expect(net.held).toHaveLength(1))
+    return { net, flushing, scratch }
+  }
+
+  it('drops a scratch save that returns after the session closed', async () => {
+    const { net, flushing } = await heldScratchWrite()
+    session.close()
+    net.held[0]?.release()
+    await flushing
+    expect(session.scratch).toBeNull()
+    expect(session.state).toBe('saved')
+    expect(session.error).toBe('')
+  })
+
+  it('drops a failure of a scratch save that returns after another scratch note opened', async () => {
+    const { net, flushing } = await heldScratchWrite()
+    const other = await api.createScratch()
+    session.openScratch(other)
+    net.held[0]?.release('Disk full')
+    await flushing
+    expect(session.scratch?.id).toBe(other.id)
+    expect(session.state).toBe('saved')
+    expect(session.error).toBe('')
+  })
+})

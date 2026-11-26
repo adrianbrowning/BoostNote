@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { MAX_CLOSED_TABS, type Tab, Tabs } from '../../src/app/actions/public/workspace/tabs.ts'
+import { MAX_CLOSED_TABS, scratchTabsOf, type Tab, Tabs } from '../../src/app/actions/public/workspace/tabs.ts'
 
 const always = () => true
 /** A note tab's path, `reader:<name>` for a reader tab, or `scratch:<id>` for a scratch tab. */
@@ -331,5 +331,34 @@ describe('Tabs', () => {
       expect(tabs.replaceScratch(tabs.tabs[0]?.key ?? 0, 'x.md')).toBeUndefined()
       expect(paths(tabs)).toEqual(['a.md', 'c.md', 'new.md'])
     })
+  })
+})
+
+describe('scratchTabsOf', () => {
+  it.each([
+    [null, { ids: [], active: -1 }],
+    ['x', { ids: [], active: -1 }],
+    [
+      { ids: 'a', active: 0 },
+      { ids: [], active: -1 },
+    ],
+    [
+      { ids: [1, 'a', 'b'], active: 2 },
+      { ids: ['a', 'b'], active: 1 },
+    ],
+    [
+      { ids: ['a'], active: 5 },
+      { ids: ['a'], active: -1 },
+    ],
+    [
+      { ids: [1, 'a'], active: 0 },
+      { ids: ['a'], active: -1 },
+    ],
+    [
+      { ids: ['a', 'b'], active: '1' },
+      { ids: ['a', 'b'], active: -1 },
+    ],
+  ])('reads the stored entry %j as %j', (stored, snapshot) => {
+    expect(scratchTabsOf(stored)).toEqual(snapshot)
   })
 })
