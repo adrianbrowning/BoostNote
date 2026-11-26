@@ -1,4 +1,4 @@
-import { readFile, realpath, rm } from 'node:fs/promises'
+import { readdir, readFile, realpath, rm } from 'node:fs/promises'
 import * as path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import type { Client } from '../../src/app/actions/public/workspace/api.ts'
@@ -290,6 +290,21 @@ describe('WorkspaceModel operations that change the open note after a request', 
     const text = 'Save your copy of the note first, then add the image'
     await expect(workspace.saveAsset(image)).rejects.toThrow(text)
     expect(workspace.notice).toEqual({ kind: 'error', text })
+  })
+
+  it('refuses an image pasted into a scratch note with the images-need-a-vault-note notice, sending no upload', async () => {
+    await workspace.newScratchNote()
+    expect(workspace.session.scratch).not.toBeNull()
+    const vaultFiles = (await readdir(path.join(app.dir, 'vault'), { recursive: true })).sort()
+    const scratchFiles = (await readdir(app.scratchDir)).sort()
+    net.hold((url) => (url.pathname === '/api/assets' ? 'upload' : undefined))
+    const image = new File([new Uint8Array([1, 2, 3])], 'p.png', { type: 'image/png' })
+    const text = 'Images need a vault note: save this scratch note to the vault to add images.'
+    await expect(workspace.saveAsset(image)).rejects.toThrow(text)
+    expect(workspace.notice).toEqual({ kind: 'error', text })
+    expect(net.held).toEqual([])
+    expect((await readdir(path.join(app.dir, 'vault'), { recursive: true })).sort()).toEqual(vaultFiles)
+    expect((await readdir(app.scratchDir)).sort()).toEqual(scratchFiles)
   })
 })
 

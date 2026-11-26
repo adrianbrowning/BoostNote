@@ -108,7 +108,8 @@ export class NoteSession extends TypedEventTarget<{ change: Event; doc: DocEvent
    * stays put, and the last link is the one returned; an upload that reached the vault once the note had left its
    * old place is refused there (`404`, nothing written) and saved again the same way, also when the app has not yet
    * taken the relocation's answer (it waits until no transition holds the note, `locked`). Rejects with "No note is
-   * open" when no note is open, or the note closed meanwhile, and asks for the user's copy to be saved first while the
+   * open" when no note is open, or the note closed meanwhile, and with the images-need-a-vault-note message while a
+   * scratch note is open (it has no vault, so nothing is sent), and asks for the user's copy to be saved first while the
    * note is `removed` (deleted or moved outside the app: the vault refuses an image for a note that does not exist).
    * When another note replaced it meanwhile, it resolves with the link for the note it was saved for (the editor drops
    * that insert). The editor also checks the place right before the insert (`EditorHost.assetPlace`), for a
@@ -117,7 +118,13 @@ export class NoteSession extends TypedEventTarget<{ change: Event; doc: DocEvent
   async saveAsset(file: File): Promise<string> {
     const opened = this.#opened
     let id = this.note?.id
-    if (id === undefined) throw new Error('No note is open')
+    if (id === undefined) {
+      throw new Error(
+        this.scratch
+          ? 'Images need a vault note: save this scratch note to the vault to add images.'
+          : 'No note is open',
+      )
+    }
     if (this.state === 'removed') throw new Error('Save your copy of the note first, then add the image')
     for (;;) {
       let href: string
