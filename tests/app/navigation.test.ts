@@ -933,6 +933,20 @@ describe('Navigation of scratch tabs', () => {
     expect(notices).toEqual([])
   })
 
+  it('activates the first kept scratch tab, with its text, when the stored active one is the first and its file is gone and no note tab is restored', async () => {
+    const [gone, kept] = await twoScratchNotesWithoutVault()
+    await api.discardScratch(gone)
+    restart()
+    store.scratch = { ids: [gone, kept], active: 0 }
+    await navigation.restore()
+    expect(navigation.tabs.tabs).toEqual([{ key: tab(0), kind: 'scratch', id: kept }])
+    expect(navigation.tabs.activeKey).toBe(tab(0))
+    expect(session.scratch?.id).toBe(kept)
+    expect(session.body).toBe('Second.\n')
+    expect(store.scratch).toEqual({ ids: [kept], active: 0 })
+    expect(notices).toEqual([])
+  })
+
   it('activates the first kept scratch tab, with its text, when none was active and no note tab is restored', async () => {
     const [first, second] = await twoScratchNotesWithoutVault()
     restart()
