@@ -331,7 +331,9 @@ vault left fails, the other vault still shows (the switch counts) and the store 
   `POST /api/scratch/write` like a note's body, so the leave-note gate saves it before another tab shows (a
   failed save keeps the tab, as for notes). A tab whose scratch note is gone (`404`) closes with the notice. A
   vault switch or close leaves an open scratch note in the session as it is. The tab shows a "Scratch" badge and
-  the `scratchTitle` of the text as typed.
+  the `scratchTitle` of the text as typed: its first heading outside fenced code, else its first non-blank line,
+  else "Scratch YYYY-MM-DD HH:mm", with a leading frontmatter block (`---` … `---`/`...`, the fences of
+  `parseNoteText`) skipped, so a `# comment` in it is no title.
 - A scratch tab offers none of the vault-only features, and a banner above its editor says links to notes,
   images and properties need a vault note: relative `.md` links do nothing (http(s) links still open in the
   browser), a pasted or dropped image is not uploaded (`NoteSession.saveAsset` refuses it with the
