@@ -113,6 +113,27 @@ describe('openVault exclude', () => {
     expect(await read('app/data/scratch/a.md')).toBe('# Scratch')
     expect(await read('kept.md')).toBe('# Kept')
   })
+
+  it('plans and applies title renames past the excluded folder and an .mdx stem twin, leaving the excluded folder', async () => {
+    // The excluded folder is the assets folder name of the title's stem; an .mdx note takes the next stem.
+    await put('Work/Meeting notes.assets/a.md', '# Scratch')
+    await put('Work/meeting-notes.md', '---\ntitle: Meeting notes\n---\nbody\n')
+    await put('Work/Meeting notes 2.mdx', '# Other\n')
+    vault = await openVault(root, { exclude: path.join(root, 'Work', 'Meeting notes.assets') })
+
+    const plan = await vault.planTitleRenames()
+    expect(plan.renames).toEqual([
+      { from: 'Work/meeting-notes.md', to: 'Work/Meeting notes 3.md', title: 'Meeting notes' },
+    ])
+    const report = await vault.applyTitleRenames(plan)
+    expect(report.renamed).toEqual(plan.renames)
+    expect((await vault.notes()).map((note) => note.id).sort()).toEqual([
+      'Work/Meeting notes 2.mdx',
+      'Work/Meeting notes 3.md',
+    ])
+    expect(await read('Work/Meeting notes.assets/a.md')).toBe('# Scratch')
+    expect(await read('Work/Meeting notes 2.mdx')).toBe('# Other\n')
+  })
 })
 
 describe('vault notes', () => {
