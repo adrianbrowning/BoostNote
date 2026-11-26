@@ -315,7 +315,12 @@ vault left fails, the other vault still shows (the switch counts) and the store 
   place, as `replaceReader` does. Like reader tabs they have no back/forward trail, are not in `TabsSnapshot`,
   are skipped by rebase and forget, and stay open when the vault switches or closes (an active scratch tab
   stays active); navigating from one opens a new note tab. Closing one does not put it on the closed-tab
-  stack, so ⇧⌘T does not bring it back.
+  stack, so ⇧⌘T does not bring it back. Closing one (⌘W, ×, middle-click, Close Tab; `Navigation.close`) removes
+  its scratch note (`POST /api/scratch/discard`) when its text is empty or whitespace only, and keeps it when it has
+  text: an active one's text is saved by the leave-note gate first, so a note typed just before the close is kept
+  (a refused save keeps the tab), and the editor lets it go even when the next tab's read fails. When reading or
+  removing it fails, the tab still closes, the scratch note stays and the notice shows the failure; one already
+  gone (`404`) closes without a notice.
 - The open scratch tabs are kept across restarts by the tab store in one entry of their own (`localTabStore`:
   `localStorage` under `boostnote.scratch-tabs`, apart from the `boostnote.tabs:<vault root>` entries), saved
   whenever they change: `ScratchTabsSnapshot`, their ids in strip order and the index of the active one (`-1`: none

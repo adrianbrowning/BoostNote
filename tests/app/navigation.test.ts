@@ -859,6 +859,121 @@ describe('Navigation of scratch tabs', () => {
     expect(session.locked).toBe(false)
   })
 
+  const scratchIds = async () => (await api.listScratch()).map((item) => item.id)
+
+  it('discards a scratch note whose text is blank when its tab closes, and keeps one with text', async () => {
+    const blank = await scratchAfterA()
+    session.edit('  \n')
+    const kept = (await navigation.newScratch())?.scratch.id ?? ''
+    expect(await scratchIds()).toEqual(expect.arrayContaining([blank, kept]))
+    session.edit('Keep me.\n')
+
+    await navigation.close()
+    expect(navigation.tabs.tabs.map((item) => (item.kind === 'scratch' ? item.id : item.kind))).toEqual(['note', blank])
+    expect(await scratchIds()).toEqual(expect.arrayContaining([blank, kept]))
+    expect((await api.readScratch(kept)).text).toBe('Keep me.\n')
+
+    await navigation.close()
+    expect(navigation.tabs.tabs.map((item) => item.kind)).toEqual(['note'])
+    expect(session.note?.id).toBe('a.md')
+    expect(await scratchIds()).toEqual([kept])
+    expect(navigation.tabs.closed).toEqual([])
+    expect(notices).toEqual([])
+  })
+
+  it('saves text typed just before the close, so closing right after typing keeps the scratch note', async () => {
+    const id = await scratchAfterA()
+    session.edit('Just typed.\n')
+    expect(session.state).not.toBe('saved')
+    await navigation.close()
+    expect(await scratchIds()).toEqual([id])
+    expect((await api.readScratch(id)).text).toBe('Just typed.\n')
+    expect(notices).toEqual([])
+  })
+
+  it('discards a blank scratch note when its background tab closes', async () => {
+    await scratchAfterA()
+    await navigation.activate(tab(0))
+    await navigation.close(tab(1))
+    expect(navigation.tabs.tabs.map((item) => item.kind)).toEqual(['note'])
+    expect(await scratchIds()).toEqual([])
+    expect(notices).toEqual([])
+  })
+
+  it('discards a blank scratch note when its background tab closes while the tab store throws, then rejects with the store error', async () => {
+    let full = false
+    navigation = createNavigation({
+      load: (root) => store.load(root),
+      save: (root, snapshot) => store.save(root, snapshot),
+      loadScratch: () => store.loadScratch(),
+      saveScratch: (snapshot) => {
+        if (full) throw new Error('QuotaExceededError')
+        store.saveScratch(snapshot)
+      },
+    })
+    await scratchAfterA()
+    await navigation.activate(tab(0))
+    full = true
+    await expect(navigation.close(tab(1))).rejects.toThrow('QuotaExceededError')
+    expect(navigation.tabs.tabs.map((item) => item.kind)).toEqual(['note'])
+    expect(session.locked).toBe(false)
+    expect(await scratchIds()).toEqual([])
+  })
+
+  it('discards a blank scratch note when its background tab closes while the session still holds it after a note read failed', async () => {
+    await scratchAfterA()
+    net.fail = (url) => url.pathname === '/api/notes/read'
+    await navigation.activate(tab(0))
+    net.fail = null
+    expect(navigation.tabs.active?.kind).toBe('note')
+    expect(session.scratch).not.toBeNull()
+    await navigation.close(tab(1))
+    expect(navigation.tabs.tabs.map((item) => item.kind)).toEqual(['note'])
+    expect(session.scratch).toBeNull()
+    expect(session.locked).toBe(false)
+    expect(await scratchIds()).toEqual([])
+    expect(notices).toEqual(['Disk full'])
+  })
+
+  it('saves text typed in a scratch note the session still holds before its background tab closes, keeping it', async () => {
+    const id = await scratchAfterA()
+    net.fail = (url) => url.pathname === '/api/notes/read'
+    await navigation.activate(tab(0))
+    net.fail = null
+    session.edit('Typed after the read failed.\n')
+    await navigation.close(tab(1))
+    expect(navigation.tabs.tabs.map((item) => item.kind)).toEqual(['note'])
+    expect(session.scratch).toBeNull()
+    expect(await scratchIds()).toEqual([id])
+    expect((await api.readScratch(id)).text).toBe('Typed after the read failed.\n')
+    expect(notices).toEqual(['Disk full'])
+  })
+
+  it('discards a blank scratch note when its active tab closes and the next tab’s read fails, leaving the editor without it', async () => {
+    const id = await scratchAfterA()
+    net.fail = (url) => url.pathname === '/api/notes/read'
+    await navigation.close()
+    net.fail = null
+    expect(navigation.tabs.tabs.map((item) => item.kind)).toEqual(['note'])
+    expect(session.scratch).toBeNull()
+    expect(session.locked).toBe(false)
+    expect(await scratchIds()).toEqual([])
+    expect(notices).toEqual(['Disk full'])
+    expect(id).toHaveLength(32)
+  })
+
+  it('closes the tab and keeps the scratch file, with the failure, when discarding it fails', async () => {
+    const id = await scratchAfterA()
+    net.fail = (url) => url.pathname === '/api/scratch/discard'
+    await navigation.close()
+    net.fail = null
+    expect(navigation.tabs.tabs.map((item) => item.kind)).toEqual(['note'])
+    expect(session.note?.id).toBe('a.md')
+    expect(session.locked).toBe(false)
+    expect(await scratchIds()).toEqual([id])
+    expect(notices).toEqual(['Disk full'])
+  })
+
   /** A restart of the page: a new session and navigation over the same tab store, router and vault. */
   function restart(): void {
     session.close()

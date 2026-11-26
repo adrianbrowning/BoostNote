@@ -213,8 +213,8 @@ export function createClient(transport: Transport) {
 export type Client = ReturnType<typeof createClient>
 
 /**
- * A client's calls `Navigation` uses (notes it opens, creates and deletes; reader tabs; scratch notes it creates and
- * opens, and the scratch list it restores the last run's scratch tabs against).
+ * A client's calls `Navigation` uses (notes it opens, creates and deletes; reader tabs; scratch notes it creates,
+ * opens and discards when their tab closes blank, and the scratch list it restores the last run's scratch tabs against).
  */
 export type NavigationApi = Pick<
   Client,
@@ -228,6 +228,7 @@ export type NavigationApi = Pick<
   | 'createScratch'
   | 'readScratch'
   | 'listScratch'
+  | 'discardScratch'
 >
 
 /** The page's client of the `/api` routes. */

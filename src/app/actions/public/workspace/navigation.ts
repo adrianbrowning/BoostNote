@@ -291,9 +291,15 @@ export class Navigation {
   /**
    * Closes a tab (the active one by default). Closing the active tab runs the gate first; `discard`
    * drops unsaved edits instead (the "Close" of a note removed on disk). A background tab closes
-   * without the gate. A reader tab closes once main revoked its ticket (a `404` means it already
+   * without the gate, except a scratch tab whose scratch note the session still holds (the tab left for
+   * failed to read): the gate saves its text first and a refused gate keeps the tab; the session then lets it
+   * go. A reader tab closes once main revoked its ticket (a `404` means it already
    * was); if revoking fails the tab stays open. A reader that is already closing or opening its
-   * folder as the vault is left to that action.
+   * folder as the vault is left to that action. A scratch tab's scratch note is discarded once its tab
+   * closed when its text (saved by the gate first, when the session held it) is empty or whitespace only, and
+   * kept otherwise; when that read or discard fails, the tab stays closed, the scratch note is kept and the
+   * failure is reported (a `404`: it is gone already, and nothing is reported). The tabs are saved to the tab
+   * store after that discard, so a store that throws rejects the close with the blank scratch note already gone.
    */
   async close(key = this.tabs.activeKey, options: { discard?: boolean } = {}): Promise<void> {
     await this.#close(key, options, this.#hostReport)
@@ -318,12 +324,57 @@ export class Navigation {
       }
     }
     if (key !== this.tabs.activeKey) {
-      this.#edit((tabs) => tabs.close(key))
-      this.#host.changed()
+      if (tab?.kind === 'scratch' && this.#session.scratch?.id === tab.id) {
+        // The session still holds it (the note tab left for failed to read): the gate saves its text, then it goes.
+        await this.hold(async () => {
+          this.#edit((tabs) => tabs.close(key))
+          if (this.#session.scratch?.id === tab.id) this.#session.close()
+          this.#host.changed()
+          await this.#discardBlank(tab.id, report)
+        })
+        return
+      }
+      if (tab?.kind !== 'scratch') {
+        this.#edit((tabs) => tabs.close(key))
+        this.#host.changed()
+        return
+      }
+      // Held so the tabs are saved after the discard: a store that throws then rejects with the blank note gone.
+      await this.hold(
+        async () => {
+          this.#edit((tabs) => tabs.close(key))
+          this.#host.changed()
+          await this.#discardBlank(tab.id, report)
+        },
+        { gate: false },
+      )
       return
     }
     if (options.discard) this.#session.close()
-    await this.#switch((tabs) => tabs.close(key), report)
+    await this.#switch(
+      (tabs) => tabs.close(key),
+      report,
+      async () => {
+        if (tab?.kind !== 'scratch') return
+        // The gate saved its text, and its tab is gone: the editor lets it go even when the next tab's read fails.
+        if (this.#session.scratch?.id === tab.id) this.#session.close()
+        await this.#discardBlank(tab.id, report)
+      },
+    )
+  }
+
+  /**
+   * Discards scratch note `id`, whose tab closed, when its text on disk is empty or whitespace only. Its text is the
+   * one on disk: the gate saved it before its tab closed, when the session held it (which then let it go), and a
+   * scratch note the session does not hold has no unsaved text. A failed read or discard keeps it, reported to
+   * `report` (a `404`: it is gone already).
+   */
+  async #discardBlank(id: string, report: LoadReport): Promise<void> {
+    try {
+      if ((await this.#api.readScratch(id)).text.trim() === '') await this.#api.discardScratch(id)
+    } catch (error) {
+      if (!(error instanceof ApiError && error.status === 404)) report.fail(error)
+    }
   }
 
   /** Cmd+Shift+T: reopens the most recently closed tab whose note still exists. */
@@ -552,10 +603,14 @@ export class Navigation {
     return Array.isArray(tabs) ? tabs.length : 0
   }
 
-  /** Runs the gate, applies `change` to the tabs and loads the (new) active tab, holding the open note (`hold`). */
-  async #switch(change: (tabs: Tabs) => unknown, report = this.#hostReport): Promise<void> {
+  /**
+   * Runs the gate, applies `change` to the tabs, runs `then` (when given) and loads the (new) active tab, holding the
+   * open note (`hold`).
+   */
+  async #switch(change: (tabs: Tabs) => unknown, report = this.#hostReport, then?: () => Promise<void>): Promise<void> {
     await this.hold(async () => {
       this.#edit(change)
+      await then?.()
       await this.#loadActive(report)
     })
   }
