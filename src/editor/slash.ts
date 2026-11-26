@@ -17,12 +17,20 @@ interface BlockTemplate {
   cursor: number
 }
 
+/** The local date/time format an inline command inserts at the `/query`. */
+export type DateTimeFormat = 'date' | 'time' | 'datetime'
+
+/** An inline command: its text replaces only the `/query`, computed when the command runs. */
+interface InlineCommand {
+  inline: DateTimeFormat
+}
+
 export interface SlashCommand {
   id: string
   label: string
   keywords: string
-  /** Fixed template, or `'image'` for the file-picker command. */
-  template: BlockTemplate | 'image'
+  /** Fixed template, an inline date/time command, or `'image'` for the file-picker command. */
+  template: BlockTemplate | InlineCommand | 'image'
 }
 
 const template = (text: string, cursor = text.length): BlockTemplate => ({ text, cursor })
@@ -58,6 +66,14 @@ export const slashCommands: readonly SlashCommand[] = [
     keywords: 'divider horizontal rule hr line separator',
     template: template('---\n'),
   },
+  { id: 'date', label: 'Date', keywords: 'date today day', template: { inline: 'date' } },
+  { id: 'time', label: 'Time', keywords: 'time now clock', template: { inline: 'time' } },
+  {
+    id: 'datetime',
+    label: 'Date and time',
+    keywords: 'datetime timestamp now date time',
+    template: { inline: 'datetime' },
+  },
   { id: 'image', label: 'Image', keywords: 'image picture photo upload file', template: 'image' },
 ]
 
@@ -68,6 +84,25 @@ export function filterSlashCommands(query: string): SlashCommand[] {
     const haystack = `${command.id} ${command.label} ${command.keywords}`.toLowerCase()
     return words.every((word) => haystack.includes(word))
   })
+}
+
+const pad = (value: number) => String(value).padStart(2, '0')
+
+/** `now` in local time as `YYYY-MM-DD`, `HH:mm` or `YYYY-MM-DD HH:mm` (24-hour, zero-padded). */
+export function formatSlashDateTime(format: DateTimeFormat, now: Date): string {
+  const date = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`
+  const time = `${pad(now.getHours())}:${pad(now.getMinutes())}`
+  return format === 'date' ? date : format === 'time' ? time : `${date} ${time}`
+}
+
+/** The transaction for an inline command: `text` replaces the `/query` at `[from, to)`, cursor after it. */
+export function slashInlineTransaction(_state: EditorState, from: number, to: number, text: string): TransactionSpec {
+  return {
+    changes: { from, to, insert: text },
+    selection: EditorSelection.cursor(from + text.length),
+    scrollIntoView: true,
+    userEvent: 'input.slash',
+  }
 }
 
 const NO_SLASH_NODES: Record<string, true> = {
@@ -155,6 +190,11 @@ async function runImageCommand(view: EditorView, from: number, to: number): Prom
 function applySlashCommand(view: EditorView, command: SlashCommand, from: number, to: number): void {
   if (command.template === 'image') {
     void runImageCommand(view, from, to).catch((error: unknown) => console.error('Inserting image failed', error))
+    return
+  }
+  if ('inline' in command.template) {
+    const text = formatSlashDateTime(command.template.inline, new Date())
+    view.dispatch(slashInlineTransaction(view.state, from, to, text))
     return
   }
   view.dispatch(slashCommandTransaction(view.state, from, to, command.template))
