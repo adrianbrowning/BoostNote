@@ -467,11 +467,10 @@ export function createApiController(services: AppServices) {
        * without one, or once it is closed): the scratch text, read as a note file (a valid frontmatter block is kept
        * byte for byte, a missing `created`/`updated` line appended only when the block still parses to the typed
        * mapping plus those keys), becomes a note in `folder` named by its title (`scratchTitle`, made unique as
-       * `createNote` does), then the scratch note is removed; the answer has that vault's lists, read before the
-       * removal, so no failure after it turns the save into an error. When the note cannot be created (or the lists
-       * cannot be read) the scratch note stays; when removing it fails afterwards, the note stays in the vault and the
-       * scratch note stays listed. A scratch note discarded meanwhile (the list's Discard, after this save read it)
-       * counts as removed.
+       * `createNote` does), then the scratch note is removed; the answer has that vault's lists, or none when they
+       * cannot be read then (the save happened: the page reads them again). When the note cannot be created the
+       * scratch note stays; when removing it fails afterwards, the note stays in the vault and the scratch note stays
+       * listed. A scratch note discarded meanwhile (the list's Discard, after this save read it) counts as removed.
        */
       scratchSave: guarded(async ({ request, url }: { request: Request; url: URL }) => {
         const body = await readJsonObject(request)
@@ -486,11 +485,15 @@ export function createApiController(services: AppServices) {
           async (vault): Promise<ScratchSaveResult> => {
             const scratch = await services.scratch.read(id)
             const created = await vault.createNote(folder, scratch.title, { text: scratch.text })
-            const workspace = await workspaceData(services, vault.root)
             await services.scratch.discard(id).catch((error: unknown) => {
               if (!(error instanceof HttpError && error.code === 'NOT_FOUND')) throw error
             })
-            return { id: created.id, workspace }
+            try {
+              return { id: created.id, workspace: await workspaceData(services, vault.root) }
+            } catch {
+              // The note was created and the scratch note removed: the save stands, its lists are read again.
+              return { id: created.id }
+            }
           },
         )
         return json(result, { status: 201 })

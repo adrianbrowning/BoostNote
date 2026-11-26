@@ -622,8 +622,12 @@ export class WorkspaceModel extends TypedEventTarget<{
           const result = await this.navigation.saveScratch(id, async () => {
             if (!sameVault()) throw new Error('The vault changed while the folder was chosen; nothing was saved.')
             const saved = await this.#snapshot(() => this.#api.saveScratch(id, folder))
-            // Lists of the vault left, when a switch ran meanwhile: not shown over the vault on screen.
-            if (sameVault()) this.#showData(saved.workspace)
+            // Lists of the vault left, when a switch ran meanwhile: not shown over the vault on screen. When main
+            // could not read them after the save, they are read again (a failure is the error notice; the save stands).
+            if (sameVault()) {
+              if (saved.workspace) this.#showData(saved.workspace)
+              else await this.refresh().catch((error: unknown) => this.fail(error))
+            }
             return saved
           })
           if (result && !result.shown) this.notify('info', `Saved as ${result.saved.id} in ${vault}`)
@@ -746,7 +750,8 @@ export class WorkspaceModel extends TypedEventTarget<{
     this.changed()
     await this.attempt(async () => {
       const created = await this.navigation.newScratch()
-      if (created?.shown) this.#focusEditor(true)
+      // A dialog still showing (an "Update links?" question) keeps the focus; the editor is behind it.
+      if (created?.shown && !this.dialog) this.#focusEditor(true)
     })
   }
 

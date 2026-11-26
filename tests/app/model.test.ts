@@ -1157,4 +1157,27 @@ describe('WorkspaceModel link questions', () => {
       expect(await readFile(path.join(app.dir, 'links', 'linker.md'), 'utf8')).toBe('# L\n\n[a](./a.md)\n')
     },
   )
+
+  it.each([
+    { what: 'showing', parked: false },
+    { what: 'parked under a prompt the new scratch note cancels', parked: true },
+  ])(
+    'leaves the editor focus alone when a new scratch note opens with an Update links? question $what',
+    async ({ parked }) => {
+      const naming = parked ? folderPrompt() : undefined
+      const moving = workspace.moveNote('a.md', 'g')
+      if (parked) await expect.poll(() => workspace.dialog?.kind).toBe('prompt')
+      else await expect.poll(() => workspace.dialog?.kind).toBe('links')
+
+      await workspace.newScratchNote()
+      if (naming) expect(await naming).toBeNull()
+      expect(workspace.tabs.active?.kind).toBe('scratch')
+      expect(workspace.dialog?.kind).toBe('links')
+      expect(workspace.takeEditorFocus()).toBeNull()
+
+      answer(null, true)
+      await moving
+      expect(workspace.dialog).toBeNull()
+    },
+  )
 })

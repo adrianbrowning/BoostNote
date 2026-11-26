@@ -52,6 +52,7 @@ import {
   encodeLinkPath,
   folderSegments,
   isHiddenName,
+  isInside,
   noteFileName,
   noteSegments,
   resolveInside,
@@ -79,8 +80,8 @@ export interface OpenVaultOptions {
   /** Quiet period before a burst of file-system events is processed (default 100 ms). */
   debounceMs?: number
   /**
-   * An absolute folder kept out of the vault when the vault holds it (the scratch notes' folder): never scanned, so
-   * its files are no notes, folders or search results of the vault.
+   * An absolute folder that no vault overlaps (the scratch notes' folder): opening a vault on it, inside it, or on a
+   * folder that holds it is refused, so its files are never notes of a vault.
    */
   exclude?: string
 }
@@ -234,7 +235,10 @@ interface KnownFile {
 /** Delay of the reconcile that follows starting the watcher (covers events lost during start-up). */
 const WATCHER_SETTLE_MS = 1000
 
-/** Opens the folder at `root` as a vault and indexes its notes. */
+/**
+ * Opens the folder at `root` as a vault and indexes its notes. Throws `VaultError('NOT_A_VAULT')` when the folder is
+ * missing, or overlaps the `exclude` folder (is it, is inside it, or holds it).
+ */
 export async function openVault(root: string, options: OpenVaultOptions = {}): Promise<Vault> {
   let real: string
   try {
@@ -244,10 +248,30 @@ export async function openVault(root: string, options: OpenVaultOptions = {}): P
     if (isNodeError(error, 'ENOENT')) throw new VaultError('NOT_A_VAULT', `Vault folder does not exist: ${root}`)
     throw error
   }
-  const vault = new Vault(real, await readConfig(real), options.exclude)
+  if (options.exclude !== undefined) {
+    const excluded = await realPathOf(options.exclude)
+    if (isInside(excluded, real) || isInside(real, excluded)) {
+      throw new VaultError(
+        'NOT_A_VAULT',
+        'This folder overlaps the scratch notes’ folder; it cannot be opened as a vault',
+      )
+    }
+  }
+  const vault = new Vault(real, await readConfig(real))
   await vault.refresh()
   if (options.watch) vault.startWatching(options.debounceMs ?? 100)
   return vault
+}
+
+/** `file`'s real path, also when it does not exist yet: its nearest existing parent's real path with the rest appended. */
+async function realPathOf(file: string): Promise<string> {
+  try {
+    return await realpath(file)
+  } catch (error) {
+    const parent = path.dirname(file)
+    if (!isNodeError(error, 'ENOENT') || parent === file) throw error
+    return path.join(await realPathOf(parent), path.basename(file))
+  }
 }
 
 /**
@@ -268,13 +292,11 @@ export class Vault {
   #timer: NodeJS.Timeout | undefined
   #settleTimer: NodeJS.Timeout | undefined
   #queue: Promise<unknown> = Promise.resolve()
-  readonly #exclude: string | undefined
 
   /** Use `openVault`. */
-  constructor(root: string, config: VaultConfig, exclude?: string) {
+  constructor(root: string, config: VaultConfig) {
     this.root = root
     this.#config = config
-    this.#exclude = exclude
   }
 
   get config(): VaultConfig {
@@ -1135,8 +1157,6 @@ export class Vault {
   async #scan(emit: boolean): Promise<VaultEvent[]> {
     const found = new Map<string, string>()
     const folders = new Set<string>()
-    // Real path, as the root's: a folder that does not exist (yet) holds nothing to leave out.
-    const excluded = this.#exclude === undefined ? undefined : await realpath(this.#exclude).catch(() => undefined)
     const walk = async (dir: string, folder: string): Promise<void> => {
       let entries: Dirent[]
       try {
@@ -1149,7 +1169,6 @@ export class Vault {
         if (isHiddenName(entry.name) || entry.name.includes('\\')) continue
         const id = joinId(folder, entry.name)
         if (entry.isDirectory()) {
-          if (path.join(dir, entry.name) === excluded) continue
           folders.add(id)
           await walk(path.join(dir, entry.name), id)
         } else if (entry.isFile() && isNoteFileName(entry.name)) {

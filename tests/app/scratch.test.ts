@@ -267,18 +267,22 @@ describe('/api/scratch', () => {
   it.each([
     ['userData', 'the folder that holds the scratch folder'],
     ['.', 'a folder above it'],
-  ])('keeps scratch notes out of a vault opened on %j (%s)', async (folder) => {
-    const before = await create()
-    await write(before.id, '# Zebra before\nzebra')
-    const vault = await app.openVault(folder)
-    await vault.createNote('', 'Kept')
-    const after = await create()
-    await write(after.id, '# Zebra after\nzebra')
-    await vault.refresh()
+    ['userData/scratch', 'the scratch folder'],
+    ['userData/scratch/inside', 'a folder inside it'],
+  ])('refuses to open %j (%s) as a vault, so no vault reads, writes or deletes a scratch note', async (folder) => {
+    const { id } = await create()
+    await write(id, '# Zebra\nzebra')
+    await mkdir(path.join(app.dir, folder), { recursive: true })
 
-    const workspace: WorkspaceData = await (await app.get('/api/workspace')).json()
-    expect(workspace.notes.map((note) => note.id)).toEqual(['Kept.md'])
-    expect(await (await app.get('/api/search?q=zebra')).json()).toEqual({ ids: [] })
+    await expect(app.openVault(folder)).rejects.toMatchObject({ code: 'NOT_A_VAULT' })
+    expect(app.vaults.current).toBeUndefined()
+    expect(await readFile(path.join(app.scratchDir, `${id}.md`), 'utf8')).toBe('# Zebra\nzebra')
+    expect((await list()).map((note) => note.id)).toEqual([id])
+  })
+
+  it('refuses a folder that holds the scratch folder as a vault before any scratch note exists', async () => {
+    await expect(app.openVault('userData')).rejects.toMatchObject({ code: 'NOT_A_VAULT' })
+    expect(app.vaults.current).toBeUndefined()
   })
 })
 
@@ -299,7 +303,7 @@ describe('/api/scratch/save', () => {
     expect(saved.status).toBe(201)
     const result: ScratchSaveResult = await saved.json()
     expect(result.id).toBe('work/Plan.md')
-    expect(result.workspace.notes.map((note) => note.id)).toEqual(['work/Plan.md'])
+    expect(result.workspace?.notes.map((note) => note.id)).toEqual(['work/Plan.md'])
     const raw = await readFile(path.join(vault.root, 'work', 'Plan.md'), 'utf8')
     expect(raw).toMatch(/^---\ncreated: .+\nupdated: .+\n---\n# Plan\n\n- one\n$/)
 
@@ -436,8 +440,8 @@ describe('/api/scratch/save', () => {
     expect(response.status).toBe(201)
     const result: ScratchSaveResult = await response.json()
     expect(result.id).toBe('Into first.md')
-    expect(result.workspace.vault?.root).toBe(first.root)
-    expect(result.workspace.notes.map((note) => note.id)).toEqual(['Into first.md'])
+    expect(result.workspace?.vault?.root).toBe(first.root)
+    expect(result.workspace?.notes.map((note) => note.id)).toEqual(['Into first.md'])
     expect((await filesUnder(first.root)).filter((file) => file.endsWith('.md'))).toEqual(['Into first.md'])
     expect((await filesUnder(second.root)).filter((file) => file.endsWith('.md'))).toEqual([])
   })
@@ -529,21 +533,18 @@ describe('/api/scratch/save', () => {
     expect((await app.get(`/api/notes/read?${new URLSearchParams({ id: note })}`)).status).toBe(200)
   })
 
-  it('keeps the scratch note when the vault’s lists cannot be read after the note was created', async () => {
+  it('answers the saved note’s id without lists when the vault’s lists cannot be read after the save', async () => {
     const vault = await app.openVault()
     const { id } = await create()
     await write(id, '# Listed\n')
     vi.spyOn(vault, 'listTrash').mockRejectedValueOnce(new Error('EIO: i/o error'))
 
-    // A plain fs error, which the router throws: the request fails.
-    const saved = await save(id, '').then(
-      (response) => response.ok,
-      () => false,
-    )
-    expect(saved).toBe(false)
-
+    const response = await save(id, '')
+    expect(response.status).toBe(201)
+    expect(await readJson(response)).toEqual({ id: 'Listed.md' })
     expect((await vault.readNote('Listed.md')).body).toBe('# Listed\n')
-    expect((await list()).map((note) => ({ id: note.id, title: note.title }))).toEqual([{ id, title: 'Listed' }])
+    expect(await list()).toEqual([])
+    expect(await filesUnder(app.scratchDir)).toEqual([])
   })
 
   it('answers the saved note when the list’s Discard removed the scratch note while the save ran', async () => {

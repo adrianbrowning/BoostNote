@@ -117,11 +117,12 @@ export interface ScratchDiscardResult {
 
 /**
  * `POST /api/scratch/save` (`{ id, folder }`): the scratch note became note `id` in `folder` of the vault named by
- * `?vault=`, and the scratch note is gone; `workspace` is that vault's lists with the note in them.
+ * `?vault=`, and the scratch note is gone; `workspace` is that vault's lists with the note in them (left out when they
+ * could not be read after the save: the page reads them again).
  */
 export interface ScratchSaveResult {
   id: string
-  workspace: WorkspaceData
+  workspace?: WorkspaceData
 }
 
 /** A scratch note in the scratch list (`GET /api/scratch`): no text, never a path. */

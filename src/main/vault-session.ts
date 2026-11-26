@@ -17,7 +17,7 @@ export interface VaultSessionOptions {
   events: EventHub
   /** Watcher debounce passed to `openVault` (default: the vault's own default). */
   debounceMs?: number
-  /** A folder every vault leaves out when it holds it (`openVault`'s `exclude`): the scratch notes' folder. */
+  /** A folder no vault may overlap (`openVault`'s `exclude`): the scratch notes' folder. */
   exclude?: string
 }
 
