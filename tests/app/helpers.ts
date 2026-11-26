@@ -3,6 +3,7 @@ import * as os from 'node:os'
 import * as path from 'node:path'
 
 import { type Client, createClient } from '../../src/app/actions/public/workspace/api.ts'
+import type { TabStore } from '../../src/app/actions/public/workspace/navigation.ts'
 import { DropGrants } from '../../src/app/drop-grants.ts'
 import { type AppRouter, createAppRouter } from '../../src/app/router.ts'
 import { ScratchStore } from '../../src/app/scratch-store.ts'
@@ -15,6 +16,14 @@ import type { LegacyStorageLocation } from '../../src/migrate/index.ts'
 import type { Vault } from '../../src/vault/index.ts'
 
 export const origin = 'http://app'
+
+/** A tab store that keeps nothing: every vault and the scratch tabs restore no tabs. */
+export const noTabStore: TabStore = {
+  load: () => null,
+  save: () => {},
+  loadScratch: () => null,
+  saveScratch: () => {},
+}
 
 /** A router wired to fake Electron services, a temp settings file and a temp folder for vaults. */
 export class TestApp {

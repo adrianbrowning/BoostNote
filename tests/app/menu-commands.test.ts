@@ -128,7 +128,15 @@ describe('runMenuCommand on the workspace', () => {
     return new WorkspaceModel(
       await api.workspace(),
       { ui: DEFAULT_UI, hotkeyRegistered: false, update: null },
-      { api, store: { load: (root) => snapshots.get(root) ?? null, save: (root, tabs) => snapshots.set(root, tabs) } },
+      {
+        api,
+        store: {
+          load: (root) => snapshots.get(root) ?? null,
+          save: (root, tabs) => snapshots.set(root, tabs),
+          loadScratch: () => null,
+          saveScratch: () => {},
+        },
+      },
     )
   }
 

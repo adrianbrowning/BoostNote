@@ -5,8 +5,8 @@
  * scratch tabs have no trail, are never part of `TabsSnapshot`, and are left alone by rebase/forget
  * and by restoring another vault's tabs, so they stay open across vault switches. There is one
  * editor; activating a tab loads its note, so background tabs hold no unsaved text. Pure state, no
- * I/O: `Navigation` saves/loads notes around these transitions and persists `toJSON()` per vault.
- * Note paths are vault note ids (`work/todo.md`).
+ * I/O: `Navigation` saves/loads notes around these transitions, persists `toJSON()` per vault and
+ * `scratchJSON()` in one entry of its own. Note paths are vault note ids (`work/todo.md`).
  */
 
 export interface NoteTab {
@@ -51,6 +51,23 @@ export interface TabsSnapshot {
   active: number
   /** Most recently closed last. */
   closed: ClosedTab[]
+}
+
+/** What is persisted of the scratch tabs, in one entry for every vault (and none): their ids in order, the active one. */
+export interface ScratchTabsSnapshot {
+  ids: string[]
+  /** Index into `ids`; `-1` when no scratch tab is active. */
+  active: number
+}
+
+/** The scratch tabs' entry as stored (`unknown`: what the store read); an entry of another shape holds no tabs. */
+export function scratchTabsOf(value: unknown): ScratchTabsSnapshot {
+  if (typeof value !== 'object' || value === null) return { ids: [], active: -1 }
+  const { ids, active } = value as Partial<Record<keyof ScratchTabsSnapshot, unknown>>
+  if (!Array.isArray(ids)) return { ids: [], active: -1 }
+  const kept = ids.filter((id): id is string => typeof id === 'string')
+  const activeId = typeof active === 'number' ? ids[active] : undefined
+  return { ids: kept, active: typeof activeId === 'string' ? kept.indexOf(activeId) : -1 }
 }
 
 export const MAX_CLOSED_TABS = 40
@@ -113,6 +130,26 @@ export class Tabs {
       active: notes.findIndex((tab) => tab.key === this.activeKey),
       closed: [...this.closed],
     }
+  }
+
+  /**
+   * Opens the scratch tabs of a persisted `ScratchTabsSnapshot` after every tab, in order; ids that `exists` denies
+   * and ids whose tab is open already are skipped. The snapshot's active scratch tab becomes active when it is kept.
+   */
+  restoreScratch(snapshot: ScratchTabsSnapshot, exists: (id: string) => boolean): void {
+    snapshot.ids.forEach((id, index) => {
+      if (!exists(id)) return
+      const open = this.tabs.find((tab): tab is ScratchTab => tab.kind === 'scratch' && tab.id === id)
+      const tab: ScratchTab = open ?? { key: this.#takeKey(), kind: 'scratch', id }
+      if (!open) this.tabs.push(tab)
+      if (index === snapshot.active) this.activeKey = tab.key
+    })
+  }
+
+  /** The scratch tabs to persist: their ids in strip order and the active one's index (`-1`: a note or reader tab, or none). */
+  scratchJSON(): ScratchTabsSnapshot {
+    const scratch = this.tabs.filter((tab) => tab.kind === 'scratch')
+    return { ids: scratch.map((tab) => tab.id), active: scratch.findIndex((tab) => tab.key === this.activeKey) }
   }
 
   get active(): Tab | undefined {

@@ -5,7 +5,7 @@ import type { Client } from '../../src/app/actions/public/workspace/api.ts'
 import { WorkspaceModel } from '../../src/app/actions/public/workspace/model.ts'
 import { createLivePreviewEditor, type LivePreviewEditor } from '../../src/editor/index.ts'
 import { DEFAULT_UI } from '../../src/main/settings.ts'
-import { folderWith, heldClient, TestApp } from './helpers.ts'
+import { folderWith, heldClient, noTabStore, TestApp } from './helpers.ts'
 
 /**
  * Moving the open note with the real editor wired to `WorkspaceModel`'s session as the editor pane wires it, over
@@ -30,7 +30,7 @@ beforeEach(async () => {
   workspace = new WorkspaceModel(
     await api.workspace(),
     { ui: DEFAULT_UI, hotkeyRegistered: false, update: null },
-    { api, store: { load: () => null, save: () => {} } },
+    { api, store: noTabStore },
   )
   await workspace.openNote('a.md')
   const session = workspace.session

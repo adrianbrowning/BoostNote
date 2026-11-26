@@ -4,13 +4,14 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { type Client, setPageVault } from '../../src/app/actions/public/workspace/api.ts'
 import { Navigation, type NavigationHost, type TabStore } from '../../src/app/actions/public/workspace/navigation.ts'
 import { NoteSession } from '../../src/app/actions/public/workspace/note-session.ts'
-import type { TabsSnapshot } from '../../src/app/actions/public/workspace/tabs.ts'
+import type { ScratchTabsSnapshot, TabsSnapshot } from '../../src/app/actions/public/workspace/tabs.ts'
 import type { WorkspaceData } from '../../src/app/actions/public/workspace/types.ts'
 import { folderWith, type HeldClient, heldClient, TestApp } from './helpers.ts'
 
-/** Tab snapshots by vault root, as the app keeps them in `localStorage`. */
+/** Tab snapshots by vault root, and the scratch tabs' entry, as the app keeps them in `localStorage`. */
 class MemoryTabStore implements TabStore {
   readonly saved = new Map<string, unknown>()
+  scratch: unknown = null
 
   load(root: string): unknown {
     return this.saved.get(root) ?? null
@@ -18,6 +19,14 @@ class MemoryTabStore implements TabStore {
 
   save(root: string, snapshot: TabsSnapshot): void {
     this.saved.set(root, structuredClone(snapshot))
+  }
+
+  loadScratch(): unknown {
+    return this.scratch
+  }
+
+  saveScratch(snapshot: ScratchTabsSnapshot): void {
+    this.scratch = structuredClone(snapshot)
   }
 }
 
@@ -329,6 +338,8 @@ describe('Navigation', () => {
         if (full && root === first) throw new Error('QuotaExceededError')
         store.save(root, snapshot)
       },
+      loadScratch: () => store.loadScratch(),
+      saveScratch: (snapshot) => store.saveScratch(snapshot),
     })
     await navigation.restore()
     const { promise: held, resolve: release } = Promise.withResolvers<void>()
@@ -362,6 +373,8 @@ describe('Navigation', () => {
         if (full) throw new Error('QuotaExceededError')
         store.save(root, snapshot)
       },
+      loadScratch: () => store.loadScratch(),
+      saveScratch: (snapshot) => store.saveScratch(snapshot),
     })
     await navigation.open('a.md')
     full = true
@@ -530,6 +543,8 @@ describe('Navigation', () => {
       save: () => {
         throw new Error('QuotaExceededError')
       },
+      loadScratch: () => null,
+      saveScratch: () => {},
     })
     const switched = navigation.switchVault(
       async () => (await api.openVault(other)).workspace,
@@ -842,6 +857,84 @@ describe('Navigation of scratch tabs', () => {
     expect(navigation.tabs.tabs.map((item) => item.kind)).toEqual(['note'])
     expect(session.note?.id).toBe('a.md')
     expect(session.locked).toBe(false)
+  })
+
+  /** A restart of the page: a new session and navigation over the same tab store, router and vault. */
+  function restart(): void {
+    session.close()
+    session = new NoteSession(api)
+    navigation = createNavigation(store)
+  }
+
+  it('restores the last run’s scratch tabs after the vault’s note tabs, the active one with its text, dropping one whose file is gone without a notice', async () => {
+    const kept = await scratchAfterA()
+    session.edit('Kept text.\n')
+    const gone = (await navigation.newScratch())?.scratch.id ?? ''
+    await navigation.activate(tab(1))
+    expect(store.scratch).toEqual({ ids: [kept, gone], active: 0 })
+    await api.discardScratch(gone)
+
+    restart()
+    await navigation.restore()
+    expect(navigation.tabs.tabs).toEqual([
+      { key: tab(0), kind: 'note', path: 'a.md', back: [], forward: [] },
+      { key: tab(1), kind: 'scratch', id: kept },
+    ])
+    expect(navigation.tabs.activeKey).toBe(tab(1))
+    expect(session.scratch?.id).toBe(kept)
+    expect(session.body).toBe('Kept text.\n')
+    expect(store.scratch).toEqual({ ids: [kept], active: 0 })
+    expect(saved()).toEqual({ tabs: ['a.md'], active: -1, closed: [] })
+    expect(notices).toEqual([])
+  })
+
+  it('restores the last run’s scratch tabs with no vault open', async () => {
+    const id = await scratchAfterA()
+    session.edit('No vault.\n')
+    expect(await navigation.switchVault(() => api.closeVault(data.vault?.root ?? ''))).toBe(true)
+    expect(data.vault).toBeNull()
+
+    restart()
+    await navigation.restore()
+    expect(navigation.tabs.tabs).toEqual([{ key: tab(0), kind: 'scratch', id }])
+    expect(navigation.tabs.activeKey).toBe(tab(0))
+    expect(session.scratch?.id).toBe(id)
+    expect(session.body).toBe('No vault.\n')
+    expect(notices).toEqual([])
+  })
+
+  it('keeps the restored scratch tabs once each, in their own entry, across vault switches', async () => {
+    const other = await folderWith(app, 'other', { 'x.md': '# X\n' })
+    const id = await scratchAfterA()
+    await navigation.activate(tab(0))
+    restart()
+    await navigation.restore()
+    expect(navigation.tabs.tabs.map((item) => item.kind)).toEqual(['note', 'scratch'])
+    const first = data.vault?.root ?? ''
+
+    expect(await navigation.switchVault(async () => (await api.openVault(other)).workspace)).toBe(true)
+    const second = data.vault?.root ?? ''
+    expect(navigation.tabs.tabs).toEqual([{ key: tab(0), kind: 'scratch', id }])
+    expect(await navigation.switchVault(() => api.closeVault(second))).toBe(true)
+    expect(data.vault?.root).toBe(first)
+    expect(navigation.tabs.tabs).toEqual([
+      { key: tab(0), kind: 'note', path: 'a.md', back: [], forward: [] },
+      { key: tab(1), kind: 'scratch', id },
+    ])
+    expect(store.scratch).toEqual({ ids: [id], active: 0 })
+    expect(store.saved.get(first)).toEqual({ tabs: ['a.md'], active: 0, closed: [] })
+    expect(notices).toEqual([])
+  })
+
+  it('restores every kept scratch tab, with the failure, when the scratch list cannot be read', async () => {
+    const id = await scratchAfterA()
+    await navigation.activate(tab(0))
+    restart()
+    net.fail = (url) => url.pathname === '/api/scratch'
+    await navigation.restore()
+    expect(navigation.tabs.tabs.map((item) => (item.kind === 'scratch' ? item.id : item.kind))).toEqual(['note', id])
+    expect(session.note?.id).toBe('a.md')
+    expect(notices).toEqual(['Disk full'])
   })
 
   /**
