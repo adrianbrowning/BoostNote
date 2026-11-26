@@ -122,6 +122,11 @@ export class Navigation {
   #unsaved = false
   /** The scratch tabs' entry as last saved to the tab store, or loaded from it (`JSON.stringify`ed). */
   #savedScratch = JSON.stringify(scratchTabsOf(null))
+  /**
+   * A start-up restore is listing the scratch notes: the scratch tabs are not saved until it merged the kept entry
+   * into them, so a transition that lands meanwhile cannot overwrite that entry.
+   */
+  #scratchRestoring = false
 
   constructor({ session, api, store, host }: NavigationOptions) {
     this.#session = session
@@ -196,20 +201,29 @@ export class Navigation {
   /**
    * Restores the tabs after hydration: the vault's from the tab store (none without a vault), then after them the
    * scratch tabs of the last run (`TabStore.loadScratch`) whose scratch note still exists (`GET /api/scratch`;
-   * the others are dropped, without a notice), the one that was active active again; then the active tab loads and
-   * the tabs are saved. When the scratch list cannot be read, its failure is reported (`fail`) and every kept
-   * scratch tab is restored: each is read when it shows.
+   * the others are dropped, without a notice); then the active tab loads and the tabs are saved. The one that was
+   * active becomes active again unless a transition changed the active tab while the list was out (that tab stays
+   * active). When the scratch list cannot be read, its failure is reported (`fail`) and every kept scratch tab is
+   * restored: each is read when it shows.
    */
   async restore(): Promise<void> {
     await this.hold(
       async () => {
-        const scratch = scratchTabsOf(this.#store.loadScratch())
-        const exists = scratch.ids.length > 0 ? await this.#scratchExists() : () => false
         this.#transitions++
         this.#restoreNoteTabs()
-        // The entry as loaded: saving the restored tabs drops the ids left out from it.
-        this.#savedScratch = JSON.stringify(scratch)
-        this.tabs.restoreScratch(scratch, exists)
+        const scratch = scratchTabsOf(this.#store.loadScratch())
+        if (scratch.ids.length > 0) {
+          const current = this.token()
+          this.#scratchRestoring = true
+          try {
+            const exists = await this.#scratchExists()
+            // The entry as loaded: saving the restored tabs drops the ids left out from it.
+            this.#savedScratch = JSON.stringify(scratch)
+            this.#edit((tabs) => tabs.restoreScratch(scratch, exists, current()))
+          } finally {
+            this.#scratchRestoring = false
+          }
+        }
         await this.#loadActive()
       },
       { gate: false },
@@ -535,13 +549,14 @@ export class Navigation {
   }
 
   /**
-   * Saves the scratch tabs when they differ from the entry last saved (or loaded), and the tabs of the vault on
-   * screen when they changed since the last save (it throws when the store does).
+   * Saves the scratch tabs when they differ from the entry last saved (or loaded) and no start-up restore is listing
+   * the scratch notes, and the tabs of the vault on screen when they changed since the last save (it throws when the
+   * store does).
    */
   #persist(): void {
     const scratch = this.tabs.scratchJSON()
     const json = JSON.stringify(scratch)
-    if (json !== this.#savedScratch) {
+    if (!this.#scratchRestoring && json !== this.#savedScratch) {
       this.#store.saveScratch(scratch)
       this.#savedScratch = json
     }

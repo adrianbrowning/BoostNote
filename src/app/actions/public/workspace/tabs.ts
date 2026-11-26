@@ -134,15 +134,16 @@ export class Tabs {
 
   /**
    * Opens the scratch tabs of a persisted `ScratchTabsSnapshot` after every tab, in order; ids that `exists` denies
-   * and ids whose tab is open already are skipped. The snapshot's active scratch tab becomes active when it is kept.
+   * and ids whose tab is open already are skipped. With `activate`, the snapshot's active scratch tab becomes active
+   * when it is kept.
    */
-  restoreScratch(snapshot: ScratchTabsSnapshot, exists: (id: string) => boolean): void {
+  restoreScratch(snapshot: ScratchTabsSnapshot, exists: (id: string) => boolean, activate: boolean): void {
     snapshot.ids.forEach((id, index) => {
       if (!exists(id)) return
       const open = this.tabs.find((tab): tab is ScratchTab => tab.kind === 'scratch' && tab.id === id)
       const tab: ScratchTab = open ?? { key: this.#takeKey(), kind: 'scratch', id }
       if (!open) this.tabs.push(tab)
-      if (index === snapshot.active) this.activeKey = tab.key
+      if (activate && index === snapshot.active) this.activeKey = tab.key
     })
   }
 

@@ -937,6 +937,32 @@ describe('Navigation of scratch tabs', () => {
     expect(notices).toEqual(['Disk full'])
   })
 
+  it('keeps a scratch note created while the restore lists the scratch notes active, and the kept entry until the restore merged it', async () => {
+    const kept = await scratchAfterA()
+    restart()
+    net.hold((url) => (url.pathname === '/api/scratch' ? 'list' : undefined))
+    const restored = navigation.restore()
+    await expect.poll(() => net.held.length).toBe(1)
+    const created = await navigation.newScratch()
+    expect(created?.shown).toBe(true)
+    const fresh = created?.scratch.id ?? ''
+    expect(store.scratch).toEqual({ ids: [kept], active: 0 })
+
+    net.held[0]?.release()
+    await restored
+    net.hold(null)
+    expect(navigation.tabs.tabs.map((item) => (item.kind === 'scratch' ? item.id : item.kind))).toEqual([
+      'note',
+      fresh,
+      kept,
+    ])
+    expect(navigation.tabs.active).toMatchObject({ kind: 'scratch', id: fresh })
+    expect(session.scratch?.id).toBe(fresh)
+    expect(session.locked).toBe(false)
+    expect(store.scratch).toEqual({ ids: [fresh, kept], active: 0 })
+    expect(notices).toEqual([])
+  })
+
   /**
    * Opens a scratch note after a.md, then a.md's tab, whose read fails: the editor keeps the scratch note (and takes
    * edits) while a.md's tab is active. Resolves with the scratch note's id.
