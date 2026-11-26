@@ -160,7 +160,8 @@ const baseTheme = EditorView.baseTheme({
   },
 
   '.cm-lp-math-block': { textAlign: 'center', padding: '0.5em 0', overflowX: 'auto' },
-  '.cm-lp-table': { overflowX: 'auto', padding: '0.4em 0' },
+  // Cells break only between words: lineWrapping's `overflow-wrap: anywhere` would squeeze short columns mid-word.
+  '.cm-lp-table': { overflowX: 'auto', padding: '0.4em 0', overflowWrap: 'normal', wordBreak: 'normal' },
   '.cm-lp-table table': { borderCollapse: 'collapse', minWidth: '50%' },
   '.cm-lp-table th, .cm-lp-table td': { border: '1px solid var(--lp-border)', padding: '4px 10px' },
   '.cm-lp-table th': { backgroundColor: 'var(--lp-code-bg)', fontWeight: '600' },
