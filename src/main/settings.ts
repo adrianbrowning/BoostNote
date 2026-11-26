@@ -47,7 +47,7 @@ export interface UiPreferences {
   checkUpdates: boolean
   /** Version whose update notice the user dismissed; `''` when none. */
   dismissedUpdate: string
-  /** "Opening a .md outside a vault" (`VaultSession.takeOpenRequest`). */
+  /** "Opening a .md or .mdx outside a vault" (`VaultSession.takeOpenRequest`). */
   outsideFile: OutsideFilePreference
   panes: PaneLayout
 }

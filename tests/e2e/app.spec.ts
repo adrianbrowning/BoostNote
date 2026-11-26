@@ -835,7 +835,7 @@ test('a reader’s Add to vault and vault switch wait for a running open-request
   }
 })
 
-test('"Opening a .md outside a vault" defaults to Read only; "Open its folder as vault" opens outside files as vaults', async () => {
+test('"Opening a .md or .mdx outside a vault" defaults to Read only; "Open its folder as vault" opens outside files as vaults', async () => {
   const app = await launchApp({ 'inside.md': '# Inside\n' })
   try {
     const { page, dir } = app
@@ -844,7 +844,7 @@ test('"Opening a .md outside a vault" defaults to Read only; "Open its folder as
         for (const target of targets) electronApp.emit('open-file', { preventDefault() {} }, target)
       }, files)
     await app.clickMenu('preferences')
-    const select = page.locator('[data-preferences] select[name="outsideFile"]')
+    const select = page.locator('[data-preferences]').getByLabel('Opening a .md or .mdx outside a vault')
     await expect(select).toHaveValue('reader')
     await expect(select.locator('option')).toHaveText(['Read only', 'Open its folder as vault'])
     await select.selectOption('vault')

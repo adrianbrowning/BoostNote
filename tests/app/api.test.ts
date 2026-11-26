@@ -783,7 +783,7 @@ describe('reader', () => {
     expect(result.workspace.notes.map((note) => note.id)).toEqual(['README.MD'])
   })
 
-  it('stores "Opening a .md outside a vault" (default Read only); "Open its folder as vault" opens outside files as before', async () => {
+  it('stores "Opening a .md or .mdx outside a vault" (default Read only); "Open its folder as vault" opens outside files as before', async () => {
     expect((await readJson<PreferencesState>(await app.get(api.preferences.href()))).ui.outsideFile).toBe('reader')
     expect((await app.post(api.preferencesSave.href(), { outsideFile: 'folder' })).status).toBe(400)
     const saved = await readJson<PreferencesState>(await app.post(api.preferencesSave.href(), { outsideFile: 'vault' }))
