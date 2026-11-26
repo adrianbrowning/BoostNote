@@ -93,21 +93,27 @@ afterEach(() => {
 })
 
 describe('createLivePreviewEditor', () => {
-  it('picking /datetime inserts the time at run time, and one undo restores the /query', () => {
+  it.each([
+    ['/date', 'At 2026-11-05'],
+    ['/time', 'At 14:45'],
+    ['/datetime', 'At 2026-11-05 14:45'],
+  ])('picking %s inserts the time at run time, and one undo restores the /query', (label, expected) => {
     vi.useFakeTimers({ toFake: ['Date'] })
-    vi.setSystemTime(new Date(2026, 10, 5, 14, 32))
+    vi.setSystemTime(new Date(2026, 10, 4, 14, 32))
     try {
-      const { editor } = mount('At /datetime')
+      const { editor } = mount(`At ${label}`)
       const { state } = editor.view
       editor.view.dispatch({ selection: { anchor: state.doc.length } })
       const result = slashCompletionSource(new CompletionContext(editor.view.state, state.doc.length, false))
-      const option = result?.options.find((candidate) => candidate.label === '/datetime')
-      if (typeof option?.apply !== 'function') throw new Error('no /datetime command')
+      const option = result?.options.find((candidate) => candidate.label === label)
+      if (typeof option?.apply !== 'function') throw new Error(`no ${label} command`)
+      // The menu stayed open: the command runs on a later day and minute than when the options were built.
+      vi.setSystemTime(new Date(2026, 10, 5, 14, 45))
       option.apply(editor.view, option, result?.from ?? 0, state.doc.length)
-      expect(editor.view.state.doc.toString()).toBe('At 2026-11-05 14:32')
-      expect(editor.view.state.selection.main.head).toBe('At 2026-11-05 14:32'.length)
+      expect(editor.view.state.doc.toString()).toBe(expected)
+      expect(editor.view.state.selection.main.head).toBe(expected.length)
       undo(editor.view)
-      expect(editor.view.state.doc.toString()).toBe('At /datetime')
+      expect(editor.view.state.doc.toString()).toBe(`At ${label}`)
     } finally {
       vi.useRealTimers()
     }
