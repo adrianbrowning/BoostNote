@@ -20,6 +20,7 @@ import type {
   NoteSummary,
   PaneLayout,
   PreferencesState,
+  ScratchSummary,
   TitleRename,
   TitleRenameReport,
   UiPatch,
@@ -198,6 +199,10 @@ export class WorkspaceModel extends TypedEventTarget<{
   readonly #scratchTitles = new Map<string, string>()
   /** Ids of the scratch notes whose Save to vault is in flight (one at a time each). */
   readonly #savingScratch = new Set<string>()
+  /** The kept scratch notes as last listed (`refreshScratch`). */
+  #scratchListed: ScratchSummary[] = []
+  /** Counts the scratch listings, in the order they started: one that returns after a later one started is dropped. */
+  #scratchListings = 0
 
   constructor(initial: WorkspaceData, preferences: PreferencesState, { api, store }: WorkspaceOptions) {
     super()
@@ -277,6 +282,58 @@ export class WorkspaceModel extends TypedEventTarget<{
    */
   scratchTabTitle(id: string): string {
     return this.#scratchTitles.get(id) ?? 'Scratch note'
+  }
+
+  /**
+   * The scratch list: every kept scratch note (`GET /api/scratch`), newest updated first, as of the last listing
+   * (`refreshScratch`); a scratch note's title follows its text as typed while it was open (`scratchTabTitle`).
+   */
+  get scratchNotes(): ScratchSummary[] {
+    return this.#scratchListed.map((note) => ({ ...note, title: this.#scratchTitles.get(note.id) ?? note.title }))
+  }
+
+  /**
+   * Lists the kept scratch notes again; the actions that create, keep or remove one call it (new scratch note, a
+   * scratch tab closed, reopen of one gone, Save to vault, Discard, the tab restore). A failure is the error notice.
+   */
+  async refreshScratch(): Promise<void> {
+    const at = ++this.#scratchListings
+    try {
+      const notes = await this.#api.listScratch()
+      if (at !== this.#scratchListings) return
+      this.#scratchListed = notes
+      this.changed()
+    } catch (error) {
+      if (at === this.#scratchListings) this.fail(error)
+    }
+  }
+
+  /** The scratch list's row: reopens scratch note `id` (activates its tab, or opens one; `Navigation.openScratch`). */
+  async openScratch(id: string): Promise<void> {
+    await this.attempt(() => this.navigation.openScratch(id))
+    // Gone meanwhile: its tab closed with the notice, and its row goes.
+    if (!this.tabs.tabs.some((tab) => tab.kind === 'scratch' && tab.id === id)) await this.refreshScratch()
+  }
+
+  /**
+   * The scratch list's Discard: asks first when the confirmDelete preference is on, then deletes scratch note `id`
+   * and closes its tab when it is open (`Navigation.discardScratch`). A failed delete keeps both, with the error notice.
+   */
+  async discardScratch(id: string): Promise<void> {
+    const title = this.scratchNotes.find((note) => note.id === id)?.title ?? this.scratchTabTitle(id)
+    if (
+      this.preferences.confirmDelete &&
+      !(await this.confirm({
+        title: 'Discard scratch note',
+        message: `Discard “${title}”? Its text is deleted for good.`,
+        confirm: 'Discard',
+        danger: true,
+      }))
+    ) {
+      return
+    }
+    await this.attempt(() => this.navigation.discardScratch(id))
+    await this.refreshScratch()
   }
 
   /** Takes the editor focus asked for that no editor pane took yet (`null`: none); the pane calls this as it mounts. */
@@ -399,9 +456,16 @@ export class WorkspaceModel extends TypedEventTarget<{
   /** Whether the vault has a note with this id (as of the last list refresh). */
   hasNote = (id: string): boolean => this.data.notes.some((note) => note.id === id)
 
-  /** Restores the tabs after hydration (the open vault's, then the scratch tabs of the last run) and loads the active one. */
-  restoreTabs(): Promise<void> {
-    return this.navigation.restore()
+  /**
+   * Restores the tabs after hydration (the open vault's, then the scratch tabs of the last run) and loads the active
+   * one; the scratch list is listed then too.
+   */
+  async restoreTabs(): Promise<void> {
+    try {
+      await this.navigation.restore()
+    } finally {
+      await this.refreshScratch()
+    }
   }
 
   openNote(id: string, options: { newTab?: boolean } = {}): Promise<void> {
@@ -412,9 +476,17 @@ export class WorkspaceModel extends TypedEventTarget<{
     return this.navigation.activate(key)
   }
 
-  /** Closes a tab (the active one by default); `discard` drops the open note's unsaved edits (see `Navigation.close`). */
-  closeTab(key?: number, options: { discard?: boolean } = {}): Promise<void> {
-    return this.navigation.close(key, options)
+  /**
+   * Closes a tab (the active one by default); `discard` drops the open note's unsaved edits (see `Navigation.close`).
+   * A scratch tab's close lists the scratch notes again: a blank one is gone.
+   */
+  async closeTab(key = this.tabs.activeKey ?? undefined, options: { discard?: boolean } = {}): Promise<void> {
+    const scratch = this.tabs.tabs.some((tab) => tab.key === key && tab.kind === 'scratch')
+    try {
+      await this.navigation.close(key, options)
+    } finally {
+      if (scratch) await this.refreshScratch()
+    }
   }
 
   /**
@@ -499,7 +571,8 @@ export class WorkspaceModel extends TypedEventTarget<{
    * so text typed while the dialog is open is saved too; a refused save sends nothing), asks for a folder of the open
    * vault (`dropFolder` first) in the dialog of a reader's "Add to vault…", then main creates the note there, named by the
    * scratch note's title (`scratchTitle`), and removes the scratch note. Its tab becomes the new note's tab at its
-   * position (`Navigation.saveScratch`). A vault switch while the folder dialog is open saves nothing (an error
+   * position (`Navigation.saveScratch`); saved from the scratch list with no tab, the new note opens in a new tab, and
+   * the scratch list is read again. A vault switch while the folder dialog is open saves nothing (an error
    * notice). The request names the vault on screen, so a vault switch while it is out does not move the note: its
    * lists are not shown, the scratch tab closes and the notice says where the note went. On failure the scratch note
    * and its tab stay and the notice says why. Nothing happens without an open vault (the button is disabled) or
@@ -538,6 +611,8 @@ export class WorkspaceModel extends TypedEventTarget<{
             return saved
           })
           if (result && !result.shown) this.notify('info', `Saved as ${result.saved.id} in ${vault}`)
+          // Saved: its row goes.
+          if (result) await this.refreshScratch()
         })
       })
     } finally {
@@ -640,12 +715,13 @@ export class WorkspaceModel extends TypedEventTarget<{
 
   /**
    * File › New Scratch Note: after the gate, a new scratch note in a new scratch tab, the cursor in the editor. It
-   * is kept outside every vault, so this works with no vault open too.
+   * is kept outside every vault, so this works with no vault open too; the scratch list lists it.
    */
   async newScratchNote(): Promise<void> {
     await this.attempt(async () => {
       const created = await this.navigation.newScratch()
       if (created?.shown) this.#focusEditor(true)
+      if (created) await this.refreshScratch()
     })
   }
 

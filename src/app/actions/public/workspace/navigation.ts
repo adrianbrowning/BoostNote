@@ -454,13 +454,51 @@ export class Navigation {
     })
   }
 
+  /** The scratch list's reopen: activates scratch note `id`'s tab, or opens one after the active tab, after the gate. */
+  async openScratch(id: string): Promise<void> {
+    const active = this.tabs.active
+    if (active?.kind === 'scratch' && active.id === id) return
+    await this.#switch((tabs) => tabs.openScratch(id))
+  }
+
+  /**
+   * The scratch list's Discard: deletes scratch note `id` (a `404`: it is gone already), then closes its tab when it
+   * is open, dropping the text the session holds of it; when that tab was active, the next tab loads. The gate runs
+   * first only when that load can replace another note the session holds. When the delete fails, the scratch note
+   * and its tab stay and the error rejects.
+   */
+  async discardScratch(id: string): Promise<void> {
+    const tab = this.tabs.tabs.find((item) => item.kind === 'scratch' && item.id === id)
+    const holdsOther =
+      (this.#session.note !== null || this.#session.scratch !== null) && this.#session.scratch?.id !== id
+    await this.hold(
+      async () => {
+        try {
+          await this.#api.discardScratch(id)
+        } catch (error) {
+          if (!(error instanceof ApiError && error.status === 404)) throw error
+        }
+        const held = this.#session.scratch?.id === id
+        if (held) this.#session.close()
+        const open = this.tabs.tabs.find((item) => item.kind === 'scratch' && item.id === id)
+        const wasActive = open !== undefined && open.key === this.tabs.activeKey
+        if (open) this.#edit((tabs) => tabs.close(open.key))
+        // The session follows the active tab again: the next one when it was this one, or the one it held this for.
+        if (wasActive || held) await this.#loadActive()
+        else this.#host.changed()
+      },
+      { gate: tab !== undefined && tab.key === this.tabs.activeKey && holdsOther },
+    )
+  }
+
   /**
    * Save to vault of scratch note `id`, after the gate: `save` asks main to turn it into a note of the vault on screen
    * (main removes the scratch note) and answers the note's id. The scratch note's tab then becomes that note's tab at
    * its position: active when it was active (the note then loads into the session), else in the background with the
-   * active tab left as it is (`shown: true`). When a vault switch ran while `save` was out, the note is in the vault
-   * left, so the tab closes instead and the active tab loads (`shown: false`). `null` when the gate refused (`save`
-   * does not run); when `save` rejects, the tab stays.
+   * active tab left as it is (`shown: true`). A scratch note with no tab (saved from the scratch list) opens as the
+   * new note in a new active tab after the active one (`shown: true`). When a vault switch ran while `save` was out,
+   * the note is in the vault left, so the tab closes instead (none opens) and the active tab loads (`shown: false`).
+   * `null` when the gate refused (`save` does not run); when `save` rejects, the tab stays.
    */
   async saveScratch<T extends { id: string }>(
     id: string,
@@ -471,9 +509,13 @@ export class Navigation {
       const saved = await save()
       const tab = this.tabs.tabs.find((item) => item.kind === 'scratch' && item.id === id)
       const shown = sameVault()
-      if (!tab) return { saved, shown }
+      if (!tab && !shown) return { saved, shown }
       const active = this.tabs.activeKey
       this.#edit((tabs) => {
+        if (!tab) {
+          tabs.openNew(saved.id)
+          return
+        }
         if (!shown) {
           tabs.close(tab.key)
           return

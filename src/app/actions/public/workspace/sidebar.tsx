@@ -3,6 +3,7 @@ import { css, on } from 'remix/component'
 
 import { carriesFiles, importDrop } from './drop-import.ts'
 import type { MenuEntry, Selection, WorkspaceModel } from './model.ts'
+import { ScratchList } from './scratch-list.tsx'
 import { iconButton, muted, paneHeading } from './styles.ts'
 import type { FolderSummary } from './types.ts'
 
@@ -14,7 +15,7 @@ function isSelected(selection: Selection, other: Selection): boolean {
   return JSON.stringify(selection) === JSON.stringify(other)
 }
 
-/** Vault switcher, smart lists, folder tree (drop target for notes and folders), tags and trash. */
+/** Vault switcher, smart lists, folder tree (drop target for notes and folders), tags, the scratch list and trash. */
 export function Sidebar(handle: Handle<{ model: WorkspaceModel }>) {
   let dropTarget: string | null = null
 
@@ -265,6 +266,7 @@ export function Sidebar(handle: Handle<{ model: WorkspaceModel }>) {
             </ul>
           </>
         ) : null}
+        <ScratchList model={model} />
         <ul mix={[listStyle, trashListStyle]}>{smartRow('Trash', { kind: 'trash' }, trash.length, '🗑')}</ul>
         {notes.length === 0 && tree?.folders.length === 0 ? <p mix={[muted, hintStyle]}>This vault is empty.</p> : null}
       </nav>

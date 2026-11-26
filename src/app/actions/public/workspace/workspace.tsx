@@ -14,6 +14,7 @@ import { NoteList } from './note-list.tsx'
 import type { SaveState } from './note-session.ts'
 import { ContextMenuView, DialogView, NoticeView } from './overlays.tsx'
 import { PreferencesDialog } from './preferences-dialog.tsx'
+import { ScratchList } from './scratch-list.tsx'
 import { isReservedShortcut } from './shortcuts.ts'
 import { Sidebar } from './sidebar.tsx'
 import { button, emptyState, emptyTitle, muted, primaryButton } from './styles.ts'
@@ -215,6 +216,11 @@ export const Workspace = clientEntry(
                 ))}
               </ul>
             </section>
+          ) : null}
+          {model.scratchNotes.length > 0 ? (
+            <div mix={recentStyle}>
+              <ScratchList model={model} />
+            </div>
           ) : null}
         </div>
       </main>
