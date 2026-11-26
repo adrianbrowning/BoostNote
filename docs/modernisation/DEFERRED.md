@@ -936,3 +936,68 @@ Run: issue-78
 Retro finding (factory, tool-economy, low)
 
 Each slice with a blocking finding ran full review (8-10 domains) → targeted → full again even when the fix was a one-line comment change (01-f1, 02-f3, 03-f1). Slice 02 took 6 reviews and slice 01 took 4. A targeted green after a comments-only fix of a comments-domain finding could count as final when the diff since the last full review touches only comment lines, which would save one full 9-domain review per such slice.
+
+### issue-78/07: e2e getByLabel matches the label as a substring, not exactly
+
+Run: issue-78
+Slice: 07 "Preference label names .md and .mdx files"
+Review: 07-r1
+Reviewed commit: 5c01cd85fb1c8cbb915eec4a86ca57b48c144fe4
+
+### [observation] test-validity-e2e-label-locator-substring-match
+
+- Symbol: "Opening a .md or .mdx outside a vault" defaults to Read only; "Open its folder as vault" opens outside files as vaults
+- Location at filing time: tests/e2e/app.spec.ts:847
+- Title: e2e getByLabel matches the label as a substring, not exactly
+- Problem: tests/e2e/app.spec.ts:847 | `getByLabel('Opening a .md or .mdx outside a vault')` uses Playwright's default substring, case-insensitive match. The label wraps the select, so its accessible name also takes in the selected option text, and substring matching is what makes the lookup work. But a label that drifted to a longer text, for example 'Opening a .md or .mdx outside a vault folder', or one with different letter case, would still pass. The old label is not a substring, so the test does catch the regression this slice targets.
+- Fix: Associate the span with the select (e.g. aria-labelledby or a <label for>) and use `getByLabel('Opening a .md or .mdx outside a vault', { exact: true })`, or assert the span text exactly with `toHaveText` next to the current lookup.
+- Fix prompt: In tests/e2e/app.spec.ts, in the test '"Opening a .md or .mdx outside a vault" defaults to Read only; ...', add an exact check of the label text, for example `await expect(page.locator('[data-preferences] label', { has: select }).locator('span')).toHaveText('Opening a .md or .mdx outside a vault')`, so a label with extra words or different case fails the test. Keep the getByLabel lookup.
+
+### issue-78/retro: Note-name rules are restated in many places, so each change left stale copies
+
+Run: issue-78
+Retro finding (repo, navigation, medium)
+
+Slices 01, 02, 03 and 05 each spent fix rounds on prose that kept an old note-extension, stem-twin or import-name rule in one place after another place was updated (vault-ids.ts header, several PLAN.md sections, doc comments in names.ts, vault.ts, export.ts, render.ts). State each name rule once (the vault-ids.ts header or PLAN.md "Note names") and have the other places point to it.
+
+### issue-78/retro: Case-sensitive-disk tests are outside the configured checks
+
+Run: issue-78
+Retro finding (repo, automated-checks, medium)
+
+Tests that skip on the default macOS disk (case-sensitive twins, a.mdx beside a.MDX, foreign hELLo.assets) ran only when an implementer ran `pnpm test:case-sensitive` by hand. Add it (or `pnpm test:linux`) to the configured checks or CI.
+
+### issue-78/retro: User-facing strings named by the issue were not in slice acceptance
+
+Run: issue-78
+Retro finding (factory, information-access, medium)
+
+The issue asked to update UI strings that the change makes wrong, but the plan named only comment locations. The slice 03 implementer flagged the preferences label as open and the orchestrator did not act; it took slice 07 to fix it. A plan step that greps user-facing strings (JSX text, menu labels) for the changed term, and turns each one into an acceptance criterion, would catch it. So would a scope-review rule that treats an implementer's open item quoting the issue as unbuilt.
+
+### issue-78/retro: Required smoke run is not part of the checks
+
+Run: issue-78
+Retro finding (repo, automated-checks, low)
+
+AGENTS.md asks for `pnpm smoke --vault-copy tests/fixtures/sample-vault` before hand-off, but the run's checks do not include it, so the first hand-off skipped it. Add a non-interactive smoke (with a steps module and screenshot) to the factory checks, or note in AGENTS.md that factory runs must run it before submit.
+
+### issue-78/retro: No check stops hand-written copies of the note-extension rule
+
+Run: issue-78
+Retro finding (repo, automated-checks, low)
+
+The `.md`/`.mdx` rule of NOTE_EXTENSION was hand-copied three times (renameNote regex, noteSource in import-files.ts, the export filter). A grit/biome rule flagging `.mdx`/`\.md` literals in src/ outside src/shared/vault-ids.ts and src/migrate/ would catch new copies.
+
+### issue-78/retro: Validator gets advisory notes that ask for reviewer work
+
+Run: issue-78
+Retro finding (factory, no-ops, low)
+
+In several reviews the validator got advisory notes asking it to run domain reviews or resubmit verdicts with tools it does not have. These turns changed no verdict. Skip the advisory when every domain file is an empty list, or word it for the validator role only.
+
+### issue-78/retro: Comment-only fix rounds force a second full review
+
+Run: issue-78
+Retro finding (factory, tool-economy, low)
+
+A blocking finding fixed by a one-line comment change still forced full review → targeted → full review (01-f1, 02-f3, 03-f1). Count a targeted green as final when the diff since the last full review changes only comment lines.
