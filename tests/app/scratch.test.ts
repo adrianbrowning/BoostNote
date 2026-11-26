@@ -267,6 +267,22 @@ describe('/api/scratch/save', () => {
     expect(anchoredSaved).toBe(`---\n&anchor {created: ${at}, updated: ${at}}\n---\n# Anchored\n`)
   })
 
+  it('keeps a block with an integer-like key after another key byte for byte, appending created/updated', async () => {
+    const vault = await app.openVault()
+    const { id } = await create()
+    const typed = "---\nz: 'quoted' # c\ntags: [a,b]\n1: 2\n---\n# Numbered\n"
+    await write(id, typed)
+
+    expect((await app.post('/api/scratch/save', { id, folder: '' })).status).toBe(201)
+
+    const saved = await readFile(path.join(vault.root, 'Numbered.md'), 'utf8')
+    const stamp = /\ncreated: (\S+)\nupdated: \1\n---\n/.exec(saved)?.[1] ?? ''
+    expect(stamp).toMatch(/^\d{4}-\d{2}-\d{2}T/)
+    expect(saved).toBe(
+      `---\nz: 'quoted' # c\ntags: [a,b]\n1: 2\ncreated: ${stamp}\nupdated: ${stamp}\n---\n# Numbered\n`,
+    )
+  })
+
   it('saves into the vault the request names, not the active one, and answers that vault’s lists', async () => {
     const first = await app.openVault('first')
     const second = await app.openVault('second')
