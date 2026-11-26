@@ -367,8 +367,8 @@ vault left fails, the other vault still shows (the switch counts) and the store 
   When the note cannot be created (a folder gone meanwhile) the scratch note and its tab stay and the notice says
   why; when removing the scratch note fails after the note was written, the note stays and so does the scratch note.
 - The scratch list (`ScratchList`, from `WorkspaceModel.scratchNotes`: `GET /api/scratch`, newest updated first)
-  shows the kept scratch notes in a "Scratch" section of the sidebar while a vault is open, and on the welcome
-  screen while none is (the no-vault layout that shows only the editor pane, tabs open, has none). Each row shows
+  shows the kept scratch notes in a "Scratch" section of the sidebar while a vault is open, on the welcome
+  screen while none is, and in a narrow panel beside the editor pane while none is and tabs are open. Each row shows
   the scratch note's `scratchTitle` (the open one's follows its text as typed) and reopens it (`openScratch`: its
   tab is activated, or opened after the active tab), with "Save to vault…" (the banner's action; disabled with no
   vault, the reason above the list; the new note opens: in a new tab when the scratch note had none, else in its tab,

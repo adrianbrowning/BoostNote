@@ -256,6 +256,7 @@ export const Workspace = clientEntry(
             }),
           ]}
           data-vault={vault ? 'open' : 'none'}
+          data-scratch-panel={!vault && model.tabs.tabs.length > 0 && model.scratchNotes.length > 0 ? '' : undefined}
         >
           {vault ? (
             <>
@@ -266,8 +267,16 @@ export const Workspace = clientEntry(
               <EditorPane model={model} />
             </>
           ) : model.tabs.tabs.length > 0 ? (
-            // No vault, but reader tabs of outside files or scratch tabs are open.
-            <EditorPane model={model} />
+            // No vault, but reader tabs of outside files or scratch tabs are open: the kept scratch notes show in
+            // a narrow panel beside the editor pane.
+            <>
+              {model.scratchNotes.length > 0 ? (
+                <aside mix={scratchPanelStyle} aria-label="Scratch notes">
+                  <ScratchList model={model} />
+                </aside>
+              ) : null}
+              <EditorPane model={model} />
+            </>
           ) : (
             welcome()
           )}
@@ -317,6 +326,19 @@ const layoutStyle = css({
   gridTemplateAreas: '"sidebar sidebar-resizer list list-resizer editor" "status status status status status"',
   height: '100vh',
   '&[data-vault="none"]': { gridTemplateColumns: '1fr', gridTemplateAreas: '"editor" "status"' },
+  '&[data-vault="none"][data-scratch-panel]': {
+    gridTemplateColumns: '220px minmax(0, 1fr)',
+    gridTemplateAreas: '"scratch editor" "status status"',
+  },
+})
+
+const scratchPanelStyle = css({
+  gridArea: 'scratch',
+  minWidth: 0,
+  padding: '8px',
+  overflow: 'auto',
+  background: 'var(--bg-sidebar)',
+  userSelect: 'none',
 })
 
 const resizerStyle = css({

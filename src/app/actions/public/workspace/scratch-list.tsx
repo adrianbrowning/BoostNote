@@ -5,8 +5,9 @@ import type { WorkspaceModel } from './model.ts'
 import { iconButton, muted, paneHeading } from './styles.ts'
 
 /**
- * The scratch list: the kept scratch notes (`model.scratchNotes`), in the sidebar while a vault is open and on the
- * welcome screen while none is. Each row shows the scratch note's title and reopens it (its tab, opened or
+ * The scratch list: the kept scratch notes (`model.scratchNotes`), in the sidebar while a vault is open, on the
+ * welcome screen while none is, and in a narrow panel beside the editor pane while none is and tabs are open. Each
+ * row shows the scratch note's title and reopens it (its tab, opened or
  * activated), with Save to vault… (disabled with no vault, the reason shown) and Discard. Nothing shows while no
  * scratch note is kept.
  */

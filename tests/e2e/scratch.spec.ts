@@ -340,3 +340,36 @@ test('with no vault open the welcome screen lists the kept scratch notes and reo
   await expect(scratchTab(page)).toHaveAttribute('data-scratch-tab', id)
   await expect(editor(page)).toHaveText('Call the plumber')
 })
+
+test('with no vault open and tabs open the scratch list shows beside the editor pane: rows reopen, Save is disabled, Discard works', async ({
+  app,
+}) => {
+  const { page } = app
+  await expect(page.locator('[data-note="a.md"]')).toBeVisible()
+  const first = await keepScratch(app, 'Call the plumber')
+  const second = await keepScratch(app, 'Buy stamps')
+  await closeVault(page)
+
+  await page.getByRole('main', { name: 'Welcome' }).locator(`[data-scratch-row="${first}"] [data-scratch-open]`).click()
+  await expect(scratchTab(page)).toHaveAttribute('data-scratch-tab', first)
+  await expect(page.getByRole('main', { name: 'Welcome' })).toHaveCount(0)
+
+  const list = page.getByRole('complementary', { name: 'Scratch notes' }).getByRole('region', { name: 'Scratch' })
+  await expect(list.locator('[data-scratch-open]')).toHaveText(['Buy stamps', 'Call the plumber'])
+  const row = list.locator(`[data-scratch-row="${second}"]`)
+  const save = row.getByRole('button', { name: 'Save to vault…' })
+  await expect(save).toBeDisabled()
+  await expect(save).toHaveAccessibleDescription('Open a vault to save a scratch note to it')
+  await expect(editor(page)).toBeVisible()
+
+  await row.locator('[data-scratch-open]').click()
+  await expect(page.locator(`[role="tab"][data-scratch-tab="${second}"]`)).toHaveAttribute('aria-selected', 'true')
+  await expect(editor(page)).toHaveText('Buy stamps')
+
+  await row.getByRole('button', { name: 'Discard' }).click()
+  await page.getByRole('dialog', { name: 'Discard scratch note' }).getByRole('button', { name: 'Discard' }).click()
+  await expect(row).toHaveCount(0)
+  await expect(page.locator(`[role="tab"][data-scratch-tab="${second}"]`)).toHaveCount(0)
+  await expect(list.locator('[data-scratch-open]')).toHaveText(['Call the plumber'])
+  expect(Object.keys(await scratchFiles(app))).toEqual([`${first}.md`])
+})
