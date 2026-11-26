@@ -89,7 +89,8 @@ test('New Scratch Note works with no vault open: its tab shows in the editor and
 
 test('closing a scratch tab with nothing typed removes its file; one with text keeps its file', async ({ app }) => {
   const { page } = app
-  await expect(page.locator('[data-note="a.md"]')).toBeVisible()
+  await page.locator('[data-note="a.md"]').click()
+  await expect(page.locator('[data-note-title]')).toHaveText('a')
 
   await app.clickMenu('new-scratch-note')
   await expect(scratchTab(page)).toHaveAttribute('aria-selected', 'true')
@@ -106,7 +107,11 @@ test('closing a scratch tab with nothing typed removes its file; one with text k
   const id = await tab.getAttribute('data-scratch-tab')
   await app.clickMenu('close-tab')
   await expect(tab).toHaveCount(0)
-  await expect.poll(() => scratchFiles(app)).toEqual({ [`${id}.md`]: 'Keep this' })
+  // The close's discard decision runs inside its hold, which keeps the next note's (a.md's) editor read-only until it
+  // settles.
+  await expect(editor(page)).toContainText('A')
+  await expect(editor(page)).not.toHaveAttribute('aria-readonly', 'true')
+  expect(await scratchFiles(app)).toEqual({ [`${id}.md`]: 'Keep this' })
 })
 
 test('a scratch tab shows the vault-note banner and none of the note header buttons; its relative links are inert, http(s) links and Find work', async ({
@@ -224,15 +229,26 @@ test('a scratch tab comes back after a restart, active, with its text, and Save 
   await expect(scratchTab(page)).toContainText('Kept')
   await expect(editor(page)).toContainText('Across restarts')
   await expect(page.locator('[data-notice]')).toHaveCount(0)
+  // A note tab after the scratch tab: the save must turn the scratch tab into the note's, not close it and append.
+  await page.locator('[data-note="work/plan.md"]').click({ modifiers: ['ControlOrMeta'] })
+  const tabs = page.getByRole('tab')
+  await expect(tabs).toHaveCount(3)
+  await expect(tabs.nth(2)).toHaveAttribute('data-tab', 'work/plan.md')
+  await scratchTab(page).click()
+  await expect(scratchTab(page)).toHaveAttribute('aria-selected', 'true')
 
   await page.locator('[data-scratch-save]').click()
   const dialog = page.getByRole('dialog', { name: 'Save to vault' })
   await dialog.locator('select').selectOption('work')
   await dialog.getByRole('button', { name: 'Save' }).click()
-  const tabs = page.getByRole('tab')
   await expect(tabs.nth(1)).toHaveAttribute('data-tab', 'work/Kept.md')
   await expect(tabs.nth(1)).toHaveAttribute('aria-selected', 'true')
-  await expect(tabs).toHaveCount(2)
+  await expect(tabs).toHaveCount(3)
+  expect(await tabs.evaluateAll((all) => all.map((tab) => tab.getAttribute('data-tab')))).toEqual([
+    'a.md',
+    'work/Kept.md',
+    'work/plan.md',
+  ])
   await expect(page.locator('[data-note-title]')).toHaveText('Kept')
   await expect(page.locator('[data-note="work/Kept.md"]')).toBeVisible()
   expect(await readFile(path.join(app.vault, 'work', 'Kept.md'), 'utf8')).toMatch(
@@ -291,6 +307,21 @@ test('a scratch note closed with text is listed in the sidebar Scratch section b
   expect(await scratchFiles(app)).toEqual({ [`${id}.md`]: '# Groceries\n\nMilk' })
 })
 
+test('a scratch row’s Save to vault… saves the note into the chosen folder and opens it', async ({ app }) => {
+  const { page } = app
+  await expect(page.locator('[data-note="a.md"]')).toBeVisible()
+  await keepScratch(app, '# Groceries\nMilk')
+
+  await scratchRow(page).getByRole('button', { name: 'Save to vault…' }).click()
+  const dialog = page.getByRole('dialog', { name: 'Save to vault' })
+  await dialog.locator('select').selectOption('')
+  await dialog.getByRole('button', { name: 'Save' }).click()
+  await expect(scratchRow(page)).toHaveCount(0)
+  await expect(page.locator('[role="tab"][aria-selected="true"]')).toHaveAttribute('data-tab', 'Groceries.md')
+  await expect(page.locator('[data-note="Groceries.md"]')).toBeVisible()
+  expect(await readdir(path.join(app.userDataDir, 'scratch'))).toEqual([])
+})
+
 test('Discard with confirmDelete on asks first: Cancel keeps the row and its tab, Discard deletes the file, the row and the tab', async ({
   app,
 }) => {
@@ -305,9 +336,14 @@ test('Discard with confirmDelete on asks first: Cancel keeps the row and its tab
   await expect(dialog).toContainText('Discard “Throw away”? Its text is deleted for good.')
   await dialog.getByRole('button', { name: 'Cancel' }).click()
   await expect(dialog).toHaveCount(0)
+  // A discard wrongly sent would win over this write: the note's file must take the typed text and keep it.
+  await editor(page).click()
+  await page.keyboard.press('ControlOrMeta+End')
+  await page.keyboard.type('!')
+  await expect.poll(() => scratchFiles(app)).toEqual({ [`${id}.md`]: 'Throw away!' })
   await expect(scratchRow(page)).toHaveCount(1)
   await expect(scratchTab(page)).toHaveCount(1)
-  expect(await scratchFiles(app)).toEqual({ [`${id}.md`]: 'Throw away' })
+  expect(await scratchFiles(app)).toEqual({ [`${id}.md`]: 'Throw away!' })
 
   await scratchRow(page).getByRole('button', { name: 'Discard' }).click()
   await page.getByRole('dialog', { name: 'Discard scratch note' }).getByRole('button', { name: 'Discard' }).click()
@@ -370,6 +406,12 @@ test('with no vault open and tabs open the scratch list shows beside the editor 
   await expect(save).toBeDisabled()
   await expect(save).toHaveAccessibleDescription('Open a vault to save a scratch note to it')
   await expect(editor(page)).toBeVisible()
+  const panel = await page.getByRole('complementary', { name: 'Scratch notes' }).boundingBox()
+  const pane = await page.locator('[data-editor]').boundingBox()
+  if (!panel || !pane) throw new Error('the scratch panel or the editor pane has no box')
+  expect(panel.x + panel.width).toBeLessThanOrEqual(pane.x)
+  expect(panel.y).toBeLessThan(pane.y + pane.height)
+  expect(pane.y).toBeLessThan(panel.y + panel.height)
 
   await row.locator('[data-scratch-open]').click()
   await expect(page.locator(`[role="tab"][data-scratch-tab="${second}"]`)).toHaveAttribute('aria-selected', 'true')
@@ -415,6 +457,51 @@ test.describe('with a Quick capture hotkey', () => {
     const id = await tab.getAttribute('data-scratch-tab')
     await expect.poll(() => scratchFiles(app)).toEqual({ [`${id}.md`]: 'Captured' })
   })
+
+  test('the Quick capture hotkey keeps the window shown when it is in front, with a new scratch tab', async ({
+    app,
+  }) => {
+    const { page } = app
+    await expect(page.locator('[data-note="a.md"]')).toBeVisible()
+    // background-windows.cjs keeps windows unfocused on macOS: report the app window focused, as when it is in front.
+    await app.electronApp.evaluate(({ BrowserWindow }) => {
+      BrowserWindow.prototype.isFocused = () => true
+    })
+
+    await pressGlobalShortcut(app, 'CommandOrControl+Alt+Shift+K')
+    await expect(scratchTab(page)).toHaveAttribute('aria-selected', 'true')
+    expect(await appWindowVisible(app)).toBe(true)
+  })
+
+  test('Preferences says the stored Quick capture hotkey is active, and a refused replacement keeps it working', async ({
+    app,
+  }) => {
+    const { page } = app
+    await expect(page.locator('[data-note="a.md"]')).toBeVisible()
+    await app.clickMenu('preferences')
+    const dialog = page.getByRole('dialog', { name: 'Preferences' })
+    const capture = dialog.getByRole('group', { name: 'Quick capture: a new scratch note from anywhere' })
+    const status = capture.locator('[data-hotkey-status]')
+    await expect(status).toHaveText('Active.')
+
+    await takeGlobalShortcut(app, 'Control+Alt+K')
+    await capture.locator('[data-hotkey-record]').click()
+    await page.keyboard.press('Control+Alt+K')
+    await expect(status).toHaveText('Control+Alt+K could not be registered. Another app may already use it.')
+    await dialog.getByRole('button', { name: 'Done' }).click()
+    await expect(dialog).toHaveCount(0)
+    expect((await readSettings(app)).ui.captureHotkey).toBe('CommandOrControl+Alt+Shift+K')
+    await app.electronApp.evaluate(({ BrowserWindow }) => {
+      for (const window of BrowserWindow.getAllWindows()) {
+        if (window.webContents.getURL().startsWith('boost://app/')) window.hide()
+      }
+    })
+    await expect.poll(() => appWindowVisible(app)).toBe(false)
+
+    await pressGlobalShortcut(app, 'CommandOrControl+Alt+Shift+K')
+    await expect.poll(() => appWindowVisible(app)).toBe(true)
+    await expect(scratchTab(page)).toHaveAttribute('aria-selected', 'true')
+  })
 })
 
 test('Preferences records a Quick capture hotkey beside the show/hide hotkey, and says why a taken one is refused', async ({
@@ -446,6 +533,14 @@ test('Preferences records a Quick capture hotkey beside the show/hide hotkey, an
   await expect(status).toHaveText('Registered Control+Alt+J.')
   await expect(capture.locator('[data-hotkey]')).toHaveText('Control+Alt+J')
   await expect.poll(async () => (await readSettings(app)).ui.captureHotkey).toBe('Control+Alt+J')
+
+  // Esc while recording cancels the recording only: Preferences stays open and nothing is saved.
+  await capture.locator('[data-hotkey-record]').click()
+  await expect(capture.locator('[data-hotkey]')).toHaveText('Recording…')
+  await page.keyboard.press('Escape')
+  await expect(dialog).toBeVisible()
+  await expect(capture.locator('[data-hotkey]')).toHaveText('Control+Alt+J')
+  expect((await readSettings(app)).ui.captureHotkey).toBe('Control+Alt+J')
 
   await dialog.getByRole('button', { name: 'Done' }).click()
   await pressGlobalShortcut(app, 'Control+Alt+J')
