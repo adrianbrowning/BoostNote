@@ -9,6 +9,10 @@ const NOTE = `# Tables
 
 A paragraph of prose that is long enough to fill the whole text column of the reader pane, so its width is the line width.
 
+| A | B |
+| --- | --- |
+| a | b |
+
 | Customer | Notes | Outcome | Follow-up | Owner |
 | --- | --- | --- | --- | --- |
 | Acme | ${sentence} | ${sentence} | ${sentence} | ${sentence} |
@@ -37,8 +41,8 @@ const width = async (locator: Locator) => {
 test('with the default table width a reader table keeps the line width', async ({ app }) => {
   const reader = await openInReader(app)
   await expect(app.page.locator('[data-vault]')).toHaveCSS('--table-max-width', '600px')
-  await expect(reader.locator('> table')).toHaveCSS('max-width', '600px')
-  expect(await width(reader.locator('> table'))).toBeLessThanOrEqual(600)
+  await expect(reader.locator('> table').nth(1)).toHaveCSS('max-width', '600px')
+  expect(await width(reader.locator('> table').nth(1))).toBeLessThanOrEqual(600)
 })
 
 test.describe('a full table width', () => {
@@ -47,7 +51,7 @@ test.describe('a full table width', () => {
   test('lets a wide top-level table grow to the pane while prose keeps the line width', async ({ app }) => {
     const reader = await openInReader(app)
     await expect(app.page.locator('[data-vault]')).toHaveCSS('--table-max-width', 'none')
-    const table = reader.locator('> table')
+    const table = reader.locator('> table').nth(1)
     const tableWidth = await width(table)
     expect(tableWidth).toBeGreaterThan(600)
     // It fits the pane: the reader body does not scroll sideways.
@@ -55,6 +59,11 @@ test.describe('a full table width', () => {
     await expect(reader.locator('> p')).toHaveCSS('max-width', '600px')
     await expect(reader.locator('> h1')).toHaveCSS('max-width', '600px')
     expect(await width(reader.locator('> p'))).toBeLessThanOrEqual(600)
+    // The wide table stays centred on the text column.
+    const tableBox = await table.boundingBox()
+    const paragraphBox = await reader.locator('> p').boundingBox()
+    if (!tableBox || !paragraphBox) throw new Error('not visible')
+    expect(Math.abs(tableBox.x + tableBox.width / 2 - (paragraphBox.x + paragraphBox.width / 2))).toBeLessThanOrEqual(1)
     // Tables inside a blockquote keep the width of their container.
     expect(await width(reader.locator('blockquote table'))).toBeLessThanOrEqual(600)
   })
@@ -79,7 +88,9 @@ test.describe('a zero line width', () => {
 test('the preferences dialog sets the table width and the reader follows without a reload', async ({ app }) => {
   const { page } = app
   const reader = await openInReader(app)
-  const table = reader.locator('> table')
+  const table = reader.locator('> table').nth(1)
+  const narrow = reader.locator('> table').first()
+  const narrowBefore = await narrow.boundingBox()
   await app.clickMenu('preferences')
   const select = page.getByRole('combobox', { name: 'Table width', exact: true })
   await expect(select).toHaveValue('line')
@@ -89,9 +100,14 @@ test('the preferences dialog sets the table width and the reader follows without
   await expect.poll(async () => (await readSettings(app)).ui.tableWidth).toBe('full')
   await expect(table).toHaveCSS('max-width', 'none')
   expect(await width(table)).toBeGreaterThan(600)
+  // A narrow table keeps its natural box.
+  expect(narrowBefore?.width).toBeLessThan(600)
+  expect(await narrow.boundingBox()).toEqual(narrowBefore)
 
   await select.selectOption('custom')
   const pixels = page.getByRole('spinbutton', { name: 'Table width (px)' })
+  await expect.poll(async () => (await readSettings(app)).ui.tableWidth).toBe(1200)
+  await expect(pixels).toHaveValue('1200')
   await pixels.click()
   await page.keyboard.press('ControlOrMeta+A')
   await page.keyboard.type('900')
@@ -102,4 +118,15 @@ test('the preferences dialog sets the table width and the reader follows without
   await select.selectOption('line')
   await expect.poll(async () => (await readSettings(app)).ui.tableWidth).toBe('line')
   await expect(table).toHaveCSS('max-width', '600px')
+})
+
+test.describe('a line width above 1200px', () => {
+  test.use({ ui: { lineWidth: 1500 } })
+
+  test('choosing Custom stores the line width', async ({ app }) => {
+    await app.clickMenu('preferences')
+    await app.page.getByRole('combobox', { name: 'Table width', exact: true }).selectOption('custom')
+    await expect.poll(async () => (await readSettings(app)).ui.tableWidth).toBe(1500)
+    await expect(app.page.getByRole('spinbutton', { name: 'Table width (px)' })).toHaveValue('1500')
+  })
 })
