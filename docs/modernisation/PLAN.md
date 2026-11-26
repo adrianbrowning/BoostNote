@@ -342,13 +342,15 @@ vault left fails, the other vault still shows (the switch counts) and the store 
 - The banner's "Save to vault…" (`WorkspaceModel.saveScratchToVault`; disabled with no vault open, the reason next
   to it) saves the typed text first (the leave-note gate), asks for a folder of the open vault in the choose dialog
   of a reader's "Add to vault…" (`folderOptions`, `dropFolder` first), then posts `{ id, folder }` to
-  `POST /api/scratch/save`. Main runs it in `VaultSession`'s vault queue (`inActiveVault`; `409 NO_VAULT` without
-  an open vault): the scratch text parsed as a note's text (valid frontmatter stays frontmatter) becomes
-  `vault.createNote(folder, scratchTitle, { body, frontmatter })` (a taken name gets ` 2`), then the scratch note
-  and its sidecar are removed, and it answers the note id and the workspace lists (`ScratchSaveResult`). The
-  scratch tab becomes the note's tab at its position (`Navigation.saveScratch`), active when it was active. When
-  the note cannot be created (a folder gone meanwhile) the scratch note and its tab stay and the notice says why;
-  when removing the scratch note fails after the note was written, the note stays and so does the scratch note.
+  `POST /api/scratch/save`, naming the vault on screen (`?vault=`). Main runs it in `VaultSession`'s vault queue
+  (`inVault`) on that vault (`409 NO_VAULT` without one, or once it is closed): the scratch text parsed as a note's
+  text (valid frontmatter stays frontmatter) becomes `vault.createNote(folder, scratchTitle, { body, frontmatter })`
+  (a taken name gets ` 2`), then the scratch note is removed (its sidecar first, then its file), and it answers the
+  note id and that vault's lists (`ScratchSaveResult`). The scratch tab becomes the note's tab at its position
+  (`Navigation.saveScratch`), active when it was active. When the vault switched while the request was out, the
+  note is in the vault left: its lists are not shown, the scratch tab closes and the notice says where the note went.
+  When the note cannot be created (a folder gone meanwhile) the scratch note and its tab stay and the notice says
+  why; when removing the scratch note fails after the note was written, the note stays and so does the scratch note.
 
 ### Properties panel
 

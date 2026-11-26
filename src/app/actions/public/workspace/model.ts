@@ -497,9 +497,11 @@ export class WorkspaceModel extends TypedEventTarget<{
    * A scratch note's "Save to vault…": saves its text first (the leave-note gate), asks for a folder of the open vault
    * (`dropFolder` first) in the dialog of a reader's "Add to vault…", then main creates the note there, named by the
    * scratch note's title (`scratchTitle`), and removes the scratch note. Its tab becomes the new note's tab at its
-   * position (`Navigation.saveScratch`). On failure the scratch note and its tab stay and the notice says why.
-   * Nothing happens without an open vault (the button is disabled) or while this scratch note is being saved. Runs
-   * in open order, as "Add to vault…" does, so no open-request drain switches the vault while the user chooses.
+   * position (`Navigation.saveScratch`). The request names the vault on screen, so a vault switch while it is out
+   * does not move the note: its lists are not shown, the scratch tab closes and the notice says where the note went.
+   * On failure the scratch note and its tab stay and the notice says why. Nothing happens without an open vault
+   * (the button is disabled) or while this scratch note is being saved. Runs in open order, as "Add to vault…"
+   * does, so no open-request drain switches the vault while the user chooses.
    */
   async saveScratchToVault(id: string): Promise<void> {
     if (!this.data.vault || this.#savingScratch.has(id)) return
@@ -519,13 +521,17 @@ export class WorkspaceModel extends TypedEventTarget<{
           confirm: 'Save',
         })
         if (folder === null) return
-        await this.attempt(() =>
-          this.navigation.saveScratch(id, async () => {
+        await this.attempt(async () => {
+          const vault = this.data.vault?.name ?? ''
+          const sameVault = this.navigation.vaultToken()
+          const result = await this.navigation.saveScratch(id, async () => {
             const saved = await this.#snapshot(() => this.#api.saveScratch(id, folder))
-            this.#showData(saved.workspace)
+            // Lists of the vault left, when a switch ran meanwhile: not shown over the vault on screen.
+            if (sameVault()) this.#showData(saved.workspace)
             return saved
-          }),
-        )
+          })
+          if (result && !result.shown) this.notify('info', `Saved as ${result.saved.id} in ${vault}`)
+        })
       })
     } finally {
       this.#savingScratch.delete(id)

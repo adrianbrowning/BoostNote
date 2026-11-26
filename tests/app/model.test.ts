@@ -6,7 +6,7 @@ import { WorkspaceModel } from '../../src/app/actions/public/workspace/model.ts'
 import type { TabStore } from '../../src/app/actions/public/workspace/navigation.ts'
 import type { TabsSnapshot } from '../../src/app/actions/public/workspace/tabs.ts'
 import { DEFAULT_UI } from '../../src/main/settings.ts'
-import { folderWith, type HeldClient, heldClient, noTabStore, TestApp } from './helpers.ts'
+import { exists, folderWith, type HeldClient, heldClient, noTabStore, TestApp } from './helpers.ts'
 
 /**
  * `WorkspaceModel` over the in-process router (`createClient` over `TestApp.fetch`) and a memory tab store:
@@ -411,6 +411,38 @@ describe('WorkspaceModel Save to vault of a scratch note', () => {
     expect(workspace.notice).toEqual({ kind: 'error', text: 'Folder not found: g' })
     expect(await readFile(path.join(app.scratchDir, `${id}.md`), 'utf8')).toBe('Keep me')
   })
+
+  it.each([
+    { what: 'held before main saw it', answered: false },
+    { what: 'answered and held on its way back', answered: true },
+  ])(
+    'a save $what across a vault switch goes into the vault it was asked in and leaves the new vault’s lists and tabs alone',
+    async ({ answered }) => {
+      const second = await realpath(await folderWith(app, 'second', { 'in second.md': '# In second\n' }))
+      await workspace.newScratchNote()
+      const id = workspace.session.scratch?.id
+      if (id === undefined) throw new Error('No scratch note')
+      workspace.session.edit('# Held\n')
+      net.hold(onPath('/api/scratch/save'), { answered })
+
+      const saving = workspace.saveScratchToVault(id)
+      await chooseFolder('')
+      await expect.poll(() => net.held.length).toBe(1)
+      await workspace.openVault(second)
+      expect(workspace.data.vault?.root).toBe(second)
+      net.held[0]?.release()
+      await saving
+
+      expect(await readFile(path.join(app.dir, 'vault', 'Held.md'), 'utf8')).toMatch(/\n---\n# Held\n$/)
+      expect(await exists(second, 'Held.md')).toBe(false)
+      expect(workspace.data.vault?.root).toBe(second)
+      expect(workspace.data.notes.map((note) => note.id)).toEqual(['in second.md'])
+      expect(strip()).toEqual([])
+      expect(workspace.session.scratch).toBeNull()
+      expect(workspace.notice).toEqual({ kind: 'info', text: 'Saved as Held.md in vault' })
+      expect(await readdir(app.scratchDir)).toEqual([])
+    },
+  )
 })
 
 describe('WorkspaceModel relocations that return after a vault switch', () => {

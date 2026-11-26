@@ -455,17 +455,23 @@ export function createApiController(services: AppServices) {
       }),
 
       /**
-       * Save to vault, in the vault queue: the scratch text, parsed as a note's (valid frontmatter stays frontmatter),
-       * becomes a note in `folder` named by its title (`scratchTitle`, made unique as `createNote` does), then the
-       * scratch note is removed. When the note cannot be created the scratch note stays; when removing it fails
-       * afterwards, the note stays in the vault and the scratch note stays listed.
+       * Save to vault, in the vault queue, into the vault the request names (`?vault=`, the page's; `409 NO_VAULT`
+       * without one, or once it is closed): the scratch text, parsed as a note's (valid frontmatter stays
+       * frontmatter), becomes a note in `folder` named by its title (`scratchTitle`, made unique as `createNote`
+       * does), then the scratch note is removed; the answer has that vault's lists. When the note cannot be created
+       * the scratch note stays; when removing it fails afterwards, the note stays in the vault and the scratch note
+       * stays listed.
        */
-      scratchSave: guarded(async ({ request }: { request: Request }) => {
+      scratchSave: guarded(async ({ request, url }: { request: Request; url: URL }) => {
         const body = await readJsonObject(request)
         const id = requireString(body.id, 'id', { allowEmpty: true })
         const folder = requireString(body.folder, 'folder', { allowEmpty: true })
-        const result = await services.vaults.inActiveVault(
-          'Open a vault first, then save the scratch note to it',
+        const root = url.searchParams.get('vault') ?? undefined
+        const result = await services.vaults.inVault(
+          root,
+          root === undefined
+            ? 'Open a vault first, then save the scratch note to it'
+            : `This vault is not open: ${root}`,
           async (vault): Promise<ScratchSaveResult> => {
             const scratch = await services.scratch.read(id)
             const note = parseNoteText(scratch.text)
@@ -474,7 +480,7 @@ export function createApiController(services: AppServices) {
               frontmatter: note.frontmatter,
             })
             await services.scratch.discard(id)
-            return { id: created.id, workspace: await workspaceData(services) }
+            return { id: created.id, workspace: await workspaceData(services, vault.root) }
           },
         )
         return json(result, { status: 201 })

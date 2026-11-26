@@ -1,5 +1,7 @@
+import { execFile } from 'node:child_process'
 import { mkdir, readdir, readFile, utimes, writeFile } from 'node:fs/promises'
 import * as path from 'node:path'
+import { promisify } from 'node:util'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 
 import type {
@@ -9,6 +11,8 @@ import type {
   WorkspaceData,
 } from '../../src/app/actions/public/workspace/types.ts'
 import { TestApp } from './helpers.ts'
+
+const execFileAsync = promisify(execFile)
 
 let app: TestApp
 
@@ -222,4 +226,62 @@ describe('/api/scratch/save', () => {
     expect(await filesUnder(app.scratchDir)).toEqual([`${id}.json`, `${id}.md`])
     expect((await filesUnder(vault.root)).filter((file) => file.endsWith('.md'))).toEqual([])
   })
+
+  it('saves into the vault the request names, not the active one, and answers that vault’s lists', async () => {
+    const first = await app.openVault('first')
+    const second = await app.openVault('second')
+    expect(app.vaults.current?.root).toBe(second.root)
+    const { id } = await create()
+    await write(id, '# Into first\n')
+
+    const response = await app.post('/api/scratch/save', { id, folder: '' }, { vault: first.root })
+    expect(response.status).toBe(201)
+    const result: ScratchSaveResult = await response.json()
+    expect(result.id).toBe('Into first.md')
+    expect(result.workspace.vault?.root).toBe(first.root)
+    expect(result.workspace.notes.map((note) => note.id)).toEqual(['Into first.md'])
+    expect((await filesUnder(first.root)).filter((file) => file.endsWith('.md'))).toEqual(['Into first.md'])
+    expect((await filesUnder(second.root)).filter((file) => file.endsWith('.md'))).toEqual([])
+  })
+
+  it('answers 409 NO_VAULT for a vault that is no longer open, even with another one active, and keeps the scratch note', async () => {
+    const first = await app.openVault('first')
+    const second = await app.openVault('second')
+    await app.vaults.close(first.root)
+    const { id } = await create()
+    await write(id, 'Keep me')
+
+    const response = await app.post('/api/scratch/save', { id, folder: '' }, { vault: first.root })
+    expect(response.status).toBe(409)
+    expect((await readJson<{ error: string }>(response)).error).toBe('NO_VAULT')
+    expect(await filesUnder(app.scratchDir)).toEqual([`${id}.json`, `${id}.md`])
+    expect((await filesUnder(second.root)).filter((file) => file.endsWith('.md'))).toEqual([])
+  })
+})
+
+describe('/api/scratch/save when removing the scratch note fails', () => {
+  // `chflags uchg` makes only the sidecar undeletable while its folder stays writable (macOS).
+  it.skipIf(process.platform !== 'darwin')(
+    'keeps the new note and the scratch note, listed with its text, when its sidecar cannot be removed',
+    async () => {
+      const vault = await app.openVault()
+      const { id } = await create()
+      await write(id, '# Twice\n')
+      const sidecar = path.join(app.scratchDir, `${id}.json`)
+      await execFileAsync('chflags', ['uchg', sidecar])
+      try {
+        // A plain fs error, which the router throws: the request fails.
+        const saved = await app.post('/api/scratch/save', { id, folder: '' }).then(
+          (response) => response.ok,
+          () => false,
+        )
+        expect(saved).toBe(false)
+        expect((await vault.readNote('Twice.md')).body).toBe('# Twice\n')
+        expect((await list()).map((note) => ({ id: note.id, title: note.title }))).toEqual([{ id, title: 'Twice' }])
+        expect(await readFile(path.join(app.scratchDir, `${id}.md`), 'utf8')).toBe('# Twice\n')
+      } finally {
+        await execFileAsync('chflags', ['nouchg', sidecar])
+      }
+    },
+  )
 })
