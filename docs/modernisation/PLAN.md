@@ -358,7 +358,8 @@ vault left fails, the other vault still shows (the switch counts) and the store 
   null keys stay exactly as typed, without them (no splice, no re-emit); without a block the whole text is the body
   and both are added. A taken name gets ` 2`.
   Then the scratch note is removed (its sidecar first, then its file), and it answers the
-  note id and that vault's lists (`ScratchSaveResult`). The scratch tab becomes the note's tab at its position
+  note id and that vault's lists (`ScratchSaveResult`), or the id alone when the lists cannot be read after the save
+  (the save still stands and the page reads the lists again). The scratch tab becomes the note's tab at its position
   (`Navigation.saveScratch`), active unless the active tab changed while the request was out. A vault switch while
   the folder dialog is open saves nothing (the error notice says so; the folders offered were the vault left's). When
   the vault switched while the request
@@ -612,7 +613,8 @@ in a sidecar `<id>.json` (`{ created }`). The id is opaque: 32 random lowercase 
 that id and never take or return the path of its file under `<userData>/scratch`; they answer `404 NOT_FOUND` for
 an id of another form or a missing note (`400 BAD_REQUEST` when the id is missing or not a string), write
 atomically and need no open vault (except Save to vault). Save to vault also takes a `folder` of the vault named
-by `?vault=` and answers `{ id, workspace }` with that vault's lists. It runs in `VaultSession`'s vault queue,
+by `?vault=` and answers `{ id, workspace }` with that vault's lists, or `{ id }` alone when the lists cannot be read
+after the save (the save still stands and the page reads the lists again). It runs in `VaultSession`'s vault queue,
 creates the note in the chosen folder of the vault the request names with `?vault=` (the vault the page shows;
 `409 NO_VAULT` when `?vault=` is missing or that vault is no longer open, even if another vault is open) and then
 removes the scratch note; a failed create keeps the scratch note. Closing a scratch tab

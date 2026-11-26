@@ -468,7 +468,8 @@ export class NoteSession extends TypedEventTarget<{
         this.#reset(null)
         this.dispatchEvent(new DocEvent('', false))
         this.dispatchEvent(new ScratchGoneEvent(id, message))
-        return { state: 'removed' }
+        // Nothing unsaved remains once the session lets the note go; `saved` keeps a Retry from replacing the gone notice.
+        return { state: 'saved' }
       }
       this.error = message
       this.state = 'error'

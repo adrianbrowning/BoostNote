@@ -861,6 +861,22 @@ describe('WorkspaceModel scratch list', () => {
     expect(workspace.scratchNotes).toEqual([])
   })
 
+  it('keeps the gone notice when a Retry of a failed scratch save finds the scratch note removed', async () => {
+    await start(false)
+    const id = await keptScratch('# Groceries\n')
+    await workspace.openScratch(id)
+    net.fail = (url) => url.pathname === '/api/scratch/write'
+    workspace.session.edit('# Groceries\n\nMilk\n')
+    await workspace.session.flush()
+    net.fail = null
+    expect(workspace.session.state).toBe('error')
+    await rm(path.join(app.scratchDir, `${id}.md`))
+    await rm(path.join(app.scratchDir, `${id}.json`))
+    await workspace.retrySave()
+    expect(strip()).toEqual(['meeting.md'])
+    expect(workspace.notice).toEqual({ kind: 'error', text: 'This scratch note no longer exists' })
+  })
+
   it('reads an active scratch tab again when its row is clicked after its read failed', async () => {
     await start(false)
     const id = await keptScratch('# Groceries\n')
@@ -877,7 +893,7 @@ describe('WorkspaceModel scratch list', () => {
   it('drops a listing that returns after a later one, and shows a failed listing as the error notice', async () => {
     await start(false)
     const id = await keptScratch('# Groceries\n')
-    net.hold(onPath('/api/scratch'), { once: true })
+    net.hold(onPath('/api/scratch'), { once: true, answered: true })
     const stale = workspace.refreshScratch()
     await expect.poll(() => net.held.length).toBe(1)
     await workspace.discardScratch(id)
