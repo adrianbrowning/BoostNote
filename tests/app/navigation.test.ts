@@ -900,6 +900,35 @@ describe('Navigation of scratch tabs', () => {
     expect(notices).toEqual([])
   })
 
+  it('discards a blank scratch note when its background tab closes while the session still holds it after a note read failed', async () => {
+    await scratchAfterA()
+    net.fail = (url) => url.pathname === '/api/notes/read'
+    await navigation.activate(tab(0))
+    net.fail = null
+    expect(navigation.tabs.active?.kind).toBe('note')
+    expect(session.scratch).not.toBeNull()
+    await navigation.close(tab(1))
+    expect(navigation.tabs.tabs.map((item) => item.kind)).toEqual(['note'])
+    expect(session.scratch).toBeNull()
+    expect(session.locked).toBe(false)
+    expect(await scratchIds()).toEqual([])
+    expect(notices).toEqual(['Disk full'])
+  })
+
+  it('saves text typed in a scratch note the session still holds before its background tab closes, keeping it', async () => {
+    const id = await scratchAfterA()
+    net.fail = (url) => url.pathname === '/api/notes/read'
+    await navigation.activate(tab(0))
+    net.fail = null
+    session.edit('Typed after the read failed.\n')
+    await navigation.close(tab(1))
+    expect(navigation.tabs.tabs.map((item) => item.kind)).toEqual(['note'])
+    expect(session.scratch).toBeNull()
+    expect(await scratchIds()).toEqual([id])
+    expect((await api.readScratch(id)).text).toBe('Typed after the read failed.\n')
+    expect(notices).toEqual(['Disk full'])
+  })
+
   it('discards a blank scratch note when its active tab closes and the next tab’s read fails, leaving the editor without it', async () => {
     const id = await scratchAfterA()
     net.fail = (url) => url.pathname === '/api/notes/read'

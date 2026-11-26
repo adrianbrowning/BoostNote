@@ -291,11 +291,13 @@ export class Navigation {
   /**
    * Closes a tab (the active one by default). Closing the active tab runs the gate first; `discard`
    * drops unsaved edits instead (the "Close" of a note removed on disk). A background tab closes
-   * without the gate. A reader tab closes once main revoked its ticket (a `404` means it already
+   * without the gate, except a scratch tab whose scratch note the session still holds (the tab left for
+   * failed to read): the gate saves its text first and a refused gate keeps the tab; the session then lets it
+   * go. A reader tab closes once main revoked its ticket (a `404` means it already
    * was); if revoking fails the tab stays open. A reader that is already closing or opening its
    * folder as the vault is left to that action. A scratch tab's scratch note is discarded once its tab
-   * closed when its text (saved by the gate first, when active) is empty or whitespace only, and kept
-   * otherwise; when that read or discard fails, the tab stays closed, the scratch note is kept and the
+   * closed when its text (saved by the gate first, when the session held it) is empty or whitespace only, and
+   * kept otherwise; when that read or discard fails, the tab stays closed, the scratch note is kept and the
    * failure is reported.
    */
   async close(key = this.tabs.activeKey, options: { discard?: boolean } = {}): Promise<void> {
@@ -321,6 +323,16 @@ export class Navigation {
       }
     }
     if (key !== this.tabs.activeKey) {
+      if (tab?.kind === 'scratch' && this.#session.scratch?.id === tab.id) {
+        // The session still holds it (the note tab left for failed to read): the gate saves its text, then it goes.
+        await this.hold(async () => {
+          this.#edit((tabs) => tabs.close(key))
+          if (this.#session.scratch?.id === tab.id) this.#session.close()
+          this.#host.changed()
+          await this.#discardBlank(tab.id, report)
+        })
+        return
+      }
       this.#edit((tabs) => tabs.close(key))
       this.#host.changed()
       if (tab?.kind === 'scratch') await this.#discardBlank(tab.id, report)
@@ -341,13 +353,11 @@ export class Navigation {
 
   /**
    * Discards scratch note `id`, whose tab closed, when its text on disk is empty or whitespace only. Its text is the
-   * one on disk: the gate saved it before its active tab closed (which then let it go from the session), and a
-   * background tab holds no unsaved text. The one exception, the session still holding it while a note tab whose read
-   * failed is active, keeps it (its text may be unsaved). A failed read or discard keeps it, reported to `report` (a
-   * `404`: it is gone already).
+   * one on disk: the gate saved it before its tab closed, when the session held it (which then let it go), and a
+   * scratch note the session does not hold has no unsaved text. A failed read or discard keeps it, reported to
+   * `report` (a `404`: it is gone already).
    */
   async #discardBlank(id: string, report: LoadReport): Promise<void> {
-    if (this.#session.scratch?.id === id) return
     try {
       if ((await this.#api.readScratch(id)).text.trim() === '') await this.#api.discardScratch(id)
     } catch (error) {
