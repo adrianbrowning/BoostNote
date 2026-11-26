@@ -16,8 +16,9 @@ import { type TaskProgress, taskProgress } from './tasks.ts'
  * The open note: its name (the file name, or the frontmatter `title` when it has one), renamed in
  * place by clicking it (or F2/Enter), note actions, the conflict bar, and the live-preview editor.
  * The editor is created once and shows whatever note or scratch note the session holds; it only ever
- * sees the body. A scratch note gets the editor (and its save-error bar) without the note's header
- * and properties.
+ * sees the body. A scratch note gets the editor (and its save-error bar) with a banner saying links to
+ * notes, images and properties need a vault note, without the note's header and properties; its relative
+ * links open nothing.
  */
 export function EditorPane(handle: Handle<{ model: WorkspaceModel }>) {
   const session = () => handle.props.model.session
@@ -320,6 +321,11 @@ export function EditorPane(handle: Handle<{ model: WorkspaceModel }>) {
             </button>
           </header>
         ) : null}
+        {session().scratch ? (
+          <div role="note" mix={[muted, scratchBannerStyle]} data-scratch-banner>
+            Scratch note, kept outside the vault. Links to notes, images and properties need a vault note.
+          </div>
+        ) : null}
         {editing ? conflictBar() : null}
         {editing && progress.total > 0 ? (
           <div
@@ -418,6 +424,12 @@ const titleButtonStyle = css({
 const titleInputStyle = css({ fontSize: '15px', fontWeight: 600, padding: '0 6px' })
 
 const renameErrorStyle = css({ color: 'var(--danger)', fontSize: '12px' })
+
+const scratchBannerStyle = css({
+  padding: '6px 16px',
+  fontSize: '12px',
+  borderBottom: '1px solid var(--border)',
+})
 
 const pathStyle = css({ fontSize: '11px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' })
 

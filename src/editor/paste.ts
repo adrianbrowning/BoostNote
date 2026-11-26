@@ -222,7 +222,10 @@ export const pasteAndDrop = [
       if (images.length > 0) {
         event.preventDefault()
         const { from, to } = view.state.selection.main
-        if (to > from) view.dispatch({ changes: { from, to }, userEvent: 'delete.cut' })
+        // With nowhere to store images (`assetPlace` undefined: a scratch note), the save is refused: keep the selection.
+        if (to > from && view.state.facet(editorHost).assetPlace() !== undefined) {
+          view.dispatch({ changes: { from, to }, userEvent: 'delete.cut' })
+        }
         void insertImages(view, images, from)
         return true
       }

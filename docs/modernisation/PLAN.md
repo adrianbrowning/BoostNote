@@ -324,6 +324,12 @@ vault left fails, the other vault still shows (the switch counts) and the store 
   failed save keeps the tab, as for notes). A tab whose scratch note is gone (`404`) closes with the notice. A
   vault switch or close leaves an open scratch note in the session as it is. The tab shows a "Scratch" badge and
   the `scratchTitle` of the text as typed.
+- A scratch tab offers none of the vault-only features, and a banner above its editor says links to notes,
+  images and properties need a vault note: relative `.md` links do nothing (http(s) links still open in the
+  browser), a pasted or dropped image is not uploaded (`NoteSession.saveAsset` refuses it with the
+  images-need-a-vault-note notice), the note header (rename, properties, pin, star, the note menu with reveal,
+  export, move and delete) does not show, and Toggle Properties (⇧⌘P) leaves the properties pane as it is.
+  Edit › Find and the live preview work as in notes. No request with a scratch id reaches a vault route.
 
 ### Properties panel
 

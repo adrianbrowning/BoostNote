@@ -883,7 +883,9 @@ export class WorkspaceModel extends TypedEventTarget<{
     })
   }
 
+  /** Shows or hides a pane; the properties pane stays as it is while a scratch note is open (it has no properties). */
   togglePane(pane: 'sidebarCollapsed' | 'listCollapsed' | 'propertiesOpen'): void {
+    if (pane === 'propertiesOpen' && this.session.scratch) return
     this.setPanes({ [pane]: !this.preferences.panes[pane] })
   }
 
@@ -893,9 +895,9 @@ export class WorkspaceModel extends TypedEventTarget<{
     this.changed()
   }
 
-  /** Edit > Find: the editor opens its search panel. */
+  /** Edit > Find: the editor opens its search panel (in a note or a scratch note). */
   find(): void {
-    if (this.session.note) this.dispatchEvent(new Event('find'))
+    if (this.session.note || this.session.scratch) this.dispatchEvent(new Event('find'))
   }
 
   // ── Folders ────────────────────────────────────────────────────────────────────────────

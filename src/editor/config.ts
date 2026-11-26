@@ -18,7 +18,8 @@ export interface EditorHost {
   saveAsset(file: File): Promise<string>
   /**
    * Where `saveAsset` stores images now (the open note's id); a pending image whose place changed before its
-   * insert (the note was renamed or moved) is saved again, so its link fits where the note is.
+   * insert (the note was renamed or moved) is saved again, so its link fits where the note is. `undefined`: images
+   * cannot be stored (a scratch note), so a pasted image does not replace the selection.
    */
   assetPlace(): string | undefined
   /** Opens a link the user Cmd/Ctrl-clicked (or clicked in a rendered widget). */

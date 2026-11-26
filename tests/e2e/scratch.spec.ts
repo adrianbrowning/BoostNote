@@ -71,3 +71,96 @@ test('New Scratch Note works with no vault open: its tab shows in the editor and
   const id = await tab.getAttribute('data-scratch-tab')
   await expect.poll(() => scratchFiles(app)).toEqual({ [`${id}.md`]: 'Call the plumber' })
 })
+
+test('a scratch tab shows the vault-note banner and none of the note header buttons; its relative links are inert, http(s) links and Find work', async ({
+  app,
+}) => {
+  const { page } = app
+  // Record instead of opening a real browser.
+  await app.electronApp.evaluate(({ shell }) => {
+    const opened: string[] = []
+    Object.assign(globalThis, { openedUrls: opened })
+    shell.openExternal = async (url: string) => {
+      opened.push(url)
+    }
+  })
+  const opened = () => app.electronApp.evaluate((): unknown => Reflect.get(globalThis, 'openedUrls'))
+  await page.locator('[data-note="a.md"]').click()
+  await expect(page.locator('[data-note-title]')).toHaveText('a')
+
+  await app.clickMenu('new-scratch-note')
+  const tab = scratchTab(page)
+  await expect(tab).toHaveAttribute('aria-selected', 'true')
+  await expect(page.locator('[data-scratch-banner]')).toHaveText(
+    'Scratch note, kept outside the vault. Links to notes, images and properties need a vault note.',
+  )
+  const editorPane = page.getByRole('main', { name: 'Editor' })
+  for (const name of ['Properties', 'Pin note', 'Star note', 'Note actions']) {
+    await expect(editorPane.getByRole('button', { name, exact: true })).toHaveCount(0)
+  }
+  await expect(page.locator('[data-rename-note]')).toHaveCount(0)
+
+  await page.keyboard.type('See [the note](a.md) and [site](https://example.com/)\n\nEnd')
+  const links = page.locator('[data-editor] .cm-lp-link')
+  await links.filter({ hasText: 'the note' }).click({ modifiers: ['ControlOrMeta'] })
+  await links.filter({ hasText: 'site' }).click({ modifiers: ['ControlOrMeta'] })
+  await expect.poll(opened).toEqual(['https://example.com/'])
+  // The relative .md link opened nothing: the scratch tab is still the active one, and no tab was added.
+  await expect(tab).toHaveAttribute('aria-selected', 'true')
+  await expect(page.getByRole('tab')).toHaveCount(2)
+  await expect(page.locator('[data-note-title]')).toHaveCount(0)
+
+  await app.clickMenu('find')
+  await expect(page.locator('[data-editor] .cm-search')).toBeVisible()
+})
+
+test('Toggle Properties opens no properties panel in a scratch tab, nor for the note shown after it', async ({
+  app,
+}) => {
+  const { page } = app
+  await page.locator('[data-note="a.md"]').click()
+  await expect(page.locator('[data-note-title]')).toHaveText('a')
+  await app.clickMenu('new-scratch-note')
+  await expect(scratchTab(page)).toHaveAttribute('aria-selected', 'true')
+
+  // View › Toggle Properties (⇧⌘P is its native menu accelerator, the same command).
+  await app.clickMenu('toggle-properties')
+  await expect(page.locator('[data-properties]')).toHaveCount(0)
+
+  await page.locator('[role="tab"][data-tab="a.md"]').click()
+  await expect(page.locator('[data-note-title]')).toHaveText('a')
+  await expect(page.locator('[data-toggle-properties]')).toHaveAttribute('aria-pressed', 'false')
+  await expect(page.locator('[data-properties]')).toHaveCount(0)
+})
+
+test('an image pasted over selected text in a scratch tab is refused with the notice and keeps the text, writing no file', async ({
+  app,
+}) => {
+  const { page, vault } = app
+  await expect(page.locator('[data-note="a.md"]')).toBeVisible()
+  const vaultFiles = (await readdir(vault, { recursive: true })).sort()
+  await app.clickMenu('new-scratch-note')
+  const tab = scratchTab(page)
+  await expect(editor(page)).toBeFocused()
+  await page.keyboard.type('Keep this')
+  const id = await tab.getAttribute('data-scratch-tab')
+  await expect.poll(() => scratchFiles(app)).toEqual({ [`${id}.md`]: 'Keep this' })
+
+  await page.keyboard.press('ControlOrMeta+a')
+  await editor(page).evaluate((target) => {
+    const data = new DataTransfer()
+    data.items.add(new File([new Uint8Array([137, 80, 78, 71])], 'shot.png', { type: 'image/png' }))
+    target.dispatchEvent(new ClipboardEvent('paste', { clipboardData: data, bubbles: true, cancelable: true }))
+  })
+  await expect(page.locator('[data-notice]')).toContainText(
+    'Images need a vault note: save this scratch note to the vault to add images.',
+  )
+  await expect(editor(page)).toHaveText('Keep this')
+  await page.keyboard.press('ControlOrMeta+End')
+  await page.keyboard.type('!')
+  await expect.poll(() => scratchFiles(app)).toEqual({ [`${id}.md`]: 'Keep this!' })
+  // Only the note (and its creation-time sidecar): no image file.
+  const names = await readdir(path.join(app.userDataDir, 'scratch'))
+  expect(names.filter((name) => name !== `${id}.md` && name !== `${id}.json`)).toEqual([])
+  expect((await readdir(vault, { recursive: true })).sort()).toEqual(vaultFiles)
+})
