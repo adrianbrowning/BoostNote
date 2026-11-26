@@ -123,7 +123,14 @@ export function updateYaml(yaml: string, before: Frontmatter, after: Frontmatter
       order.indexOf(String(isScalar(a.key) ? a.key.value : a.key)) -
       order.indexOf(String(isScalar(b.key) ? b.key.value : b.key)),
   )
-  return doc.toString(STRINGIFY_OPTIONS)
+  // A reorder can put an alias before its anchor: then the block cannot be written or parsed, so it is written anew.
+  let text: string
+  try {
+    text = doc.toString(STRINGIFY_OPTIONS)
+  } catch {
+    return stringifyMapping(after)
+  }
+  return isDeepStrictEqual(parseYamlMapping(text), after) ? text : stringifyMapping(after)
 }
 
 /** `keys` in the order a JS object built from them in that order lists them (array-index keys first, ascending). */

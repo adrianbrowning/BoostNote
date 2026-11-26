@@ -141,3 +141,16 @@ describe('frontmatter with integer-like keys, on a note save', () => {
     expect(parsed(text)).toEqual({ '4294967295': 2, a: 1 })
   })
 })
+
+describe('frontmatter whose keys are reordered on a note save', () => {
+  it('writes the block anew when the new order would put an alias before its anchor', () => {
+    const yaml = 'a: &x {v: 1}\nb: *x\n'
+    const before = parseNoteText(`---\n${yaml}---\n`).frontmatter
+    const after = { b: { v: 1 }, a: { v: 1 } }
+    const text = updateYaml(yaml, before, after)
+    const parsed = parseNoteText(`---\n${text}---\nbody`)
+    expect(parsed.frontmatter).toEqual(after)
+    expect(Object.keys(parsed.frontmatter)).toEqual(['b', 'a'])
+    expect(parsed.body).toBe('body')
+  })
+})
