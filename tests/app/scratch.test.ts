@@ -248,23 +248,24 @@ describe('/api/scratch/save', () => {
     expect(updated).toMatch(/^\d{4}-\d{2}-\d{2}T/)
     expect(saved).toBe(partly.replace('---\n# Partly', `updated: ${updated}\n---\n# Partly`))
     expect(await readFile(path.join(vault.root, 'Complete.md'), 'utf8')).toBe(complete)
+  })
 
-    const flow = await create()
-    await write(flow.id, "---\n{title: 'quoted', tags: [a,b]} # kept\n---\n# Flow\n")
-    expect((await app.post('/api/scratch/save', { id: flow.id, folder: '' })).status).toBe(201)
-    const flowSaved = await readFile(path.join(vault.root, 'Flow.md'), 'utf8')
-    const stamp = /, created: (\S+), updated: \1\}/.exec(flowSaved)?.[1] ?? ''
-    expect(stamp).toMatch(/^\d{4}-\d{2}-\d{2}T/)
-    expect(flowSaved).toBe(
-      `---\n{title: 'quoted', tags: [a,b], created: ${stamp}, updated: ${stamp}} # kept\n---\n# Flow\n`,
-    )
-
-    const anchored = await create()
-    await write(anchored.id, '---\n&anchor {}\n---\n# Anchored\n')
-    expect((await app.post('/api/scratch/save', { id: anchored.id, folder: '' })).status).toBe(201)
-    const anchoredSaved = await readFile(path.join(vault.root, 'Anchored.md'), 'utf8')
-    const at = /created: (\S+), updated: \1\}/.exec(anchoredSaved)?.[1] ?? ''
-    expect(anchoredSaved).toBe(`---\n&anchor {created: ${at}, updated: ${at}}\n---\n# Anchored\n`)
+  it('keeps a frontmatter block that appended lines would not extend exactly as typed, adding nothing', async () => {
+    const vault = await app.openVault()
+    const blocks = {
+      Flow: "{title: 'quoted', tags: [a,b]} # kept\n",
+      Anchored: '&anchor {}\n',
+      Complex: '? [a]\n: 1\n',
+      Alias: 'a: &x k\n*x : 2\n',
+      Null: '~: 1\n',
+    }
+    for (const [name, yaml] of Object.entries(blocks)) {
+      const { id } = await create()
+      const typed = `---\n${yaml}---\n# ${name}\n`
+      await write(id, typed)
+      expect((await app.post('/api/scratch/save', { id, folder: '' })).status).toBe(201)
+      expect(await readFile(path.join(vault.root, `${name}.md`), 'utf8')).toBe(typed)
+    }
   })
 
   it('keeps a block with an integer-like key after another key byte for byte, appending created/updated', async () => {

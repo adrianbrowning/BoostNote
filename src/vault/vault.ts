@@ -1,6 +1,8 @@
 import { type Dirent, type FSWatcher, type Stats, watch } from 'node:fs'
 import { lstat, mkdir, readdir, readFile, realpath, rename, rm, stat, utimes } from 'node:fs/promises'
 import * as path from 'node:path'
+import { isDeepStrictEqual } from 'node:util'
+import { isMap, isScalar, parseDocument } from 'yaml'
 import {
   isAtOrUnder,
   isNoteFileName,
@@ -125,8 +127,9 @@ export interface CreateNoteOptions {
   /**
    * The note's whole text, read as a note file is (a scratch note's text as typed), in place of `body` and
    * `frontmatter`: a valid frontmatter block is kept byte for byte (comments, quoting, order, values, a typed
-   * `created`/`updated`), with `created`/`updated` added only when missing; without one, all of it is the body and
-   * both are added.
+   * `created`/`updated`), with a missing `created`/`updated` line appended only when the block then still parses to
+   * the typed mapping plus those keys (not for flow mappings or complex, alias or null keys, which stay as typed);
+   * without a block, all of it is the body and both are added.
    */
   text?: string
 }
@@ -442,12 +445,7 @@ export class Vault {
       if (options.text === undefined) {
         raw = serializeNoteText({ ...options.frontmatter, created: now, updated: now }, options.body ?? '')
       } else {
-        const text = parseNoteText(options.text)
-        // The typed keys in their order, then the missing ones: the block is spliced, not re-emitted.
-        const frontmatter = { ...text.frontmatter }
-        if (!('created' in frontmatter)) frontmatter.created = now
-        if (!('updated' in frontmatter)) frontmatter.updated = now
-        raw = serializeNoteText(frontmatter, text.body, text.yaml === null ? undefined : text)
+        raw = keepTypedFrontmatter(options.text, now)
       }
       const file = path.join(dir, `${stem}.md`)
       await writeFileAtomic(file, raw)
@@ -1185,6 +1183,40 @@ export class Vault {
     if (emit) this.#emit(events)
     return events
   }
+}
+
+/**
+ * The note file for `raw` (a scratch note's text as typed). Without a frontmatter block, all of `raw` is the body and
+ * `created`/`updated` are set to `now`. With one, its YAML is kept byte for byte and never re-emitted: a missing
+ * `created`/`updated` line is appended after it only when the YAML then still parses, as a block mapping whose keys
+ * are all non-null scalars, to the typed mapping plus those keys. Otherwise (flow mappings, complex, alias or null
+ * keys, any other layout) `raw` is kept as typed, without them.
+ */
+function keepTypedFrontmatter(raw: string, now: string): string {
+  const text = parseNoteText(raw)
+  if (text.yaml === null) return serializeNoteText({ created: now, updated: now }, text.body)
+  const added: Frontmatter = {}
+  if (!Object.hasOwn(text.frontmatter, 'created')) added.created = now
+  if (!Object.hasOwn(text.frontmatter, 'updated')) added.updated = now
+  if (Object.keys(added).length === 0) return raw
+  const eol = text.fences.open.endsWith('\r\n') ? '\r\n' : '\n'
+  const yaml = `${text.yaml}${Object.keys(added)
+    .map((key) => `${key}: ${now}${eol}`)
+    .join('')}`
+  const doc = parseDocument(yaml)
+  const map = doc.contents
+  if (
+    doc.errors.length > 0 ||
+    !isMap(map) ||
+    map.flow ||
+    !map.items.every((item) => isScalar(item.key) && item.key.value !== null)
+  )
+    return raw
+  const file = `${text.fences.open}${yaml}${text.fences.close}${text.body}`
+  const saved = parseNoteText(file)
+  return saved.body === text.body && isDeepStrictEqual(saved.frontmatter, { ...text.frontmatter, ...added })
+    ? file
+    : raw
 }
 
 function assetsDirOf(noteFile: string): string {
