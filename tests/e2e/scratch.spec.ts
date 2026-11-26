@@ -87,7 +87,8 @@ test('closing a scratch tab with nothing typed removes its file; one with text k
   await expect.poll(async () => Object.keys(await scratchFiles(app)).length).toBe(1)
   await app.clickMenu('close-tab')
   await expect(scratchTab(page)).toHaveCount(0)
-  await expect.poll(() => scratchFiles(app)).toEqual({})
+  // Nothing at all stays: neither the note nor its `<id>.json` sidecar.
+  await expect.poll(() => readdir(path.join(app.userDataDir, 'scratch')).catch(() => [])).toEqual([])
 
   await app.clickMenu('new-scratch-note')
   const tab = scratchTab(page)

@@ -900,6 +900,19 @@ describe('Navigation of scratch tabs', () => {
     expect(notices).toEqual([])
   })
 
+  it('discards a blank scratch note when its active tab closes and the next tab’s read fails, leaving the editor without it', async () => {
+    const id = await scratchAfterA()
+    net.fail = (url) => url.pathname === '/api/notes/read'
+    await navigation.close()
+    net.fail = null
+    expect(navigation.tabs.tabs.map((item) => item.kind)).toEqual(['note'])
+    expect(session.scratch).toBeNull()
+    expect(session.locked).toBe(false)
+    expect(await scratchIds()).toEqual([])
+    expect(notices).toEqual(['Disk full'])
+    expect(id).toHaveLength(32)
+  })
+
   it('closes the tab and keeps the scratch file, with the failure, when discarding it fails', async () => {
     const id = await scratchAfterA()
     net.fail = (url) => url.pathname === '/api/scratch/discard'
