@@ -203,7 +203,8 @@ export class Navigation {
    * scratch tabs of the last run (`TabStore.loadScratch`) whose scratch note still exists (`GET /api/scratch`;
    * the others are dropped, without a notice); then the active tab loads and the tabs are saved. The one that was
    * active becomes active again unless a transition changed the active tab while the list was out (that tab stays
-   * active). When the scratch list cannot be read, its failure is reported (`fail`) and every kept scratch tab is
+   * active); when no tab is active then, a kept scratch tab is (`Tabs.restoreScratch`). When the scratch list cannot
+   * be read, its failure is reported (`fail`) and every kept scratch tab is
    * restored: each is read when it shows.
    */
   async restore(): Promise<void> {

@@ -903,6 +903,48 @@ describe('Navigation of scratch tabs', () => {
     expect(notices).toEqual([])
   })
 
+  /** Opens two scratch notes after a.md, with texts, then closes the vault; resolves with their ids, in order. */
+  async function twoScratchNotesWithoutVault(): Promise<[string, string]> {
+    const first = await scratchAfterA()
+    session.edit('First.\n')
+    const second = (await navigation.newScratch())?.scratch.id ?? ''
+    session.edit('Second.\n')
+    expect(await navigation.switchVault(() => api.closeVault(data.vault?.root ?? ''))).toBe(true)
+    expect(data.vault).toBeNull()
+    return [first, second]
+  }
+
+  it('activates the nearest kept scratch tab before the stored active one, with its text, when the active one’s file is gone and no note tab is restored', async () => {
+    const [first, second] = await twoScratchNotesWithoutVault()
+    const gone = (await navigation.newScratch())?.scratch.id ?? ''
+    expect(store.scratch).toEqual({ ids: [first, second, gone], active: 2 })
+    await api.discardScratch(gone)
+
+    restart()
+    await navigation.restore()
+    expect(navigation.tabs.tabs).toEqual([
+      { key: tab(0), kind: 'scratch', id: first },
+      { key: tab(1), kind: 'scratch', id: second },
+    ])
+    expect(navigation.tabs.activeKey).toBe(tab(1))
+    expect(session.scratch?.id).toBe(second)
+    expect(session.body).toBe('Second.\n')
+    expect(store.scratch).toEqual({ ids: [first, second], active: 1 })
+    expect(notices).toEqual([])
+  })
+
+  it('activates the first kept scratch tab, with its text, when none was active and no note tab is restored', async () => {
+    const [first, second] = await twoScratchNotesWithoutVault()
+    restart()
+    store.scratch = { ids: [first, second], active: -1 }
+    await navigation.restore()
+    expect(navigation.tabs.tabs.map((item) => (item.kind === 'scratch' ? item.id : item.kind))).toEqual([first, second])
+    expect(navigation.tabs.activeKey).toBe(tab(0))
+    expect(session.scratch?.id).toBe(first)
+    expect(session.body).toBe('First.\n')
+    expect(notices).toEqual([])
+  })
+
   it('keeps the restored scratch tabs once each, in their own entry, across vault switches', async () => {
     const other = await folderWith(app, 'other', { 'x.md': '# X\n' })
     const id = await scratchAfterA()

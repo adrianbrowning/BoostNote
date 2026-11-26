@@ -60,7 +60,10 @@ export interface ScratchTabsSnapshot {
   active: number
 }
 
-/** The scratch tabs' entry as stored (`unknown`: what the store read); an entry of another shape holds no tabs. */
+/**
+ * The scratch tabs' entry as stored (`unknown`: what the store read). A value that is not an object with an `ids`
+ * array holds no tabs; non-string ids are dropped, and an `active` that is not the index of a kept id gives `-1`.
+ */
 export function scratchTabsOf(value: unknown): ScratchTabsSnapshot {
   if (typeof value !== 'object' || value === null) return { ids: [], active: -1 }
   const { ids, active } = value as Partial<Record<keyof ScratchTabsSnapshot, unknown>>
@@ -135,16 +138,20 @@ export class Tabs {
   /**
    * Opens the scratch tabs of a persisted `ScratchTabsSnapshot` after every tab, in order; ids that `exists` denies
    * and ids whose tab is open already are skipped. With `activate`, the snapshot's active scratch tab becomes active
-   * when it is kept.
+   * when it is kept. When no tab is active afterwards, the nearest kept scratch tab before the snapshot's active one
+   * (else the first kept one) becomes active.
    */
   restoreScratch(snapshot: ScratchTabsSnapshot, exists: (id: string) => boolean, activate: boolean): void {
+    let nearest: ScratchTab | undefined
     snapshot.ids.forEach((id, index) => {
       if (!exists(id)) return
       const open = this.tabs.find((tab): tab is ScratchTab => tab.kind === 'scratch' && tab.id === id)
       const tab: ScratchTab = open ?? { key: this.#takeKey(), kind: 'scratch', id }
       if (!open) this.tabs.push(tab)
       if (activate && index === snapshot.active) this.activeKey = tab.key
+      if (index <= snapshot.active || nearest === undefined) nearest = tab
     })
+    if (!this.active && nearest) this.activeKey = nearest.key
   }
 
   /** The scratch tabs to persist: their ids in strip order and the active one's index (`-1`: a note or reader tab, or none). */
