@@ -1,3 +1,4 @@
+import type { Dirent } from 'node:fs'
 import { readdir } from 'node:fs/promises'
 
 import { isNoteFileName, noteStem } from '../shared/vault-ids.ts'
@@ -51,10 +52,28 @@ function increment(counts: Map<string, number>, key: string): void {
   counts.set(key, (counts.get(key) ?? 0) + 1)
 }
 
-/** The `FolderNames` of the entries of `dir`; empty when it does not exist. */
+/** Counts the directory `name` in `names` by its `nameKey` only: a directory `a.mdx/` takes no stem `a`. */
+export function addFolderName(names: FolderNames, name: string): void {
+  increment(names.entries, nameKey(name))
+}
+
+/**
+ * The `FolderNames` of directory entries: each counts by its `nameKey`, and by its stem only when it is
+ * no directory and a note file name (`addFolderName`).
+ */
+export function folderNamesOf(entries: Iterable<Dirent>): FolderNames {
+  const result = folderNames()
+  for (const entry of entries) {
+    if (entry.isDirectory()) addFolderName(result, entry.name)
+    else addName(result, entry.name)
+  }
+  return result
+}
+
+/** The `FolderNames` of the entries of `dir` (`folderNamesOf`); empty when it does not exist. */
 export async function readFolderNames(dir: string): Promise<FolderNames> {
   try {
-    return folderNames(await readdir(dir))
+    return folderNamesOf(await readdir(dir, { withFileTypes: true }))
   } catch (error) {
     if (isNodeError(error, 'ENOENT')) return folderNames()
     throw error
@@ -66,13 +85,13 @@ export async function readFolderNames(dir: string): Promise<FolderNames> {
  * (`.md` in any case or `.mdx`) or its `.assets` folder is there, or any entry named
  * `<stem><extension>` (so an `.mdx` note never lands on a non-note `a.MDX`, the same file on a
  * case-insensitive disk), all by `nameKey`. A non-note `a.MDX` takes no `.md` stem. The one
- * taken-stem check of `uniqueStem`, the title-rename planner and the import planner.
+ * taken-stem check of `uniqueStem`, the title-rename planner, the import planner and the rename
+ * and move clash guard (`stemTakenByOthers` in `#relocateNote`, src/vault/vault.ts).
  */
 export function stemTaken(names: FolderNames, stem: string, extension: string): boolean {
-  const key = nameKey(stem)
   return (
-    names.stems.has(key) ||
-    names.entries.has(`${key}${ASSETS_SUFFIX}`) ||
+    names.stems.has(nameKey(stem)) ||
+    names.entries.has(nameKey(`${stem}${ASSETS_SUFFIX}`)) ||
     names.entries.has(nameKey(`${stem}${extension}`))
   )
 }

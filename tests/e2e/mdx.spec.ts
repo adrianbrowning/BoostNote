@@ -18,4 +18,9 @@ test('an .mdx note opens in the editor and edits are saved to the .mdx file', as
   await expect
     .poll(() => readFile(path.join(vault, 'doc.mdx'), 'utf8').catch(() => ''), { timeout: 10_000 })
     .toContain('Typed in MDX.')
+  const saved = await readFile(path.join(vault, 'doc.mdx'), 'utf8')
+  // The original MDX lines survive the save, in order, before the typed text.
+  expect(saved).toMatch(
+    /^(?:---\n[\s\S]*?\n---\n)?# Doc\n\n<Callout type="x">inner<\/Callout>\n[\s\S]*Typed in MDX\.\n?$/,
+  )
 })

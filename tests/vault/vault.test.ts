@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readdir, readFile, rm, stat, symlink, writeFile } from 'node:fs/promises'
+import { link, mkdir, mkdtemp, readdir, readFile, rm, stat, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import * as path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
@@ -263,8 +263,12 @@ describe('vault notes', () => {
     await put('doc.mdx', 'x')
     await put('plain.md', 'y')
     vault = await openVault(root)
-    expect((await vault.renameNote('doc.mdx', 'Other.mdx')).note.id).toBe('Other.mdx')
-    expect((await vault.renameNote('plain.md', 'x.mdx')).note.id).toBe('x.md')
+    expect((await vault.renameNote('doc.mdx', 'Other.mdx ')).note.id).toBe('Other.mdx')
+    expect((await vault.renameNote('plain.md', 'x.mdx ')).note.id).toBe('x.md')
+    expect((await vault.renameNote('Other.mdx', 'Next.mdx')).note.id).toBe('Next.mdx')
+    expect((await vault.renameNote('x.md', 'w.mdx')).note.id).toBe('w.md')
+    expect((await vault.renameNote('w.md', 'x')).note.id).toBe('x.md')
+    expect((await vault.renameNote('Next.mdx', 'Other')).note.id).toBe('Other.mdx')
     expect((await vault.renameNote('x.md', 'y.MD')).note.id).toBe('y.md')
     await expect(vault.renameNote('Other.mdx', '.mdx')).rejects.toMatchObject({ code: 'INVALID_PATH' })
     await expect(vault.renameNote('Other.mdx', ' .MD ')).rejects.toMatchObject({ code: 'INVALID_PATH' })
@@ -573,6 +577,93 @@ describe('stem twins (a.md beside a.mdx)', () => {
     vault = await openVault(root)
     expect((await vault.createNote('work', 'a')).id).toBe('work/a 2.md')
     expect(await read('work/a.mdx')).toBe('mdx\n')
+  })
+
+  it('refuses to rename b.md onto the stem of an .mdx note, keeping both files', async () => {
+    await put('work/a.mdx', 'mdx\n')
+    await put('work/b.md', 'md\n')
+    vault = await openVault(root)
+    await expect(vault.renameNote('work/b.md', 'a')).rejects.toMatchObject({ code: 'EXISTS' })
+    expect((await readdir(path.join(root, 'work'))).sort()).toEqual(['a.mdx', 'b.md'])
+    expect(await read('work/a.mdx')).toBe('mdx\n')
+    expect(await read('work/b.md')).toBe('md\n')
+  })
+
+  it('refuses to rename b.md onto the stem of ΟΣ.mdx, whose lower case ends in σ, not ς', async () => {
+    await put('work/ΟΣ.mdx', 'mdx\n')
+    await put('work/b.md', 'md\n')
+    vault = await openVault(root)
+    await expect(vault.renameNote('work/b.md', 'ΟΣ')).rejects.toMatchObject({ code: 'EXISTS' })
+    expect((await readdir(path.join(root, 'work'))).sort()).toEqual(['b.md', 'ΟΣ.mdx'])
+  })
+
+  it('refuses to rename b.md onto the stem of a ΟΣ.assets folder', async () => {
+    await put('work/ΟΣ.assets/x.png', 'X')
+    await put('work/b.md', 'md\n')
+    vault = await openVault(root)
+    await expect(vault.renameNote('work/b.md', 'ΟΣ')).rejects.toMatchObject({ code: 'EXISTS' })
+    expect((await readdir(path.join(root, 'work'))).sort()).toEqual(['b.md', 'ΟΣ.assets'])
+  })
+
+  it('creates a note ΟΣ past a ΟΣ.assets folder', async () => {
+    await put('work/ΟΣ.assets/x.png', 'X')
+    vault = await openVault(root)
+    expect((await vault.createNote('work', 'ΟΣ')).id).toBe('work/ΟΣ 2.md')
+  })
+
+  it('renames a.md to A beside its .mdx twin a.mdx, a case-only rename', async () => {
+    await put('work/a.md', 'md\n')
+    await put('work/a.mdx', 'mdx\n')
+    vault = await openVault(root)
+    expect((await vault.renameNote('work/a.md', 'A')).note.id).toBe('work/A.md')
+    expect((await readdir(path.join(root, 'work'))).sort()).toEqual(['A.md', 'a.mdx'])
+    expect(await read('work/A.md')).toBe('md\n')
+    expect(await read('work/a.mdx')).toBe('mdx\n')
+  })
+
+  it('creates a note a beside a directory named a.mdx as a.md', async () => {
+    await mkdir(path.join(root, 'work/a.mdx'), { recursive: true })
+    vault = await openVault(root)
+    expect((await vault.createNote('work', 'a')).id).toBe('work/a.md')
+  })
+
+  it('title-renames past a stem only an .assets folder takes', async () => {
+    await put('work/meeting-notes.md', '---\ntitle: Meeting notes\n---\nbody\n')
+    await put('work/Meeting notes.assets/x.png', 'X')
+    vault = await openVault(root)
+    expect((await vault.planTitleRenames()).renames).toEqual([
+      { from: 'work/meeting-notes.md', to: 'work/Meeting notes 2.md', title: 'Meeting notes' },
+    ])
+  })
+
+  it('title-renames hello.md past its own stem when a foreign Hello.assets is there, on a case-sensitive disk', async (ctx) => {
+    await put('work/hello.md', '---\ntitle: Hello\n---\nbody\n')
+    await put('work/Hello.assets/x.png', 'X')
+    // Needs a case-sensitive file system (`pnpm test:case-sensitive`): elsewhere Hello.assets is hello.assets.
+    if ((await readFile(path.join(root, 'work/hello.assets/x.png'), 'utf8').catch(() => null)) === 'X') ctx.skip()
+    vault = await openVault(root)
+    const plan = await vault.planTitleRenames()
+    expect(plan.renames).toEqual([{ from: 'work/hello.md', to: 'work/Hello 2.md', title: 'Hello' }])
+    expect((await vault.applyTitleRenames(plan)).renamed).toEqual(plan.renames)
+    expect((await readdir(path.join(root, 'work'))).sort()).toEqual(['Hello 2.md', 'Hello.assets'])
+  })
+
+  it('title-renames hello.md past its own stem beside a foreign hELLo.assets, on a case-sensitive disk', async (ctx) => {
+    await put('work/hello.md', '---\ntitle: Hello\n---\nbody\n')
+    await put('work/hELLo.assets/x.png', 'X')
+    // Needs a case-sensitive file system (`pnpm test:case-sensitive`): elsewhere hELLo.assets is hello.assets.
+    if ((await readFile(path.join(root, 'work/hello.assets/x.png'), 'utf8').catch(() => null)) === 'X') ctx.skip()
+    vault = await openVault(root)
+    const plan = await vault.planTitleRenames()
+    expect(plan.renames).toEqual([{ from: 'work/hello.md', to: 'work/Hello 2.md', title: 'Hello' }])
+    expect((await vault.applyTitleRenames(plan)).renamed).toEqual(plan.renames)
+  })
+
+  it('refuses to rename b.md to a beside a.mdx, a hard link of it', async () => {
+    await put('work/b.md', 'same\n')
+    await link(path.join(root, 'work/b.md'), path.join(root, 'work/a.mdx'))
+    vault = await openVault(root)
+    await expect(vault.renameNote('work/b.md', 'a')).rejects.toMatchObject({ code: 'EXISTS' })
   })
 
   it.each([

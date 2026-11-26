@@ -6,7 +6,7 @@ import { joinId, noteStem, parentOf } from '../shared/vault-ids.ts'
 import { isNodeError, VaultError } from './errors.ts'
 import { parseNoteText } from './frontmatter.ts'
 import { rewriteRelativeLinks } from './links.ts'
-import { addName, type FolderNames, folderNames, nameKey, readFolderNames, stemTaken, takeStem } from './names.ts'
+import { addFolderName, type FolderNames, folderNames, nameKey, readFolderNames, stemTaken, takeStem } from './names.ts'
 import {
   ASSETS_SUFFIX,
   assetFileName,
@@ -185,7 +185,7 @@ export async function planImport(options: {
     const picked = uniqueName(sanitizeFileName(name) || 'Untitled', (candidate) =>
       names.entries.has(nameKey(candidate)),
     )
-    addName(names, picked)
+    addFolderName(names, picked)
     const id = joinId(parent, picked)
     folderSegments(id)
     return id

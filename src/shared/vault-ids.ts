@@ -5,14 +5,15 @@
  * A vault id is a POSIX path relative to the vault root: `work/todo.md` (note), `work` (folder),
  * `''` (the root). A note file name ends in `.md` in any letter case (`.md`, `.MD`, `.Md`, `.mD`) or
  * in lowercase `.mdx` (`.MDX`, `.Mdx` are not notes) and has a stem; new notes are written with a
- * lowercase `.md`. Two notes in one folder whose stems are equal ignoring letter case and Unicode normalization while their note extensions differ
- * (stem twins: `a.md` and `a.MD`, possible on case-sensitive filesystems, or `a.md` and `a.mdx`,
- * possible anywhere) share the stem `a`: a new, moved, restored or imported note skips a stem either
+ * lowercase `.md`. Two note files in one folder whose stems are equal by `nameKey` (NFC, lower case),
+ * whatever their note extensions, are stem twins (`a.md` and `a.MD` or `A.md` and `a.md`, possible on
+ * case-sensitive filesystems, or `a.md` and `a.mdx`, possible anywhere); they share the stem `a`: a new, moved, restored or imported note skips a stem either
  * extension (or its `.assets` folder) takes. Stem twins share the asset folder only when their
  * `<stem>.assets` paths are one directory: always for identical stems (`a.md` beside `a.mdx` or
  * `a.MD`), and for stems that differ only in letter case or Unicode normalization (`a.md` beside
- * `A.mdx`) only on a case-insensitive or normalizing file system; on a case-sensitive disk each keeps
- * its own `a.assets` / `A.assets`, which moves with it. A shared folder is an
+ * `A.mdx`) only on a case-insensitive or normalizing file system; on a case-sensitive disk each
+ * normally keeps its own `a.assets` / `A.assets`, which moves with it, unless one resolves to the same
+ * directory as the other, for example through a symlink. A shared folder is an
  * accepted limit (trashing, renaming or moving one leaves the folder for the other). The
  * check only sees twins present now: once one twin has been renamed, moved or trashed away from the
  * shared folder, a later rename, move or trash of the remaining twin carries the folder, and the
