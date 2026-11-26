@@ -1,11 +1,12 @@
 /**
  * The workspace's tabs (Hubble semantics). A note tab records which note it shows plus its own
- * back/forward trail. A reader tab shows an outside `.md`/`.mdx` read-only through a `ReaderGrants` ticket:
- * it has no trail, is never persisted, and is left alone by rebase/forget and by restoring another
- * vault's tabs, so it stays open across vault switches. There is one editor; activating a tab loads
- * its note, so background tabs hold no unsaved text. Pure state, no I/O: `Navigation` saves/loads
- * notes around these transitions and persists `toJSON()` per vault. Note paths are vault note ids
- * (`work/todo.md`).
+ * back/forward trail. A reader tab shows an outside `.md`/`.mdx` read-only through a `ReaderGrants` ticket.
+ * A scratch tab shows a scratch note (`ScratchStore`, outside any vault) by its id. Reader and
+ * scratch tabs have no trail, are never part of `TabsSnapshot`, and are left alone by rebase/forget
+ * and by restoring another vault's tabs, so they stay open across vault switches. There is one
+ * editor; activating a tab loads its note, so background tabs hold no unsaved text. Pure state, no
+ * I/O: `Navigation` saves/loads notes around these transitions and persists `toJSON()` per vault.
+ * Note paths are vault note ids (`work/todo.md`).
  */
 
 export interface NoteTab {
@@ -28,7 +29,14 @@ export interface ReaderTab {
   readonly name: string
 }
 
-export type Tab = NoteTab | ReaderTab
+export interface ScratchTab {
+  readonly key: number
+  readonly kind: 'scratch'
+  /** The scratch note's id (`GET /api/scratch/read?id=`). */
+  readonly id: string
+}
+
+export type Tab = NoteTab | ReaderTab | ScratchTab
 
 /** A closed tab Cmd+Shift+T can bring back to where it was. */
 export interface ClosedTab {
@@ -39,7 +47,7 @@ export interface ClosedTab {
 /** What is persisted per vault: the note tabs in order, the active one, the closed-tab stack. Trails stay in memory. */
 export interface TabsSnapshot {
   tabs: string[]
-  /** Index into `tabs`; `-1` without tabs or when a reader tab is active. */
+  /** Index into `tabs`; `-1` without tabs or when a reader or scratch tab is active. */
   active: number
   /** Most recently closed last. */
   closed: ClosedTab[]
@@ -63,12 +71,15 @@ export class Tabs {
 
   /**
    * Replaces the note tabs and closed tabs with a persisted snapshot (another vault's, or none when
-   * no vault is open); notes that no longer exist are skipped. Reader tabs stay, after the notes.
-   * The snapshot's active note becomes active; without note tabs an active reader tab stays active.
+   * no vault is open); notes that no longer exist are skipped. Reader and scratch tabs stay, in
+   * order, after the notes. An active scratch tab stays active; otherwise the snapshot's active note
+   * becomes active, and without note tabs an active reader tab stays active.
    */
   restore(snapshot: unknown, exists: (path: string) => boolean): void {
-    const readers = this.tabs.filter((tab) => tab.kind === 'reader')
-    const activeReader = this.active?.kind === 'reader' ? this.activeKey : null
+    const kept = this.tabs.filter((tab) => tab.kind !== 'note')
+    const current = this.active
+    const activeKept = current && current.kind !== 'note' ? current.key : undefined
+    const activeScratch = current?.kind === 'scratch' ? current.key : undefined
     const notes: NoteTab[] = []
     let activeNote: NoteTab | undefined
     this.closed = []
@@ -91,8 +102,8 @@ export class Tabs {
         }
       }
     }
-    this.tabs = [...notes, ...readers]
-    this.activeKey = activeNote?.key ?? activeReader ?? readers[0]?.key ?? null
+    this.tabs = [...notes, ...kept]
+    this.activeKey = activeScratch ?? activeNote?.key ?? activeKept ?? kept[0]?.key ?? null
   }
 
   toJSON(): TabsSnapshot {
@@ -114,7 +125,7 @@ export class Tabs {
 
   /**
    * Shows `path` in the active note tab, pushing the note it showed onto its back trail. Without
-   * one, or from a reader tab, the note opens in a new tab.
+   * one, or from a reader or scratch tab, the note opens in a new tab.
    */
   navigate(path: string): NoteTab {
     const tab = this.active
@@ -146,20 +157,33 @@ export class Tabs {
     return tab
   }
 
+  /** Activates the scratch tab of `id`, opening it right after the active tab when there is none. */
+  openScratch(id: string): ScratchTab {
+    const open = this.tabs.find((tab): tab is ScratchTab => tab.kind === 'scratch' && tab.id === id)
+    if (open) {
+      this.activeKey = open.key
+      return open
+    }
+    const tab: ScratchTab = { key: this.#takeKey(), kind: 'scratch', id }
+    this.#insert(tab)
+    return tab
+  }
+
   /**
    * Turns the reader tab `key` into a tab of note `path` at the same position and activates it (the
    * reader's file became that note). A note tab already showing `path` moves into that slot (with
    * its trail), so the note has one tab. `undefined` when `key` is no reader tab.
    */
   replaceReader(key: number, path: string): NoteTab | undefined {
-    const index = this.tabs.findIndex((tab) => tab.key === key && tab.kind === 'reader')
-    if (index === -1) return undefined
-    const open = this.tabs.find((tab): tab is NoteTab => tab.kind === 'note' && tab.path === path)
-    const tab = open ?? this.#createNote(path)
-    this.tabs[index] = tab
-    if (open) this.tabs = this.tabs.filter((item, at) => item !== open || at === index)
-    this.activeKey = tab.key
-    return tab
+    return this.#replace(key, 'reader', path)
+  }
+
+  /**
+   * Turns the scratch tab `key` into a tab of note `path` at the same position and activates it (the
+   * scratch note was saved as that note), as `replaceReader` does. `undefined` when `key` is no scratch tab.
+   */
+  replaceScratch(key: number, path: string): NoteTab | undefined {
+    return this.#replace(key, 'scratch', path)
   }
 
   activate(key: number): Tab | undefined {
@@ -170,7 +194,8 @@ export class Tabs {
 
   /**
    * Closes a tab; a closed active tab hands over to its right, else left, neighbour. Note tabs are
-   * remembered for `reopen`; a reader tab is not (its ticket is revoked when it closes).
+   * remembered for `reopen`; a reader tab is not (its ticket is revoked when it closes), nor is a
+   * scratch tab (the scratch list brings it back).
    */
   close(key: number): Tab | undefined {
     const index = this.tabs.findIndex((tab) => tab.key === key)
@@ -287,6 +312,17 @@ export class Tabs {
       return path
     }
     return undefined
+  }
+
+  #replace(key: number, kind: 'reader' | 'scratch', path: string): NoteTab | undefined {
+    const index = this.tabs.findIndex((tab) => tab.key === key && tab.kind === kind)
+    if (index === -1) return undefined
+    const open = this.tabs.find((tab): tab is NoteTab => tab.kind === 'note' && tab.path === path)
+    const tab = open ?? this.#createNote(path)
+    this.tabs[index] = tab
+    if (open) this.tabs = this.tabs.filter((item, at) => item !== open || at === index)
+    this.activeKey = tab.key
+    return tab
   }
 
   /** Puts `tab` right after the active tab (at the end without one) and activates it. */

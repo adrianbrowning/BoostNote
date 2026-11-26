@@ -3,9 +3,12 @@ import { describe, expect, it } from 'vitest'
 import { MAX_CLOSED_TABS, type Tab, Tabs } from '../../src/app/actions/public/workspace/tabs.ts'
 
 const always = () => true
-/** A note tab's path, or `reader:<name>` for a reader tab. */
-const label = (tab: Tab | undefined) =>
-  tab === undefined ? undefined : tab.kind === 'note' ? tab.path : `reader:${tab.name}`
+/** A note tab's path, `reader:<name>` for a reader tab, or `scratch:<id>` for a scratch tab. */
+const label = (tab: Tab | undefined) => {
+  if (tab === undefined) return undefined
+  if (tab.kind === 'note') return tab.path
+  return tab.kind === 'reader' ? `reader:${tab.name}` : `scratch:${tab.id}`
+}
 const paths = (tabs: Tabs) => tabs.tabs.map(label)
 
 function activeNote(tabs: Tabs) {
@@ -216,6 +219,117 @@ describe('Tabs', () => {
       tabs.forget(() => true)
       expect(paths(tabs)).toEqual(['reader:a.md'])
       expect(label(tabs.active)).toBe('reader:a.md')
+    })
+  })
+
+  describe('scratch tabs', () => {
+    it('open after the active tab and activate, once per id', () => {
+      const tabs = new Tabs()
+      tabs.navigate('a.md')
+      tabs.openNew('b.md')
+      tabs.activate(tabs.tabs[0]?.key ?? 0)
+      const tab = tabs.openScratch('s1')
+      expect(tab).toEqual({ key: tab.key, kind: 'scratch', id: 's1' })
+      expect(paths(tabs)).toEqual(['a.md', 'scratch:s1', 'b.md'])
+      expect(label(tabs.active)).toBe('scratch:s1')
+
+      tabs.activate(tabs.tabs[2]?.key ?? 0)
+      // The same id again activates its tab instead of opening a second one.
+      expect(tabs.openScratch('s1')).toBe(tab)
+      expect(paths(tabs)).toEqual(['a.md', 'scratch:s1', 'b.md'])
+      expect(label(tabs.active)).toBe('scratch:s1')
+    })
+
+    it('are never persisted, and stay (the active one active) when another vault’s tabs are restored', () => {
+      const tabs = new Tabs()
+      tabs.navigate('a.md')
+      tabs.openScratch('s1')
+      tabs.openReader('t1', 'outside.md')
+      tabs.openNew('b.md')
+      tabs.openScratch('s2')
+      expect(JSON.parse(JSON.stringify(tabs))).toEqual({ tabs: ['a.md', 'b.md'], active: -1, closed: [] })
+
+      // Switching vaults: the other vault's tabs replace the notes; reader and scratch tabs stay, in order, after
+      // them, and the active scratch tab stays active.
+      tabs.restore({ tabs: ['x.md', 'y.md'], active: 1, closed: [] }, always)
+      expect(paths(tabs)).toEqual(['x.md', 'y.md', 'scratch:s1', 'reader:outside.md', 'scratch:s2'])
+      expect(label(tabs.active)).toBe('scratch:s2')
+
+      // From a note tab, the snapshot's active note becomes active.
+      tabs.select(0)
+      tabs.restore({ tabs: ['x.md', 'y.md'], active: 1, closed: [] }, always)
+      expect(label(tabs.active)).toBe('y.md')
+
+      tabs.select(2)
+      tabs.restore({ tabs: ['x.md'], active: 0, closed: [] }, always)
+      expect(paths(tabs)).toEqual(['x.md', 'scratch:s1', 'reader:outside.md', 'scratch:s2'])
+      expect(label(tabs.active)).toBe('scratch:s1')
+
+      // Closing the vault: only reader and scratch tabs are left; the active scratch tab stays active.
+      tabs.restore(null, always)
+      expect(paths(tabs)).toEqual(['scratch:s1', 'reader:outside.md', 'scratch:s2'])
+      expect(label(tabs.active)).toBe('scratch:s1')
+    })
+
+    it('have no trail, are untouched by rebase and forget, and navigating from one opens a new note tab', () => {
+      const tabs = new Tabs()
+      tabs.navigate('a.md')
+      tabs.navigate('b.md')
+      tabs.openScratch('s1')
+      expect(tabs.canGoBack()).toBe(false)
+      expect(tabs.canGoForward()).toBe(false)
+      expect(tabs.back(always)).toBeUndefined()
+      expect(tabs.forward(always)).toBeUndefined()
+
+      tabs.rebase((path) => `moved/${path}`)
+      expect(paths(tabs)).toEqual(['moved/b.md', 'scratch:s1'])
+      tabs.forget(() => true)
+      expect(paths(tabs)).toEqual(['scratch:s1'])
+      expect(label(tabs.active)).toBe('scratch:s1')
+
+      tabs.navigate('c.md')
+      expect(paths(tabs)).toEqual(['scratch:s1', 'c.md'])
+      expect(label(tabs.active)).toBe('c.md')
+    })
+
+    it('close to the right neighbour and are not reopened', () => {
+      const tabs = new Tabs()
+      tabs.navigate('a.md')
+      tabs.openNew('b.md')
+      tabs.select(0)
+      tabs.openScratch('s1')
+      expect(paths(tabs)).toEqual(['a.md', 'scratch:s1', 'b.md'])
+      expect(label(tabs.close(tabs.active?.key ?? 0))).toBe('b.md')
+      expect(paths(tabs)).toEqual(['a.md', 'b.md'])
+      expect(tabs.closed).toEqual([])
+      expect(tabs.reopen(always)).toBeUndefined()
+      expect(paths(tabs)).toEqual(['a.md', 'b.md'])
+    })
+
+    it('turn into a note tab in place, or make way for the note’s open tab', () => {
+      const tabs = new Tabs()
+      tabs.navigate('a.md')
+      const scratch = tabs.openScratch('s1')
+      tabs.openNew('b.md')
+      const note = tabs.replaceScratch(scratch.key, 'new.md')
+      expect(note).toEqual({ key: note?.key, kind: 'note', path: 'new.md', back: [], forward: [] })
+      expect(paths(tabs)).toEqual(['a.md', 'new.md', 'b.md'])
+      expect(label(tabs.active)).toBe('new.md')
+
+      // A tab already showing the note moves into the scratch tab's slot, with its trail.
+      tabs.select(2)
+      tabs.navigate('c.md')
+      tabs.select(0)
+      const other = tabs.openScratch('s2')
+      expect(paths(tabs)).toEqual(['a.md', 'scratch:s2', 'new.md', 'c.md'])
+      const moved = tabs.replaceScratch(other.key, 'c.md')
+      expect(paths(tabs)).toEqual(['a.md', 'c.md', 'new.md'])
+      expect(moved?.back).toEqual(['b.md'])
+      expect(label(tabs.active)).toBe('c.md')
+
+      // No scratch tab under that key.
+      expect(tabs.replaceScratch(tabs.tabs[0]?.key ?? 0, 'x.md')).toBeUndefined()
+      expect(paths(tabs)).toEqual(['a.md', 'c.md', 'new.md'])
     })
   })
 })

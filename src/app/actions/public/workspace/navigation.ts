@@ -439,11 +439,12 @@ export class Navigation {
     if (this.#holds === 0) this.#persist()
   }
 
-  /** What the active tab shows: its key with its note's path or its reader ticket (`''`: no tab). */
+  /** What the active tab shows: its key with its note's path, its reader ticket or its scratch id (`''`: no tab). */
   #activeShows(): string {
     const tab = this.tabs.active
     if (!tab) return ''
-    return `${tab.key}:${tab.kind === 'note' ? `note:${tab.path}` : `reader:${tab.ticket}`}`
+    if (tab.kind === 'note') return `${tab.key}:note:${tab.path}`
+    return tab.kind === 'reader' ? `${tab.key}:reader:${tab.ticket}` : `${tab.key}:scratch:${tab.id}`
   }
 
   /** Saves the tabs for the vault on screen when they changed since the last save (it throws when the store does). */
@@ -455,9 +456,9 @@ export class Navigation {
   }
 
   /**
-   * Makes the session show the active tab's note, or reads the active reader tab's file (nothing without tabs).
-   * Runs inside a `hold`: the open note it replaces or closes takes no edits meanwhile. Failures go to `report` (by
-   * default the host's): a failed read to `fail`; a `404` to `missing`, and that tab closes.
+   * Makes the session show the active tab's note, or reads the active reader tab's file (nothing without a note or
+   * reader tab). Runs inside a `hold`: the open note it replaces or closes takes no edits meanwhile. Failures go to
+   * `report` (by default the host's): a failed read to `fail`; a `404` to `missing`, and that tab closes.
    */
   async #loadActive(report = this.#hostReport): Promise<void> {
     const tab = this.tabs.active
@@ -467,7 +468,7 @@ export class Navigation {
       return
     }
     this.reader = null
-    const id = tab?.path
+    const id = tab?.kind === 'note' ? tab.path : undefined
     if (id === undefined) {
       if (this.#session.note) this.#session.close()
       this.#host.changed()
