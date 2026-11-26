@@ -99,8 +99,8 @@ export function rewriteRelativeLinks(
         const suffixIndex = destination.search(/[#?]/)
         const suffix = suffixIndex === -1 ? '' : destination.slice(suffixIndex)
         const relPath = linkPath(destination)
-        // `note.md/#anchor` (`.md` in any case; common in notes copied from GitHub) is a link to
-        // `note.md`; the slash stays.
+        // `note.md/#anchor` (`.md` in any case or `.mdx`; common in notes copied from GitHub) is a
+        // link to `note.md`; the slash stays.
         const slash = relPath.endsWith('/') && isNoteFileName(lastSegment(relPath.slice(0, -1))) ? '/' : ''
         const next = map(slash === '' ? relPath : relPath.slice(0, -1))
         if (next === undefined) return whole

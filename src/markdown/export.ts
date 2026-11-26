@@ -71,8 +71,9 @@ const encodeHref = (relPath: string) => relPath.split('/').map(encodeURIComponen
 
 /**
  * Exports a folder (`''`: the whole vault) as a static site into `targetDir`, plus a listing of
- * every page by folder. Each page sits at the note's path with `.html` in place of its `.md` (any
- * case). A page name that clashes with one already given out, with a folder a note sits in (a
+ * every page by folder. Each page sits at the note's path with `.html` in place of its note
+ * extension (`.md` in any case, or `.mdx`: `doc.mdx` → `doc.html`). A page name that clashes with
+ * one already given out, with a folder a note sits in (a
  * vault folder `a.html/`), or with the reserved listing name (`index.html`, or `_contents.html`
  * when the folder has its own `index.md`; itself numbered past a folder of that name), gets the next free
  * ` N` suffix (` 2`, ` 3`...) in `vault.notes()` order. Clashes are compared by `nameKey` (letter

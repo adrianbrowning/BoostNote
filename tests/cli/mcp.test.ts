@@ -111,6 +111,23 @@ describe('MCP server', () => {
     ])
   })
 
+  it('lists, searches, reads and writes an .mdx note', async () => {
+    await put('docs/doc.mdx', 'zebra <Card />\n')
+    await put('docs/Loud.MDX', 'zebra\n')
+    await vault.refresh()
+    const ids = (await callJson('list_notes')).map((meta: { id: string }) => meta.id)
+    expect(ids).toContain('docs/doc.mdx')
+    expect(ids).not.toContain('docs/Loud.MDX')
+    expect((await callJson('search_notes', { query: 'zebra' })).map((hit: { id: string }) => hit.id)).toEqual([
+      'docs/doc.mdx',
+    ])
+    const note = await callJson('read_note', { id: 'doc' })
+    expect(note).toMatchObject({ id: 'docs/doc.mdx', body: 'zebra <Card />\n' })
+    const written = await callJson('write_note', { id: note.id, body: 'new\n', baseHash: note.hash })
+    expect(written).toEqual({ id: 'docs/doc.mdx', title: 'doc', hash: expect.any(String) })
+    expect((await readFile(path.join(root, 'docs/doc.mdx'), 'utf8')).endsWith('---\nnew\n')).toBe(true)
+  })
+
   it('reports a conflict when baseHash is stale, without writing', async () => {
     const note = await callJson('read_note', { id: 'work/todo.md' })
     // Someone else (the app, an editor) changes the note after the agent read it.

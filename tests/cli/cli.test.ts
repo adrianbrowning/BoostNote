@@ -195,6 +195,23 @@ describe('note ids', () => {
     await put('ideas/Roadmap.MD', 'r\n')
     expect((await cli(['read', 'Roadmap', '--json'])).json().id).toBe('ideas/Roadmap.MD')
   })
+
+  it('lists, searches, reads and writes an .mdx note, found by its bare name and its title', async () => {
+    await put('docs/doc.mdx', '---\ntitle: Component guide\n---\nzebra <Card />\n')
+    await put('docs/Loud.MDX', 'zebra\n')
+    const ids = (await cli(['list', '--json'])).json().map((meta: { id: string }) => meta.id)
+    expect(ids).toContain('docs/doc.mdx')
+    expect(ids).not.toContain('docs/Loud.MDX')
+    expect((await cli(['search', 'zebra', '--json'])).json().map((hit: { id: string }) => hit.id)).toEqual([
+      'docs/doc.mdx',
+    ])
+    expect((await cli(['read', 'doc', '--json'])).json().id).toBe('docs/doc.mdx')
+    expect((await cli(['read', 'Component guide', '--json'])).json().id).toBe('docs/doc.mdx')
+    expect((await cli(['read', 'docs/doc', '--json'])).json().id).toBe('docs/doc.mdx')
+    const written = await cli(['write', 'doc', '--body', 'new <Card />\n', '--json'])
+    expect(written.json().id).toBe('docs/doc.mdx')
+    expect((await read('docs/doc.mdx')).endsWith('---\nnew <Card />\n')).toBe(true)
+  })
 })
 
 describe('writing', () => {

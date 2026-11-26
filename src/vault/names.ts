@@ -38,11 +38,11 @@ export async function entryKeyCounts(dir: string): Promise<Map<string, number>> 
   return counts
 }
 
-/** First free stem in `dir` (checked by `nameKey` against both `<stem>.md` and `<stem>.assets`). */
+/** First free stem in `dir` (checked by `nameKey` against `<stem>.md`, `<stem>.mdx` and `<stem>.assets`). */
 export async function uniqueStem(dir: string, base: string): Promise<string> {
   const names = await lowerCaseEntries(dir)
   return uniqueName(base, (candidate) => {
     const key = nameKey(candidate)
-    return names.has(`${key}.md`) || names.has(`${key}${ASSETS_SUFFIX}`)
+    return names.has(`${key}.md`) || names.has(`${key}.mdx`) || names.has(`${key}${ASSETS_SUFFIX}`)
   })
 }

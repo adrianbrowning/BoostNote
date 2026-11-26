@@ -430,8 +430,11 @@ export class Vault {
 
   /**
    * Renames the file — the note's name — to `name` with the note's extension as the file has it
-   * (`Plan.MD` → `Roadmap.MD`); its assets folder follows (unless an extension-case twin shares it)
-   * and its own links are rewritten. Other notes' links follow with `links: 'apply'`.
+   * (`Plan.MD` → `Roadmap.MD`, `doc.mdx` → `Other.mdx`); a trailing note extension typed in `name` is
+   * dropped, so a rename never switches between `.md` and `.mdx` (`doc.md` + `x.mdx` → `x.md`), and a
+   * name that is only `.md` (any case) or `.mdx` is refused with `INVALID_PATH`. Its assets folder follows
+   * (unless an extension-case twin shares it) and its own links are rewritten. Other notes' links follow
+   * with `links: 'apply'`.
    */
   renameNote(
     id: string,
@@ -441,7 +444,7 @@ export class Vault {
   renameNote(id: string, name: string, options?: RelocateLinksOptions): Promise<NoteRelocation>
   renameNote(id: string, name: string, options: RelocateLinksOptions = {}): Promise<NoteRelocation> {
     return this.#exclusive(async () => {
-      if (/^\.md$/i.test(name.trim())) {
+      if (/^\.(?:[mM][dD]|mdx)$/.test(name.trim())) {
         throw new VaultError('INVALID_PATH', `Invalid note name: ${JSON.stringify(name)}`)
       }
       const stem = sanitizeFileName(splitNoteExtension(name).base)

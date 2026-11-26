@@ -119,6 +119,15 @@ describe('link updates after renaming a note', () => {
       '[curry](notes/Alpha%20One.md/#user-content-curry) [q](./notes/Alpha%20One.md/?x=1) [dir](notes/)\n',
     )
   })
+
+  it('rewrites links to an .mdx note, `doc.mdx/#x` included, when it is renamed', async () => {
+    await put('notes/doc.mdx', '# Doc\n')
+    await put('book.md', '[d](notes/doc.mdx#top) [s](notes/doc.mdx/#x) [loud](notes/doc.MDX)\n')
+    await vault.refresh()
+    const { moves } = await vault.renameNote('notes/doc.mdx', 'Guide')
+    await planThenApply(moves)
+    expect(await read('book.md')).toBe('[d](notes/Guide.mdx#top) [s](notes/Guide.mdx/#x) [loud](notes/doc.MDX)\n')
+  })
 })
 
 describe('link updates after moving a note to another folder', () => {

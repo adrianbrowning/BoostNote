@@ -203,6 +203,73 @@ describe('vault notes', () => {
     expect(await read('archive/a.MD')).toBe('archived')
   })
 
+  it('lists, searches, reads and saves a lowercase .mdx note; .MDX files are no notes; new notes stay .md', async () => {
+    await put('work/doc.mdx', 'zebra stripes\n')
+    await put('work/Loud.MDX', 'zebra too\n')
+    vault = await openVault(root)
+    expect((await vault.notes()).map((note) => note.id)).toEqual(['work/doc.mdx'])
+    expect((await vault.search('zebra')).map((hit) => hit.id)).toEqual(['work/doc.mdx'])
+    const note = await vault.readNote('work/doc.mdx')
+    expect(note.title).toBe('doc')
+    const written = await vault.writeNote('work/doc.mdx', { body: 'new\n', frontmatter: note.frontmatter })
+    if (written.status !== 'saved') throw new Error('expected saved')
+    expect(written.note.id).toBe('work/doc.mdx')
+    expect((await read('work/doc.mdx')).endsWith('new\n')).toBe(true)
+    expect((await vault.createNote('work', 'Fresh')).id).toBe('work/Fresh.md')
+  })
+
+  it('renames, moves, trashes and restores an .mdx note keeping .mdx, with its assets and incoming links', async () => {
+    await put('work/doc.mdx', '![a](./doc.assets/a.png)\n')
+    await put('work/doc.assets/a.png', 'A')
+    await put('index.md', '[doc](work/doc.mdx)\n')
+    await mkdir(path.join(root, 'archive'))
+    vault = await openVault(root)
+
+    const renamed = await vault.renameNote('work/doc.mdx', 'Other', { links: 'apply' })
+    expect(renamed.note.id).toBe('work/Other.mdx')
+    expect((await readdir(path.join(root, 'work'))).sort()).toEqual(['Other.assets', 'Other.mdx'])
+    expect(renamed.note.body).toBe('![a](./Other.assets/a.png)\n')
+    expect(await read('index.md')).toBe('[doc](work/Other.mdx)\n')
+
+    const moved = await vault.moveNote('work/Other.mdx', 'archive', { links: 'apply' })
+    expect(moved.note.id).toBe('archive/Other.mdx')
+    expect((await readdir(path.join(root, 'archive'))).sort()).toEqual(['Other.assets', 'Other.mdx'])
+    expect(await read('index.md')).toBe('[doc](archive/Other.mdx)\n')
+
+    const entry = await vault.deleteNote('archive/Other.mdx')
+    expect(entry.id).toBe('archive/Other.mdx')
+    expect((await readdir(path.join(root, '.trash/archive'))).sort()).toEqual(['Other.assets', 'Other.mdx'])
+    expect(await vault.restore(entry.id)).toEqual({ id: 'archive/Other.mdx', kind: 'note' })
+    expect(await read('archive/Other.assets/a.png')).toBe('A')
+  })
+
+  it('gives a second trashed .mdx note and a restore over a new .mdx note their own " 2" slots', async () => {
+    await put('doc.mdx', 'first')
+    vault = await openVault(root)
+    const first = await vault.deleteNote('doc.mdx')
+    await put('doc.mdx', 'second')
+    await vault.refresh()
+    const second = await vault.deleteNote('doc.mdx')
+    expect([first.id, second.id]).toEqual(['doc.mdx', 'doc 2.mdx'])
+    expect(await read('.trash/doc.mdx')).toBe('first')
+    await put('doc.mdx', 'third')
+    await vault.refresh()
+    expect(await vault.restore(first.id)).toEqual({ id: 'doc 2.mdx', kind: 'note' })
+    expect(await read('doc.mdx')).toBe('third')
+    expect(await read('doc 2.mdx')).toBe('first')
+  })
+
+  it('keeps a note’s own extension on rename, stripping a note extension from the name', async () => {
+    await put('doc.mdx', 'x')
+    await put('plain.md', 'y')
+    vault = await openVault(root)
+    expect((await vault.renameNote('doc.mdx', 'Other.mdx')).note.id).toBe('Other.mdx')
+    expect((await vault.renameNote('plain.md', 'x.mdx')).note.id).toBe('x.md')
+    expect((await vault.renameNote('x.md', 'y.MD')).note.id).toBe('y.md')
+    await expect(vault.renameNote('Other.mdx', '.mdx')).rejects.toMatchObject({ code: 'INVALID_PATH' })
+    await expect(vault.renameNote('Other.mdx', ' .MD ')).rejects.toMatchObject({ code: 'INVALID_PATH' })
+  })
+
   it('moves to a free name when the target folder has the same file name', async () => {
     await put('a/note.md', 'one')
     await put('b/note.md', 'two')

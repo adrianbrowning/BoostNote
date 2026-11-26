@@ -56,7 +56,11 @@ describe('isNoteFileName', () => {
     ['a.mD', true],
     ['.MD', false],
     ['a.markdown', false],
-    ['a.mdx', false],
+    ['a.mdx', true],
+    ['a.MDX', false],
+    ['a.Mdx', false],
+    ['a.mDx', false],
+    ['.mdx', false],
     ['notes.md.bak', false],
     ['a', false],
     ['', false],
@@ -77,6 +81,9 @@ describe('noteStem', () => {
     ['notes.md.bak', 'notes.md.bak'],
     ['a.md.md', 'a.md'],
     ['.md', '.md'],
+    ['work/doc.mdx', 'doc'],
+    ['a.MDX', 'a.MDX'],
+    ['.mdx', '.mdx'],
     ['work/', 'work'],
   ])('%j → %j', (id, stem) => {
     expect(noteStem(id)).toBe(stem)
@@ -95,6 +102,9 @@ describe('splitNoteExtension', () => {
     ['notes.md.bak', 'notes.md.bak', ''],
     ['work', 'work', ''],
     ['note.md/', 'note.md/', ''],
+    ['work/doc.mdx', 'work/doc', '.mdx'],
+    ['doc.Mdx', 'doc.Mdx', ''],
+    ['.mdx', '.mdx', ''],
   ])('%j → %j + %j', (id, base, extension) => {
     expect(splitNoteExtension(id)).toEqual({ base, extension })
   })
@@ -194,6 +204,14 @@ describe('resolveNoteLink', () => {
   it('resolves from a note at the vault root', () => {
     expect(resolveNoteLink('index.md', 'Guides/ch3.md')).toBe('Guides/ch3.md')
     expect(resolveNoteLink('index.md', '../ch3.md')).toBeUndefined()
+  })
+
+  it('resolves links to lowercase .mdx notes only', () => {
+    expect(resolveNoteLink('a/n.md', 'x.mdx')).toBe('a/x.mdx')
+    expect(resolveNoteLink('a/n.md', '../x.mdx#part')).toBe('x.mdx')
+    expect(resolveNoteLink('a/n.md', 'x.mdx/')).toBe('a/x.mdx')
+    expect(resolveNoteLink('a/n.md', 'x.mdx/#part')).toBe('a/x.mdx')
+    expect(resolveNoteLink('a/n.md', 'x.MDX')).toBeUndefined()
   })
 })
 

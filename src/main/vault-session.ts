@@ -95,7 +95,7 @@ export class VaultSession {
 
   /**
    * The oldest queued request, removed; `undefined` when the queue is empty. Files that are gone or
-   * not `.md` (any case) are dropped, as are outside files that are not regular files
+   * not note files (`.md` in any case, or lowercase `.mdx`) are dropped, as are outside files that are not regular files
    * (`ReaderGrants.grant`). The real path is matched against the open vaults, then the recent vaults,
    * whatever the `outsideFile` preference.
    */
@@ -149,7 +149,10 @@ export class VaultSession {
       if (granted === undefined) throw new VaultError('NOT_FOUND', 'This file is no longer open; open it again')
       const id = path.basename(granted)
       if (!isNoteId(id)) {
-        throw new VaultError('INVALID_PATH', `${id} cannot be a note: notes end in .md and do not start with a dot`)
+        throw new VaultError(
+          'INVALID_PATH',
+          `${id} cannot be a note: notes end in .md or .mdx and do not start with a dot`,
+        )
       }
       const gone = () => new VaultError('NOT_FOUND', `${id} is gone; open it again`)
       if ((await this.readers.regularPath(ticket)) === undefined) throw gone()

@@ -3,8 +3,9 @@
  * (Biome enforces it for `src/shared/**`), served to the page through `remix.json` `allowFiles`.
  *
  * A vault id is a POSIX path relative to the vault root: `work/todo.md` (note), `work` (folder),
- * `''` (the root). A note file name ends in `.md` in any letter case (`.md`, `.MD`, `.Md`, `.mD`) and
- * has a stem; new notes are written with a lowercase `.md`. Two notes that differ only in extension
+ * `''` (the root). A note file name ends in `.md` in any letter case (`.md`, `.MD`, `.Md`, `.mD`) or
+ * in lowercase `.mdx` (`.MDX`, `.Mdx` are not notes) and has a stem; new notes are written with a
+ * lowercase `.md`. Two notes that differ only in extension
  * case (`a.md` and `a.MD`, possible on case-sensitive filesystems) share the asset folder `a.assets`;
  * this is an accepted limit (trashing, renaming or moving one leaves the folder for the other). The
  * check only sees twins present now: once one twin has been renamed, moved or trashed away from the
@@ -50,22 +51,30 @@ export function lastSegment(id: string): string {
   return id.replace(/[\\/]+$/, '').replace(/^.*[\\/]/, '')
 }
 
-/** Whether a file name is a note's: it ends in `.md` in any case and has a stem (`a.md`, `B.MD`; not `.md`). */
+/** A note extension at the end of a name: `.md` in any letter case, or `.mdx` in lower case only. */
+const NOTE_EXTENSION = /(?:\.[mM][dD]|\.mdx)$/
+
+/**
+ * Whether a file name is a note's: it ends in `.md` in any case or `.mdx` in lower case and has a stem
+ * (`a.md`, `B.MD`, `doc.mdx`; not `.md`, `.mdx` or `a.MDX`).
+ */
 export function isNoteFileName(name: string): boolean {
-  return name.length > 3 && name.slice(-3).toLowerCase() === '.md'
+  const extension = NOTE_EXTENSION.exec(name)?.[0]
+  return extension !== undefined && name.length > extension.length
 }
 
 /**
  * `id` split before its note extension, kept as the file has it (`work/Plan.MD` → `work/Plan` +
- * `.MD`); the extension is `''` when the last segment is not a note file name (`work`, `.md`).
+ * `.MD`, `work/doc.mdx` → `work/doc` + `.mdx`); the extension is `''` when the last segment is not a
+ * note file name (`work`, `.md`, `a.MDX`).
  */
 export function splitNoteExtension(id: string): { base: string; extension: string } {
-  return isNoteFileName(lastSegment(id)) && isNoteFileName(id)
-    ? { base: id.slice(0, -3), extension: id.slice(-3) }
-    : { base: id, extension: '' }
+  if (!isNoteFileName(lastSegment(id))) return { base: id, extension: '' }
+  const extension = NOTE_EXTENSION.exec(id)?.[0] ?? ''
+  return { base: id.slice(0, id.length - extension.length), extension }
 }
 
-/** File name without its `.md` in any case (`work/todo.md` → `todo`, `Plan.MD` → `Plan`); a bare `.md` is kept. */
+/** File name without its note extension (`work/todo.md` → `todo`, `Plan.MD` → `Plan`, `doc.mdx` → `doc`); a bare `.md` is kept. */
 export function noteStem(id: string): string {
   return splitNoteExtension(lastSegment(id)).base
 }
@@ -175,7 +184,7 @@ export function relativeId(folder: string, toId: string): string {
 /**
  * The note a link in note `fromId` opens (`../work/todo.md#x` → `work/todo.md`, `note.md/#x` →
  * `note.md`), or `undefined` unless `href` is a relative link whose last non-empty segment is a note
- * file name (`.md` in any case) and that resolves inside the vault with no hidden segment (`resolveLinkPath`).
+ * file name (`.md` in any case, or lowercase `.mdx`) and that resolves inside the vault with no hidden segment (`resolveLinkPath`).
  */
 export function resolveNoteLink(fromId: string, href: string): string | undefined {
   const relPath = linkPath(href)
