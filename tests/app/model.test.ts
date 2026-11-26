@@ -1226,9 +1226,13 @@ describe('WorkspaceModel link questions', () => {
     'leaves the editor focus alone when a new scratch note opens with an Update links? question $what',
     async ({ parked }) => {
       const naming = parked ? folderPrompt() : undefined
+      // A context menu over the prompt: the question closes it when it comes and is parked.
+      if (parked) workspace.openMenu(0, 0, [])
       const moving = workspace.moveNote('a.md', 'g')
-      if (parked) await expect.poll(() => workspace.dialog?.kind).toBe('prompt')
-      else await expect.poll(() => workspace.dialog?.kind).toBe('links')
+      if (parked) {
+        await expect.poll(() => workspace.menu).toBeNull()
+        expect(workspace.dialog?.kind).toBe('prompt')
+      } else await expect.poll(() => workspace.dialog?.kind).toBe('links')
 
       await workspace.newScratchNote()
       if (naming) expect(await naming).toBeNull()
