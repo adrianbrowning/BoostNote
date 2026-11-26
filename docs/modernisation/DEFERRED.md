@@ -1183,7 +1183,7 @@ Retro finding (repo, navigation, low)
 
 Slice 02 built a custom DOM popup and had to rediscover two things: the popup must stay inside the viewport (missed until review, a whole follow-up slice), and refocusing the editor needs the setEditorFocused sync from index.ts setDoc (found by debugging e2e). Add a short note to docs/modernisation/REMIX-NOTES.md or PLAN.md 'Editing' on how editor popups should place themselves and return focus, pointing at pickTableSize.
 
-### issue-76/01: list() reads every note one after another, full text included
+## issue-76/01: list() reads every note one after another, full text included
 
 Run: issue-76
 Slice: 01 "Scratch store and /api/scratch routes"
@@ -1199,7 +1199,7 @@ Reviewed commit: 3629df123f49db37303583735789a04966e426b1
 - Fix: Map the names to reads, run them with Promise.all, and keep the NOT_FOUND filter. Optionally move the summary fields into a #summary(id) helper that read() and list() both use.
 - Fix prompt: In src/app/scratch-store.ts ScratchStore.list, replace the sequential for/await loop with Promise.all over the matching ids. Each element should call this.read(id) and turn a NOT_FOUND HttpError into undefined. Then filter out the undefined entries, map them to ScratchSummary, and sort newest updated first as now. Keep tests/app/scratch.test.ts passing.
 
-### issue-76/01: Scratch route tests hardcode URL strings where every sibling app test uses routes.api.*.href()
+## issue-76/01: Scratch route tests hardcode URL strings where every sibling app test uses routes.api.*.href()
 
 Run: issue-76
 Slice: 01 "Scratch store and /api/scratch routes"
@@ -1215,7 +1215,7 @@ Reviewed commit: 08b2bba562da4e30438c42a5344d57c3d5190b06
 - Fix: Import `routes` and use `api.scratchCreate.href()`, `api.scratchWrite.href()`, `api.scratchList.href()`, `api.scratchRead.href()` (with withQuery or a `?id=` suffix, as api.test.ts does for noteRead) and `api.scratchDiscard.href()`, and `api.workspace.href()` / `api.search.href()` for the vault checks.
 - Fix prompt: In tests/app/scratch.test.ts, add `import { routes } from '../../src/app/routes.ts'` and `const api = routes.api`, as tests/app/api.test.ts does. Replace each hand-written URL with the route's href: '/api/scratch/create' → api.scratchCreate.href(), '/api/scratch/write' → api.scratchWrite.href(), '/api/scratch' → api.scratchList.href(), `/api/scratch/read?id=${id}` → `${api.scratchRead.href()}?id=${id}` (keep the URLSearchParams form in the 404 table), '/api/scratch/discard' → api.scratchDiscard.href(), '/api/workspace' → api.workspace.href(), and '/api/search?q=zebra' → `${api.search.href()}?q=zebra`. Do not change what any test asserts.
 
-### issue-76/02: Tab strip branches on tab kind twice with nested ternaries
+## issue-76/02: Tab strip branches on tab kind twice with nested ternaries
 
 Run: issue-76
 Slice: 02 "Scratch tab kind in Tabs"
@@ -1231,7 +1231,7 @@ Reviewed commit: 4957e23410502a4226ee34aad7729d2a87f786ec
 - Fix: Move both into one small per-kind function (for example tabLabel(tab, notes) returning { title, tooltip }) with a switch on tab.kind, and use it in the map.
 - Fix prompt: In src/app/actions/public/workspace/tab-strip.tsx, replace the two nested kind ternaries (title and the title= tooltip) with one helper that switches on tab.kind once and returns { title, tooltip }; call it once per tab in the map. Keep the rendered text the same.
 
-### issue-76/02: openScratch copies openReader's find-or-insert body
+## issue-76/02: openScratch copies openReader's find-or-insert body
 
 Run: issue-76
 Slice: 02 "Scratch tab kind in Tabs"
@@ -1247,7 +1247,7 @@ Reviewed commit: 61b687454d05272c1d269d49ab6a2a43a007631e
 - Fix: Pull the body out into a private helper that both methods call, for example #openOnce<T extends Tab>(match: (tab: Tab) => tab is T, make: () => T): T. It activates the first tab that matches, otherwise inserts make(). openReader and openScratch then shrink to one line each.
 - Fix prompt: In src/app/actions/public/workspace/tabs.ts, add a private method #openOnce<T extends Tab>(match: (tab: Tab) => tab is T, make: (key=<REDACTED> => T): T. It finds the first tab that satisfies match; if there is one, it sets activeKey to that tab's key and returns it. Otherwise it creates make(this.#takeKey()), calls #insert on it and returns it. Rewrite openReader and openScratch to call #openOnce with their kind and identity predicate and their tab constructor. Keep their public signatures and doc comments. tests/app/tabs.test.ts should pass unchanged.
 
-### issue-76/03: Scratch tab title is recomputed over the whole text on every session change
+## issue-76/03: Scratch tab title is recomputed over the whole text on every session change
 
 Run: issue-76
 Slice: 03 "New Scratch Note opens and autosaves a scratch tab"
@@ -1263,7 +1263,7 @@ Reviewed commit: e6ec60e8a653dd1868ca51d888400b6cddaf8c32
 - Fix: Recompute the title only when the body changed since the last computation (compare to the last body seen), or defer it to the autosave/'saved' point, or debounce it. Optionally make scratchTitle walk the lines without splitting the whole text.
 - Fix prompt: In src/app/actions/public/workspace/model.ts, the session 'change' listener recomputes scratchTitle(session.body, created) on every change event, including save-state changes and each keystroke. Keep the last body and id the title was computed from, and skip the call when they are unchanged, so save-state changes cost nothing. Optionally have scratchTitle in src/shared/scratch.ts scan line by line with indexOf instead of text.split, so large texts without a heading allocate no line array per keystroke.
 
-### issue-76/03: NoteSession models the open document as two nullable fields instead of one discriminated state
+## issue-76/03: NoteSession models the open document as two nullable fields instead of one discriminated state
 
 Run: issue-76
 Slice: 03 "New Scratch Note opens and autosaves a scratch tab"
@@ -1279,7 +1279,7 @@ Reviewed commit: e6ec60e8a653dd1868ca51d888400b6cddaf8c32
 - Fix: Hold one `open: { kind: 'note'; note: NoteDocument } | { kind: 'scratch'; scratch: ScratchNote } | null` (or expose a single `get open()`/`isOpen` derived accessor). Switch on `open.kind` in #save, and let callers test `session.open !== null` instead of pairing the two fields.
 - Fix prompt: In src/app/actions/public/workspace/note-session.ts, replace the parallel nullable `note` and `scratch` fields with one discriminated `open` state (note | scratch | null). At minimum, add a single `isOpen` getter. Make #save switch on the kind instead of using the nested ternary, and replace the hand-written `note || scratch` checks with the single state or getter: workspace.tsx line 225, editor-pane.tsx `editing`, Navigation.#loadActive's two close guards, NoteSession.edit and NoteSession.flush. Keep the behaviour unchanged; the existing navigation and note-session tests must pass.
 
-### issue-76/03: Editor focus request travels two ways: an event and a pending slot that each pane must clear
+## issue-76/03: Editor focus request travels two ways: an event and a pending slot that each pane must clear
 
 Run: issue-76
 Slice: 03 "New Scratch Note opens and autosaves a scratch tab"
@@ -1295,7 +1295,7 @@ Reviewed commit: e6ec60e8a653dd1868ca51d888400b6cddaf8c32
 - Fix: Use one channel. Either keep only the pending request, which the pane reads after each render or update, or keep only the event and have the workspace mount the pane before it dispatches.
 - Fix prompt: In src/app/actions/public/workspace/model.ts and editor-pane.tsx, collapse the editor-focus request into a single mechanism. Prefer keeping only the pending #focusWanted slot: the editor pane takes it as it mounts and after each update, and the 'focus-editor' event plus its takeEditorFocus() call in the listener go away. Keep the e2e focus assertions in tests/e2e/scratch.spec.ts passing, both with a vault open and with none.
 
-### issue-76/03: More scratch and focus state added to model.ts, which is already over 1000 lines
+## issue-76/03: More scratch and focus state added to model.ts, which is already over 1000 lines
 
 Run: issue-76
 Slice: 03 "New Scratch Note opens and autosaves a scratch tab"
@@ -1311,7 +1311,7 @@ Reviewed commit: e6ec60e8a653dd1868ca51d888400b6cddaf8c32
 - Fix: Put the scratch-specific workspace state (title cache, newScratchNote) and the editor-focus request in their own small owner modules that the model composes, or record a plan for splitting model.ts before slices 04 to 08 add more scratch logic to it.
 - Fix prompt: src/app/actions/public/workspace/model.ts is already more than 1000 lines (1241 now), and this slice adds scratch state to it (#scratchTitles, scratchTabTitle, newScratchNote) plus the #focusWanted/takeEditorFocus pair. Move the scratch tab title state and the editor-focus request into small dedicated modules (for example scratch-titles.ts and a focus-request helper) that WorkspaceModel composes, keeping WorkspaceModel's public methods the same so the existing tests pass. Or, if that waits, add a short split plan to docs/modernisation/PLAN.md.
 
-### issue-76/04: Paste handler reads assetPlace() === undefined as a hidden 'cannot store images' flag
+## issue-76/04: Paste handler reads assetPlace() === undefined as a hidden 'cannot store images' flag
 
 Run: issue-76
 Slice: 04 "Scratch banner and vault-only features inert"
@@ -1327,7 +1327,7 @@ Reviewed commit: 15a5c488b528c5eab7bbc5be6e7b956def9674b1
 - Fix: Give EditorHost an explicit capability, for example `canSaveAssets(): boolean`, wired in editor-pane from the session (false for a scratch note). In paste and drop, when it is false, skip the delete and the insertImages call and call the host's refusal once (or let saveAsset reject). Keep assetPlace for its original meaning only.
 - Fix prompt: In src/editor/config.ts add `canSaveAssets(): boolean` to EditorHost (default host: false) and restore assetPlace's docstring to its place-key meaning only. In src/app/actions/public/workspace/editor-pane.tsx wire `canSaveAssets: () => session().note !== null`. In src/editor/paste.ts use `host.canSaveAssets()` instead of `assetPlace() !== undefined` to decide whether the pasted image replaces the selection. Keep the existing e2e and model tests passing.
 
-### issue-76/04: Scratch rule buried in the generic togglePane
+## issue-76/04: Scratch rule buried in the generic togglePane
 
 Run: issue-76
 Slice: 04 "Scratch banner and vault-only features inert"
@@ -1343,7 +1343,7 @@ Reviewed commit: 15a5c488b528c5eab7bbc5be6e7b956def9674b1
 - Fix: Have the caller that owns the toggle-properties command own the guard: disable or skip that command while a scratch note is open (one predicate such as `model.hasProperties`), and leave togglePane generic.
 - Fix prompt: Remove the scratch check from WorkspaceModel.togglePane. Add one predicate on WorkspaceModel (for example `get propertiesAvailable(): boolean` = session.note !== null) and use it where the toggle-properties command is dispatched, and in editor-pane where the properties pane and button render, so the command is skipped (or disabled) in a scratch tab. Keep the Toggle Properties e2e test in tests/e2e/scratch.spec.ts passing.
 
-### issue-76/05: Start-up restore reads every kept scratch note in full, one after another, just to check which ids exist
+## issue-76/05: Start-up restore reads every kept scratch note in full, one after another, just to check which ids exist
 
 Run: issue-76
 Slice: 05 "Scratch tabs come back after a restart"
@@ -1359,7 +1359,7 @@ Reviewed commit: cb987a52c190af590ba55de6a192754d7b93c7ba
 - Fix: Check only the stored ids: either read each stored id with readScratch in parallel (Promise.allSettled, a 404 means gone) and reuse the active one's result, or make the list route cheap (readdir only for existence, or parallel reads without the text). Keep the current behavior: report a non-404 failure and restore every kept tab.
 - Fix prompt: In src/app/actions/public/workspace/navigation.ts, Navigation.#scratchExists currently calls this.#api.listScratch(), which in ScratchStore.list reads every kept scratch note's full text, stat and sidecar one after another, and the start-up restore waits for it before the active tab loads. Change the existence check so it costs only the stored ids: for example, call readScratch for each id in the stored ScratchTabsSnapshot in parallel with Promise.allSettled, treat an ApiError 404 NOT_FOUND as gone, report any other failure via this.#host.fail once and treat that id as existing. Keep the tests in tests/app/navigation.test.ts 'Navigation of scratch tabs' passing (gone ids dropped without a notice, every tab restored with the failure when the check fails, the held-request test adapted to hold the new request path).
 
-### issue-76/05: The new noTabStore helper's scratch no-ops are copied inline into four other tab stores
+## issue-76/05: The new noTabStore helper's scratch no-ops are copied inline into four other tab stores
 
 Run: issue-76
 Slice: 05 "Scratch tabs come back after a restart"
@@ -1375,7 +1375,7 @@ Reviewed commit: cb987a52c190af590ba55de6a192754d7b93c7ba
 - Fix: Build these stores as `{ ...noTabStore, load: …, save: … }`, so the scratch no-ops come from the one helper.
 - Fix prompt: In tests/app/menu-commands.test.ts, tests/app/model.test.ts (the module-level `store` and the store in 'WorkspaceModel relocations that return after a vault switch') and tests/app/relocation.test.ts, import noTabStore from './helpers.ts'. Replace the inline `loadScratch: () => null, saveScratch: () => {}` members with a spread: `{ ...noTabStore, load: …, save: … }`, keeping each test's own load and save.
 
-### issue-76/05: The e2e profile folder is derived in two places: launchApp's userDataDir and startApp's own path.join(root, 'profile')
+## issue-76/05: The e2e profile folder is derived in two places: launchApp's userDataDir and startApp's own path.join(root, 'profile')
 
 Run: issue-76
 Slice: 05 "Scratch tabs come back after a restart"
@@ -1391,7 +1391,7 @@ Reviewed commit: cb987a52c190af590ba55de6a192754d7b93c7ba
 - Fix: Have startApp take the profile folder (and the home folder) from its caller. Pass `userDataDir` from launchApp and `app.userDataDir` from relaunchApp, so the location is derived once.
 - Fix prompt: In tests/e2e/fixtures.ts, change startApp(root, args) to take the profile path, for example startApp({ root, userDataDir }, args). Build `--user-data-dir=${userDataDir}` from it. Call it with launchApp's userDataDir and with app.userDataDir in relaunchApp. Remove the second path.join(root, 'profile').
 
-### issue-76/05: #persist now tracks changes two ways (an #unsaved flag for note tabs, a serialized compare for scratch tabs) plus a restore-in-progress flag
+## issue-76/05: #persist now tracks changes two ways (an #unsaved flag for note tabs, a serialized compare for scratch tabs) plus a restore-in-progress flag
 
 Run: issue-76
 Slice: 05 "Scratch tabs come back after a restart"
@@ -1407,7 +1407,7 @@ Reviewed commit: cb987a52c190af590ba55de6a192754d7b93c7ba
 - Fix: Use one rule for both entries. For example, compare each serialized entry against its last saved value, which removes #unsaved. Or keep the pending kept entry as a value that scratchJSON merges, so the restore flag and the mid-restore reassignment of #savedScratch go away.
 - Fix prompt: Optional simplification in src/app/actions/public/workspace/navigation.ts: unify change detection in #persist. Either save each entry (the vault's TabsSnapshot and the ScratchTabsSnapshot) when its serialized form differs from the last saved one, which drops #unsaved, or keep the restore's pending entry in one field and drop #scratchRestoring. Keep the behaviour pinned by the 'keeps a scratch note created while the restore lists the scratch notes active…' navigation test.
 
-### issue-76/06: [high] Scratch save route docs say it saves into "the open vault" and 409s only with none open, but it targets the ?vault= vault and 409s when that one is closed
+## issue-76/06: [high] Scratch save route docs say it saves into "the open vault" and 409s only with none open, but it targets the ?vault= vault and 409s when that one is closed
 
 Run: issue-76
 Slice: 06 "Save scratch note to vault"
@@ -1423,7 +1423,7 @@ Reviewed commit: 8d4b185a5ca8305b17a3c158bf643270262b4cc1
 - Fix: Reword all three: e.g. routes.ts "Save to vault (`{ id, folder }`, in the vault `?vault=` names): the scratch note becomes a note in `folder` of that vault and is removed (`ScratchSaveResult`); `409 NO_VAULT` when `?vault=` is missing or that vault is not open." types.ts: "…became note `id` in `folder` of the vault the request named…". api.ts: "…into a note in `folder` of the page's vault (`?vault=`)…".
 - Fix prompt: In src/app/routes.ts (scratchSave doc), src/app/actions/public/workspace/types.ts (ScratchSaveResult doc) and src/app/actions/public/workspace/api.ts (saveScratch doc), replace 'the open vault' with the vault named by ?vault= (the page's vault). In routes.ts also change '409 NO_VAULT without an open vault' to '409 NO_VAULT when ?vault= is missing or names a vault that is not open'. Match the wording of the scratchSave handler doc in src/app/actions/api/controller.ts.
 
-### issue-76/06: Whether a vault switch ran during the save is decided by two tokens in two layers
+## issue-76/06: Whether a vault switch ran during the save is decided by two tokens in two layers
 
 Run: issue-76
 Slice: 06 "Save scratch note to vault"
@@ -1439,7 +1439,7 @@ Reviewed commit: a5afaa26426d5fcfe4346434597b2eff8fdd0f85
 - Fix: Let Navigation.saveScratch own the after-answer decision. Pass it a show(workspace) step, or have it return `shown` before any data is shown, and have the model call #showData only when `shown` is true. Keep only the pre-request token check in the model.
 - Fix prompt: In src/app/actions/public/workspace/model.ts saveScratchToVault, remove the post-answer `if (sameVault()) this.#showData(saved.workspace)` from the save callback. Show the workspace from the value Navigation.saveScratch already computes: either show it after saveScratch returns when `result.shown` is true, or pass a show callback that Navigation.saveScratch (src/app/actions/public/workspace/navigation.ts) calls only when its own vaultToken still holds. Keep the pre-request check that throws when the vault changed while the folder was chosen. Keep the existing model.test.ts Save to vault tests passing.
 
-### issue-76/06: Save to vault repeats Add to vault's whole flow, with a different rule for which vault it targets
+## issue-76/06: Save to vault repeats Add to vault's whole flow, with a different rule for which vault it targets
 
 Run: issue-76
 Slice: 06 "Save scratch note to vault"
@@ -1455,7 +1455,7 @@ Reviewed commit: a5afaa26426d5fcfe4346434597b2eff8fdd0f85
 - Fix: Extract the shared part (open-order run, vault check, folder choose dialog, gate) into one private helper that takes the dialog's title and confirm label and answers the chosen folder or null. Decide once which vault-target rule both actions follow.
 - Fix prompt: In src/app/actions/public/workspace/model.ts, extract a private helper, for example #chooseVaultFolder({ title, confirm, noVault }), that runs the vault check with its notice, opens the choose dialog with folderOptions and dropFolder, and answers the folder or null. Use it from both addReaderToVault and saveScratchToVault. Keep each action's own gate order and the request it sends. Note in the helper's doc which vault the chosen folder belongs to. Run tests/app/model.test.ts.
 
-### issue-76/06: CreateNoteOptions gains a third optional field that silently overrides the other two
+## issue-76/06: CreateNoteOptions gains a third optional field that silently overrides the other two
 
 Run: issue-76
 Slice: 06 "Save scratch note to vault"
@@ -1471,7 +1471,7 @@ Reviewed commit: a5afaa26426d5fcfe4346434597b2eff8fdd0f85
 - Fix: Make the options a discriminated union ({ body?, frontmatter? } | { text }, with the other keys set to never), or give the whole-text mode its own method, for example createNoteFromText.
 - Fix prompt: In src/vault/vault.ts, change CreateNoteOptions so that `text` cannot be combined with `body`/`frontmatter`. Use a union type where each branch sets the other keys to `?: never`, or split out a createNoteFromText(folder, title, text) method that shares the unique-stem and write steps. Update the scratchSave controller in src/app/actions/api/controller.ts. Run typecheck and tests/app/scratch.test.ts.
 
-### issue-76/06: The frontmatter fence regexes are copied from parseNoteText instead of shared
+## issue-76/06: The frontmatter fence regexes are copied from parseNoteText instead of shared
 
 Run: issue-76
 Slice: 06 "Save scratch note to vault"
@@ -1487,7 +1487,7 @@ Reviewed commit: a5afaa26426d5fcfe4346434597b2eff8fdd0f85
 - Fix: Move the fence split (find the open and close fences, without the YAML check) into one function in src/shared. Use it from withoutFrontmatter and from parseNoteText, so both read the same fences.
 - Fix prompt: Add an exported function in src/shared (for example frontmatterFences(text): { open: RegExpExecArray-like span, close } | undefined) that finds a leading '---' line and a later '---'/'...' closing line, exactly as parseNoteText in src/vault/frontmatter.ts does now. Use it in src/shared/scratch.ts withoutFrontmatter and in parseNoteText, which keeps its YAML mapping check on top. Run tests/shared/scratch.test.ts and the vault frontmatter tests.
 
-### issue-76/06: Save to vault's YAML layout check lives in vault.ts and repeats spliceYaml's simple-block-mapping preconditions
+## issue-76/06: Save to vault's YAML layout check lives in vault.ts and repeats spliceYaml's simple-block-mapping preconditions
 
 Run: issue-76
 Slice: 06 "Save scratch note to vault"
@@ -1503,7 +1503,7 @@ Reviewed commit: 8d4b185a5ca8305b17a3c158bf643270262b4cc1
 - Fix: Move keepTypedFrontmatter next to the other YAML text functions in src/vault/frontmatter.ts and export it for createNote. Have it and spliceYaml share one helper that decides whether a block is a simple block mapping, so vault.ts no longer imports `yaml`.
 - Fix prompt: Move keepTypedFrontmatter from src/vault/vault.ts to src/vault/frontmatter.ts, export it, and call it from Vault.createNote. Drop the `yaml` and `isDeepStrictEqual` imports from vault.ts if nothing else uses them. In frontmatter.ts, pull the block-mapping precondition (no doc errors, isMap, not flow, every key a scalar) into one helper. Use it from both spliceYaml and keepTypedFrontmatter, and keep keepTypedFrontmatter's extra non-null-key rule and its parse-equality check. Keep the behaviour unchanged; the tests in tests/app/scratch.test.ts for /api/scratch/save must still pass.
 
-### issue-76/06: "A folder to save into, seeded by this test." restates the writeFiles call
+## issue-76/06: "A folder to save into, seeded by this test." restates the writeFiles call
 
 Run: issue-76
 Slice: 06 "Save scratch note to vault"
@@ -1519,7 +1519,7 @@ Reviewed commit: 8d4b185a5ca8305b17a3c158bf643270262b4cc1
 - Fix: Delete the comment, or, if the reason for seeding before the restart matters, say that: "// Before the restart, so the relaunched vault lists the work/ folder."
 - Fix prompt: In tests/e2e/scratch.spec.ts, delete the comment '// A folder to save into, seeded by this test.' above the writeFiles call (or replace it with a why, e.g. that it is seeded before the restart so the relaunched app lists work/).
 
-### issue-76/06: saveScratch re-activates the previous tab to undo the activation that replaceScratch always does
+## issue-76/06: saveScratch re-activates the previous tab to undo the activation that replaceScratch always does
 
 Run: issue-76
 Slice: 06 "Save scratch note to vault"
@@ -1535,7 +1535,7 @@ Reviewed commit: 5c73424f559b6367093dbe4d646665d94e625f88
 - Fix: Let the replace keep the active tab as it is: in #replace, set activeKey to the new tab only when the replaced tab was the active one. Then drop the capture-and-restore in saveScratch.
 - Fix prompt: In src/app/actions/public/workspace/tabs.ts, change #replace(key, kind, path) so it sets this.activeKey=<REDACTED> only when the replaced tab's key was the active key (or when the activeKey pointed at the `open` duplicate it removes). Check the existing replaceReader callers still get the activation they expect: a reader tab being replaced is the active one in those paths. In Navigation.saveScratch (src/app/actions/public/workspace/navigation.ts), remove `const active = this.tabs.activeKey` and `if (active !== null && active !== tab.key) tabs.activate(active)`. Keep the tests in tests/app/model.test.ts ('turns the scratch tab into the note’s tab in the background…') passing.
 
-### issue-76/07: #switch gains a one-caller `then` hook that runs the scratch discard round trips while the editor is locked, before the next tab loads
+## issue-76/07: #switch gains a one-caller `then` hook that runs the scratch discard round trips while the editor is locked, before the next tab loads
 
 Run: issue-76
 Slice: 07 "Closing an empty scratch tab deletes it"
@@ -1551,7 +1551,7 @@ Reviewed commit: 95234d4377728ce2c2a8f5b7d41a8d5ceb662a0c
 - Fix: Push the condition up and move the discard out of the hold. Inside the change (or a small scratch-specific step), close the session when it holds the closed scratch note. After `await this.#switch(...)`, call #discardBlank only when the closed tab is a scratch tab. Drop the `then` parameter from #switch.
 - Fix prompt: In src/app/actions/public/workspace/navigation.ts, remove the `then` parameter from #switch. In #close's active-tab branch, release the closed scratch note from the session inside the change passed to #switch, for example `(tabs) => { tabs.close(key); if (tab?.kind === 'scratch' && this.#session.scratch?.id === tab.id) this.#session.close() }`. Then, after `await this.#switch(...)` returns, run `if (tab?.kind === 'scratch') await this.#discardBlank(tab.id, report)`. That way the next tab loads and the editor unlocks without waiting on the discard. Check that the existing scratch close tests in tests/app/navigation.test.ts still pass, including the next-tab-read-fails case.
 
-### issue-76/07: `expect(id).toHaveLength(32)` asserts nothing about the behaviour under test
+## issue-76/07: `expect(id).toHaveLength(32)` asserts nothing about the behaviour under test
 
 Run: issue-76
 Slice: 07 "Closing an empty scratch tab deletes it"
@@ -1567,7 +1567,7 @@ Reviewed commit: 95234d4377728ce2c2a8f5b7d41a8d5ceb662a0c
 - Fix: Assert something the behaviour owns, such as `expect(await scratchIds()).not.toContain(id)`, or drop the binding.
 - Fix prompt: In tests/app/navigation.test.ts, in the test 'discards a blank scratch note when its active tab closes and the next tab’s read fails, leaving the editor without it', remove `expect(id).toHaveLength(32)`. Either call scratchAfterA() without binding its result, or replace the assertion with one tied to the discard, such as `await expect(api.readScratch(id)).rejects.toMatchObject({ status: 404 })`.
 
-### issue-76/07: The 'release the scratch note from the session, then discard it if blank' step is written out in two close branches
+## issue-76/07: The 'release the scratch note from the session, then discard it if blank' step is written out in two close branches
 
 Run: issue-76
 Slice: 07 "Closing an empty scratch tab deletes it"
@@ -1583,7 +1583,7 @@ Reviewed commit: c79db317df58faa3cc78c9ec8b82c36414a4083e
 - Fix: Move the shared step into one helper, for example `#releaseScratch(id, report)`, which closes the session when it holds `id` and then calls #discardBlank. Call it from all three branches. A further option is to have #loadActive release a scratch note the session holds once its tab is no longer active, which would let the held background branch go away.
 - Fix prompt: In src/app/actions/public/workspace/navigation.ts, add a private method `#releaseScratch(id: string, report: LoadReport)` that runs `if (this.#session.scratch?.id === id) this.#session.close()` and then `await this.#discardBlank(id, report)`. Use it in Navigation.#close in place of the repeated session-close plus #discardBlank calls: in the held background branch inside hold, in the plain background branch, and in the active-close `then` callback. Keep the current behaviour and the existing tests in tests/app/navigation.test.ts as they are.
 
-### issue-76/08: Start-up lists every scratch note twice when scratch tabs are restored
+## issue-76/08: Start-up lists every scratch note twice when scratch tabs are restored
 
 Run: issue-76
 Slice: 08 "Scratch list: reopen, save or discard kept notes"
@@ -1599,7 +1599,7 @@ Reviewed commit: ca843d71cd747de8a4dd14da904ee0e80b7d57da
 - Fix: Reuse the listing restore already made: have Navigation.restore (or #scratchExists) hand the ScratchSummary[] it fetched to the model, so it can set #scratchListed from it, and call refreshScratch only when restore did not list (no stored scratch tabs, or the listing failed).
 - Fix prompt: In src/app/actions/public/workspace/navigation.ts, make the scratch listing that Navigation.restore runs through #scratchExists available to the host. For example, return the ScratchSummary[] from restore, or pass it to a host callback. In WorkspaceModel.restoreTabs (src/app/actions/public/workspace/model.ts), store that list as #scratchListed (bumping #scratchListings so an older listing is dropped) and call refreshScratch() only when restore made no listing (no stored scratch tabs, or listScratch failed). Keep the existing model test 'lists the kept scratch notes once the tabs are restored' passing.
 
-### issue-76/08: Welcome screen repeats ScratchList's own empty check, and each check rebuilds the list
+## issue-76/08: Welcome screen repeats ScratchList's own empty check, and each check rebuilds the list
 
 Run: issue-76
 Slice: 08 "Scratch list: reopen, save or discard kept notes"
@@ -1615,7 +1615,7 @@ Reviewed commit: ca843d71cd747de8a4dd14da904ee0e80b7d57da
 - Fix: Put the wrapper's styling inside ScratchList (for example a `mix`/class prop, or a variant), or keep the length check in one place only, and read `scratchNotes` once per render.
 - Fix prompt: In src/app/actions/public/workspace/workspace.tsx the welcome screen renders `{model.scratchNotes.length > 0 ? <div mix={recentStyle}><ScratchList model={model} /></div> : null}`, while ScratchList (scratch-list.tsx) already returns null for an empty list. Remove the duplicated emptiness rule: either let ScratchList take the extra container style (for example an optional `mix` prop applied to its <section>) and render `<ScratchList model={model} mix={recentStyle} />` unconditionally, or drop ScratchList's own early return and keep the check only at the call sites. Make sure the scratchNotes getter is read once per render.
 
-### issue-76/08: discardScratch writes out close's 'let the session go, close the tab, load the next one' steps again
+## issue-76/08: discardScratch writes out close's 'let the session go, close the tab, load the next one' steps again
 
 Run: issue-76
 Slice: 08 "Scratch list: reopen, save or discard kept notes"
@@ -1631,7 +1631,7 @@ Reviewed commit: ca843d71cd747de8a4dd14da904ee0e80b7d57da
 - Fix: Factor the 'scratch tab leaves: release from the session, close the tab, load what is active' step into one private Navigation helper used by #close's scratch branches and by discardScratch. discardScratch then flushes, deletes and calls the helper.
 - Fix prompt: In src/app/actions/public/workspace/navigation.ts, extract one private method that takes a scratch id, releases it from the session when held, closes its tab when open, and loads the active tab when that tab was active or the session held it (else host.changed()). Use it in discardScratch and in #close's scratch branches in place of the inline copies. Keep the existing tests in tests/app/model.test.ts and navigation.test.ts passing.
 
-### issue-76/08: "// Saved: its row goes." restates the refreshScratch call below it
+## issue-76/08: "// Saved: its row goes." restates the refreshScratch call below it
 
 Run: issue-76
 Slice: 08 "Scratch list: reopen, save or discard kept notes"
@@ -1647,7 +1647,7 @@ Reviewed commit: ca843d71cd747de8a4dd14da904ee0e80b7d57da
 - Fix: Delete the comment.
 - Fix prompt: In src/app/actions/public/workspace/model.ts, in saveScratchToVault, delete the line comment "// Saved: its row goes." above `if (result) await this.refreshScratch()`. Change nothing else.
 
-### issue-76/08: `stay = !unmoved()` reads as a double negative for 'the active tab moved'
+## issue-76/08: `stay = !unmoved()` reads as a double negative for 'the active tab moved'
 
 Run: issue-76
 Slice: 08 "Scratch list: reopen, save or discard kept notes"
@@ -1663,7 +1663,7 @@ Reviewed commit: ca843d71cd747de8a4dd14da904ee0e80b7d57da
 - Fix: Name the observation directly, e.g. `const moved = !unmoved()` (or have the token answer `moved`), and use `if (moved && …) tabs.activate(active)`.
 - Fix prompt: In Navigation.saveScratch (src/app/actions/public/workspace/navigation.ts), rename `stay` to `moved` (const moved = !unmoved()) and update its one use, so the guard reads 'when the active tab moved while save was out, keep it active'.
 
-### issue-76/08: rows/strip test helper comments restate their mapping expressions
+## issue-76/08: rows/strip test helper comments restate their mapping expressions
 
 Run: issue-76
 Slice: 08 "Scratch list: reopen, save or discard kept notes"
@@ -1679,7 +1679,7 @@ Reviewed commit: ca843d71cd747de8a4dd14da904ee0e80b7d57da
 - Fix: Delete both doc comments; the helper names and their one-line bodies say the same thing.
 - Fix prompt: In tests/app/model.test.ts, in the 'WorkspaceModel scratch list' describe block, delete the comment lines "/** The scratch list as rows: id and title. */" and "/** The strip: note tabs by path, scratch tabs by id, reader tabs by kind. */" above the rows and strip helpers. Leave the helpers unchanged.
 
-### issue-76/08: The rule for showing the no-vault scratch panel is written twice: once for the grid attribute, once for the aside
+## issue-76/08: The rule for showing the no-vault scratch panel is written twice: once for the grid attribute, once for the aside
 
 Run: issue-76
 Slice: 08 "Scratch list: reopen, save or discard kept notes"
@@ -1695,7 +1695,7 @@ Reviewed commit: 52f9b3f55ea33621351690de4f1b131797da10b3
 - Fix: Work out the panel condition once per render, for example `const scratchPanel = !vault && model.tabs.tabs.length > 0 && model.scratchNotes.length > 0`. Use it for both the data-scratch-panel attribute and the aside.
 - Fix prompt: In src/app/actions/public/workspace/workspace.tsx, inside the Workspace render function, compute the no-vault scratch panel condition once. For example: `const scratchPanel = !vault && model.tabs.tabs.length > 0 && model.scratchNotes.length > 0`. Use that value for `data-scratch-panel={scratchPanel ? '' : undefined}` and to decide whether to render the <aside aria-label="Scratch notes">. Then the grid template and the panel element cannot drift apart. Keep the behaviour the same.
 
-### issue-76/09: The 'two hotkeys never share an accelerator' rule is written twice: savePreferences and the startup registration
+## issue-76/09: The 'two hotkeys never share an accelerator' rule is written twice: savePreferences and the startup registration
 
 Run: issue-76
 Slice: 09 "Quick capture global hotkey"
@@ -1711,7 +1711,7 @@ Reviewed commit: a217febd19bcaf46ccd059244d233941b3439386
 - Fix: Make the invariant part of the stored-settings model: normalizeUi drops captureHotkey to '' when it equals globalHotkey, so settings.ui can never hold the pair. The startup code then just registers ui.captureHotkey when it is non-empty, and savePreferences keeps only its 409 check for incoming patches.
 - Fix prompt: In src/main/settings.ts normalizeUi, after normalising each field, set captureHotkey to '' when it is non-empty and equal to globalHotkey (the show/hide hotkey wins, as main.ts's comment says today). Then simplify the startup block in src/main/main.ts to `if (ui.captureHotkey !== '' && !preferences.setCaptureHotkey(ui.captureHotkey)) console.warn(...)`, dropping the equality check and its comment. Add a normalizeUi case to tests/app/preferences.test.ts ('normalises stored settings field by field') for { globalHotkey=<REDACTED> captureHotkey=<REDACTED> } → captureHotkey ''.
 
-### issue-76/09: Per-hotkey registered state is two parallel named fields, so the recorder re-branches on the field name
+## issue-76/09: Per-hotkey registered state is two parallel named fields, so the recorder re-branches on the field name
 
 Run: issue-76
 Slice: 09 "Quick capture global hotkey"
@@ -1727,7 +1727,7 @@ Reviewed commit: a217febd19bcaf46ccd059244d233941b3439386
 - Fix: Keep the existing hotkeyRegistered contract if it must stay, but derive the recorder's lookup from a field-keyed source, e.g. a small `registeredOf(model, field)` map in HOTKEYS (`registered: (model) => model.hotkeyRegistered`) or a `registered: Record<'globalHotkey' | 'captureHotkey', boolean>` in PreferencesState.
 - Fix prompt: In src/app/actions/public/workspace/preferences-dialog.tsx, add a `registered: (model: WorkspaceModel) => boolean` entry to each HOTKEYS row (model.hotkeyRegistered for globalHotkey, model.captureHotkeyRegistered for captureHotkey) and replace the `field === 'globalHotkey' ? … : …` ternary in HotkeyRecorder with `texts.registered(model)`, so the recorder stays fully table-driven.
 
-### issue-76/09: The default PreferencesState literal is copied into eleven WorkspaceModel constructions, and this slice had to edit each
+## issue-76/09: The default PreferencesState literal is copied into eleven WorkspaceModel constructions, and this slice had to edit each
 
 Run: issue-76
 Slice: 09 "Quick capture global hotkey"
@@ -1743,7 +1743,7 @@ Reviewed commit: a217febd19bcaf46ccd059244d233941b3439386
 - Fix: Add one shared default (for example `defaultPreferences(ui = DEFAULT_UI): PreferencesState`) to tests/app/helpers.ts and use it in every WorkspaceModel construction.
 - Fix prompt: In tests/app/helpers.ts export `function preferencesOf(ui: UiPreferences = DEFAULT_UI): PreferencesState { return { ui, hotkeyRegistered=<REDACTED> captureHotkeyRegistered=<REDACTED> update: null } }`. Replace the inline PreferencesState literal in every `new WorkspaceModel(...)` in tests/app/model.test.ts, menu-commands.test.ts, image-paste-relocation.test.ts and relocation-editor.test.ts with `preferencesOf()` (or `preferencesOf({ ...DEFAULT_UI, confirmDelete })` in the scratch list start helper).
 
-### issue-76/09: isHotkey doc restates its one-line expression
+## issue-76/09: isHotkey doc restates its one-line expression
 
 Run: issue-76
 Slice: 09 "Quick capture global hotkey"
@@ -1759,7 +1759,7 @@ Reviewed commit: a217febd19bcaf46ccd059244d233941b3439386
 - Fix: Delete the comment; the name isHotkey and its expression carry the meaning.
 - Fix prompt: In src/main/settings.ts, delete the JSDoc line `/** A global hotkey preference: an accelerator, or `''` for none. */` above `const isHotkey`. Change nothing else.
 
-### issue-76/09: HOTKEYS doc restates the object below it
+## issue-76/09: HOTKEYS doc restates the object below it
 
 Run: issue-76
 Slice: 09 "Quick capture global hotkey"
@@ -1775,7 +1775,7 @@ Reviewed commit: a217febd19bcaf46ccd059244d233941b3439386
 - Fix: Delete the comment; the object literal and its use in HotkeyRecorder say what it holds.
 - Fix prompt: In src/app/actions/public/workspace/preferences-dialog.tsx, delete the JSDoc line `/** The global hotkey preferences, and the texts of each one's recorder. */` above `const HOTKEYS`. Change nothing else.
 
-### issue-76/09: One route test runs three Arrange/Act/Assert cycles (register, refuse, turn off)
+## issue-76/09: One route test runs three Arrange/Act/Assert cycles (register, refuse, turn off)
 
 Run: issue-76
 Slice: 09 "Quick capture global hotkey"
@@ -1791,7 +1791,7 @@ Reviewed commit: b27ecf982b3d1e6d768e78121a3245a47be61b10
 - Fix: Split it into three tests (stores and answers a free capture hotkey; a taken one answers 409, stores nothing and keeps the previous one; '' turns it off), each arranging its own starting state and following Arrange / Act / Assert.
 - Fix prompt: In tests/app/preferences.test.ts, split the test 'registers a Quick capture hotkey, refuses one the OS does not grant, and turns it off with an empty value' into three tests, each following Arrange / Act / Assert. (1) POST { captureHotkey=<REDACTED> } stores it, the response and GET preferences answer it with captureHotkeyRegistered true, and settings.json has it. (2) With 'CommandOrControl+Alt+J' already saved and 'Control+Shift+F6' in app.takenHotkeys, POST { captureHotkey=<REDACTED> theme: 'light' } answers the 409 HOTKEY_UNAVAILABLE body, leaves captureHotkey and theme as stored, and leaves registeredCaptureHotkey as 'CommandOrControl+Alt+J'. (3) With a capture hotkey saved, POST { captureHotkey=<REDACTED> } answers captureHotkeyRegistered false and clears both the registration and the stored value. Keep every existing assertion.
 
-### issue-76/09: savePreferences writes each hotkey rule out twice, once per hotkey, with the field names swapped
+## issue-76/09: savePreferences writes each hotkey rule out twice, once per hotkey, with the field names swapped
 
 Run: issue-76
 Slice: 09 "Quick capture global hotkey"
@@ -1807,7 +1807,7 @@ Reviewed commit: b27ecf982b3d1e6d768e78121a3245a47be61b10
 - Fix: Describe the hotkeys once, as a small table of { field, set, registered, otherLabel }, and run the equality check, the ordered registration and the rollback of already-registered entries as one loop over that table, so each rule is written once.
 - Fix prompt: In src/app/actions/api/preferences.ts savePreferences, replace the two mirrored equality `if` blocks and the two differently shaped registration steps with one list of the two hotkeys (field name, the PreferenceServices setter, the registered getter, and the label used in the 'is already the … hotkey' message). Loop over it once to refuse a patched hotkey equal to the other hotkey (current or as patched) before registering anything, then loop again to register each changed hotkey in order, and when one is refused, set every hotkey this loop already changed back to its previous registered value before throwing the 409. Keep the existing messages and the behaviour the tests in tests/app/preferences.test.ts pin.
 
-### issue-76/09: "The Quick capture recorder is the group right after the show/hide one." restates the assertions below it
+## issue-76/09: "The Quick capture recorder is the group right after the show/hide one." restates the assertions below it
 
 Run: issue-76
 Slice: 09 "Quick capture global hotkey"
@@ -1823,7 +1823,7 @@ Reviewed commit: b27ecf982b3d1e6d768e78121a3245a47be61b10
 - Fix: Delete the comment.
 - Fix prompt: In tests/e2e/scratch.spec.ts, in the test 'Preferences records a Quick capture hotkey beside the show/hide hotkey, and says why a taken one is refused', delete the line '// The Quick capture recorder is the group right after the show/hide one.' The group count and nth(0)/nth(1) accessible-name assertions below it already state the order.
 
-### issue-76/11: [high] Quick capture / New Scratch Note closes the Import and Title renames dialogs while they are busy, so their result and any error are lost
+## issue-76/11: [high] Quick capture / New Scratch Note closes the Import and Title renames dialogs while they are busy, so their result and any error are lost
 
 Run: issue-76
 Slice: 11 "Scratch notes hardening: carried review items"
@@ -1840,7 +1840,7 @@ Ids, paths and line numbers below are as of the reviewed commit and may have mov
 - Fix: Do not close a dialog whose work is still running. Either leave Import and Title renames open while they are busy (keep them on top and skip the editor focus, as the code already does for an 'Update links?' question), or move the busy state into the model (for example importBusy / titleRenamesBusy flags the dialogs set) so newScratchNote can skip closing them, or report the outcome through the notice when the dialog is closed mid-work.
 - Fix prompt: In src/app/actions/public/workspace/model.ts WorkspaceModel.newScratchNote, the unconditional `this.importOpen = false` and `this.titleRenamesOpen = false` close the Import and Title renames dialogs even while they are running an import or a rename, and those dialogs keep their result and error only in their own component state (they disable Cancel and Esc while busy for that reason). Make the model know when either dialog is busy (for example a busy flag the dialog sets through a model method when its run/apply starts and clears when it ends), and in newScratchNote leave a busy dialog open; in that case still create the scratch note but do not move the editor focus behind the dialog (as is already done for an open 'Update links?' question, `!this.dialog`). Add a WorkspaceModel test: mark the import dialog busy, call newScratchNote, and assert importOpen stays true and the editor focus is not requested; and one where it is not busy and it closes as now.
 
-### issue-76/11: Open scratch note's title is re-derived from the whole text on every scratchNotes / scratchTabTitle access, several times per render
+## issue-76/11: Open scratch note's title is re-derived from the whole text on every scratchNotes / scratchTabTitle access, several times per render
 
 Run: issue-76
 Slice: 11 "Scratch notes hardening: carried review items"
@@ -1857,7 +1857,7 @@ Ids, paths and line numbers below are as of the reviewed commit and may have mov
 - Fix: Compute the open scratch note's title once per text change and keep it with the body it was computed from (for example a small memo keyed on session.body and scratch.created), and have scratchTabTitle and scratchNotes read that value. Let scratchNotes return a cached array that changes only when #scratchListed or the memoized title changes, and use the listed count for the presence checks.
 - Fix prompt: In src/app/actions/public/workspace/model.ts, add a private memo for the open scratch note's title: keep the last { body, created, title }, and run scratchTitle again only when session.body or session.scratch.created differs from the stored values. Make scratchTabTitle return the memoized title for the open scratch note. Make the scratchNotes getter return a cached array that is rebuilt only when #scratchListed or the memoized title changes, so the several reads in one render (tab-strip.tsx, scratch-list.tsx, workspace.tsx) neither scan the text again nor allocate new arrays. The workspace.tsx `.length > 0` checks can read the listed count instead.
 
-### issue-76/11: Every scratch-changing hold, and each queued Quick capture, waits on a full sequential scratch listing before it resolves
+## issue-76/11: Every scratch-changing hold, and each queued Quick capture, waits on a full sequential scratch listing before it resolves
 
 Run: issue-76
 Slice: 11 "Scratch notes hardening: carried review items"
@@ -1874,7 +1874,7 @@ Ids, paths and line numbers below are as of the reviewed commit and may have mov
 - Fix: Do not await the relist inside hold's resolution: start it without awaiting it (`void this.#relistScratch().catch(...)`, coalesced through the existing stale flag and refreshScratch's listing counter), so the hold, the editor focus and the next queued New Scratch Note do not wait on GET /api/scratch.
 - Fix prompt: In src/app/actions/public/workspace/navigation.ts, hold's finally block currently does `await this.#relistScratch()`, and #relistScratch awaits host.scratchChanged(), which is WorkspaceModel.refreshScratch awaiting GET /api/scratch (ScratchStore.list reads every kept scratch note one after another). Because newScratch chains on `run` through #scratchCreates, each queued New Scratch Note (a second Quick capture press) waits for the previous one's full listing, and newScratchNote's #focusEditor waits for it too. Start the relist without awaiting it in hold's finally (for example `void this.#relistScratch().catch((error: unknown) => this.#host.fail(error))`), relying on the #scratchListStale flag and refreshScratch's #scratchListings counter to coalesce and drop stale listings. Keep the create-and-show ordering in #scratchCreates. Do the same for the other awaited #relistScratch calls where the caller does not need the list to be fresh before it resolves, and update tests that await the relist through these calls.
 
-### issue-76/11: The page's refresh when a save answers without lists has no model test
+## issue-76/11: The page's refresh when a save answers without lists has no model test
 
 Run: issue-76
 Slice: 11 "Scratch notes hardening: carried review items"
@@ -1891,7 +1891,7 @@ Ids, paths and line numbers below are as of the reviewed commit and may have mov
 - Fix: Add a WorkspaceModel test that makes vault.listTrash reject once during /api/scratch/save, runs saveScratchToVault, and asserts that the scratch tab became the note's tab, that no error notice shows, and that workspace.data.notes lists the new note.
 - Fix prompt: In tests/app/model.test.ts, describe 'WorkspaceModel Save to vault of a scratch note', add a test. Set up scratchBetweenNotes('# Listed\n') and spy vi.spyOn(app.vaults.current!, 'listTrash').mockRejectedValueOnce(new Error('EIO')). Call workspace.saveScratchToVault(id), answer chooseFolder(''), and await it. Assert that the active tab is the note 'Listed.md', that workspace.notice is null, and that workspace.data.notes contains 'Listed.md'.
 
-### issue-76/11: newScratchNote cancelling an open confirm dialog (resolve(false)) is untested
+## issue-76/11: newScratchNote cancelling an open confirm dialog (resolve(false)) is untested
 
 Run: issue-76
 Slice: 11 "Scratch notes hardening: carried review items"
@@ -1908,7 +1908,7 @@ Ids, paths and line numbers below are as of the reviewed commit and may have mov
 - Fix: Add a case with a pending confirm and assert that it resolves to false.
 - Fix prompt: In tests/app/model.test.ts, next to 'closes Preferences, Import, Title renames and an open prompt before a new scratch note takes the focus', add a test that starts a confirm dialog through the model (for example discardScratch of a kept note with confirmDelete on), calls await workspace.newScratchNote(), and asserts that the discard did not happen (the kept scratch note still exists), that workspace.dialog is null, and that the active tab is the new scratch tab.
 
-### issue-76/11: No test pins that a scratch tab close makes one conditional discard instead of a read and then a discard
+## issue-76/11: No test pins that a scratch tab close makes one conditional discard instead of a read and then a discard
 
 Run: issue-76
 Slice: 11 "Scratch notes hardening: carried review items"
@@ -1925,7 +1925,7 @@ Ids, paths and line numbers below are as of the reviewed commit and may have mov
 - Fix: In a Navigation close test, record the requests (heldClient or a spy) and assert that the close sends one POST /api/scratch/discard with ifBlank and no GET /api/scratch/read.
 - Fix prompt: In tests/app/navigation.test.ts, in a test that closes a blank background scratch tab, record the request paths the client sends during navigation.close (for example with net.hold matching '/api/scratch/read' and asserting net.held stays empty, or by spying on api.readScratch) and assert that no /api/scratch/read is sent and that exactly one /api/scratch/discard is sent.
 
-### issue-76/11: New test file cleans up its temp folder in afterEach instead of using `await using`
+## issue-76/11: New test file cleans up its temp folder in afterEach instead of using `await using`
 
 Run: issue-76
 Slice: 11 "Scratch notes hardening: carried review items"
@@ -1941,7 +1941,7 @@ Ids, paths and line numbers below are as of the reviewed commit and may have mov
 - Fix: Use an `await using` temp-folder helper in each test.
 - Fix prompt: In tests/app/scratch-store.test.ts, replace the beforeEach mkdtemp and afterEach rm of `dir` with an async-disposable temp-folder helper (as in tests/lint/e2e-rules.test.ts) used through `await using` in each test. Keep the reset of failing.rename and holding.rename.
 
-### issue-76/11: Flow-mapping note save tests only check that the result parses back, not that the typed comment survives
+## issue-76/11: Flow-mapping note save tests only check that the result parses back, not that the typed comment survives
 
 Run: issue-76
 Slice: 11 "Scratch notes hardening: carried review items"
@@ -1958,7 +1958,7 @@ Ids, paths and line numbers below are as of the reviewed commit and may have mov
 - Fix: Assert the exact text in the 'adds a key' case (or at least that the written YAML still contains '# c' in the add and change cases), so a fallback that rewrites the block and drops the user's comment fails.
 - Fix prompt: In tests/vault/frontmatter.test.ts, describe 'frontmatter as a flow mapping, on a note save', strengthen the 'adds a key' and 'changes a key' cases. Besides the parse-back check, assert that `text` still contains '# c' (expect(text).toContain('# c')), or assert the exact text the current implementation writes. A regression that writes flow-mapping frontmatter anew with stringifyMapping, dropping the comment, must then fail.
 
-### issue-76/11: The route-level write/discard race test finds the window by setImmediate offsets, so it catches a missing serialisation only by timing
+## issue-76/11: The route-level write/discard race test finds the window by setImmediate offsets, so it catches a missing serialisation only by timing
 
 Run: issue-76
 Slice: 11 "Scratch notes hardening: carried review items"
@@ -1975,7 +1975,7 @@ Ids, paths and line numbers below are as of the reviewed commit and may have mov
 - Fix: Make the route test deterministic. Hold the rename of the .md file the same way scratch-store.test.ts does (vi.mock of node:fs/promises rename), send the discard route while the write route waits on it, then release it. Keep the loop only as extra coverage, if at all.
 - Fix prompt: In tests/app/scratch.test.ts, replace or add to the setImmediate loop in 'lets no write racing a discard bring the scratch note back, and answers 404 to a write after it' with a deterministic version. Use a vi.mock of node:fs/promises whose rename waits on a promise for the target `${id}.md`, as tests/app/scratch-store.test.ts does. Start POST /api/scratch/write, wait until the rename is reached, POST /api/scratch/discard, release the rename, then assert that the scratch folder is empty, that list() is [], and that a later write answers 404 NOT_FOUND.
 
-### issue-76/11: The ScratchStore write/discard race test releases the held rename without first showing the discard is queued
+## issue-76/11: The ScratchStore write/discard race test releases the held rename without first showing the discard is queued
 
 Run: issue-76
 Slice: 11 "Scratch notes hardening: carried review items"
@@ -1992,7 +1992,7 @@ Ids, paths and line numbers below are as of the reviewed commit and may have mov
 - Fix: Add a barrier that proves the discard is queued behind the held rename before it is released. For example, also hold (or record) the discard's first fs call, and assert that it has not started while the rename is held. Or wait a few event-loop turns with the rename held and assert that the .md and .json files are both still there, then release the rename.
 - Fix prompt: In tests/app/scratch-store.test.ts, test 'keeps a discard sent while a write waits on its rename from being undone by that rename': before calling release(), wait a few turns (for example `for (let i = 0; i < 5; i++) await setImmediate()` from node:timers/promises) with the rename still held, and assert that readdir(dir) still lists both `${id}.json` and `${id}.md`. That proves discard did not start removing files while the write was mid-rename. Then release and keep the existing assertions. With #serial bypassed, the discard's rm calls run during the wait, so the mid-test assertion fails every time instead of depending on how the thread pool orders the work.
 
-### issue-76/11: The vault-queue Save to vault test does not hold the close, so a save run outside the queue can still get 409 by timing
+## issue-76/11: The vault-queue Save to vault test does not hold the close, so a save run outside the queue can still get 409 by timing
 
 Run: issue-76
 Slice: 11 "Scratch notes hardening: carried review items"
@@ -2009,7 +2009,7 @@ Ids, paths and line numbers below are as of the reviewed commit and may have mov
 - Fix: Gate close at a controllable boundary (for example spy on the vault's close() and hold it), start the save, assert it is still pending while close is held, then release and expect 409 NO_VAULT.
 - Fix prompt: In tests/app/scratch.test.ts, test 'waits in the vault queue: a close queued first makes it answer 409 NO_VAULT, keeping the scratch note': hold the close inside the queue. For example, vi.spyOn(first, 'close') with an implementation that awaits a promise the test resolves. Start app.vaults.close(first.root), start the save request without awaiting it, wait a few turns, and assert that the save has not settled yet (for example a `settled` flag stays false). Then release the close, await both, and keep the 409 NO_VAULT and file assertions. If inVault stops wrapping its task in #exclusive, the save then settles while close is held, and the test fails every time.
 
-### issue-76/11: Scratch list freshness is a dirty flag set by hand at eight mutation sites
+## issue-76/11: Scratch list freshness is a dirty flag set by hand at eight mutation sites
 
 Run: issue-76
 Slice: 11 "Scratch notes hardening: carried review items"
@@ -2026,7 +2026,7 @@ Ids, paths and line numbers below are as of the reviewed commit and may have mov
 - Fix: Have one place mark the list stale: the scratch-mutating API calls. For example, route `createScratch`, `discardScratch` and `saveScratch` (and the 404 outcomes of `readScratch`/`writeScratch`) through small Navigation helpers that set the flag. Or wrap `#api` once in the constructor so every scratch mutation marks it. Make `hold`'s finally the one relist point, with the unheld paths running their request inside a gate-free, lock-free scope that ends in the same relist.
 - Fix prompt: In src/app/actions/public/workspace/navigation.ts, remove the hand-written `this.#scratchListStale = true` assignments from #scratchGone, restore, #discardBlank, newScratch, #discard, saveScratch and #loadScratch. Instead, mark the list stale in one place that every scratch mutation goes through: for example a private helper per scratch API call (create, discard, save) that sets the flag after the call settles (success or 404), plus one helper for the 'found gone' outcome. Then make the explicit #relistScratch calls on unheld paths (background close, unheld discardScratch, #scratchGone) go through one shared 'after a transition' step instead of being repeated. Keep the existing Navigation and model tests for the list refresh passing.
 
-### issue-76/11: Recursive-alias check is a throwaway JSON.stringify of every parsed frontmatter
+## issue-76/11: Recursive-alias check is a throwaway JSON.stringify of every parsed frontmatter
 
 Run: issue-76
 Slice: 11 "Scratch notes hardening: carried review items"
@@ -2043,7 +2043,7 @@ Ids, paths and line numbers below are as of the reviewed commit and may have mov
 - Fix: Name the rule: add a small `isAcyclic`/`hasCycle` check (a WeakSet walk over objects and arrays), or reuse the line-9 JSON clone helper once with a named intent, and call that instead of the bare stringify.
 - Fix prompt: In src/vault/frontmatter.ts parseYamlMapping, replace the bare `JSON.stringify(value)` with a named check, for example `if (hasCycle(value)) return undefined`, where hasCycle walks objects and arrays with a WeakSet of the ancestors on the current path. Keep the existing api.test.ts and scratch.test.ts recursive-alias cases passing.
 
-### issue-76/11: newScratchNote enumerates every modal flag and dialog kind itself
+## issue-76/11: newScratchNote enumerates every modal flag and dialog kind itself
 
 Run: issue-76
 Slice: 11 "Scratch notes hardening: carried review items"
@@ -2060,7 +2060,7 @@ Ids, paths and line numbers below are as of the reviewed commit and may have mov
 - Fix: Give the model one owner of 'dismiss whatever modal is open', for example `#dismissModals({ keep: 'links' })` next to the dialog machinery, so the knowledge of which flags and dialog kinds exist lives beside their declarations.
 - Fix prompt: In src/app/actions/public/workspace/model.ts, move the modal-closing lines at the top of newScratchNote into a private method next to #showDialog/the panel flags, for example `#dismissModals()`. It closes preferences, import and title renames, cancels a prompt, confirm or choose dialog with its cancel value, and keeps an "Update links?" question. Call it from newScratchNote. Keep the existing model tests 'closes Preferences, Import, Title renames and an open prompt…' and the links-question tests passing.
 
-### issue-76/11: A background scratch tab's title after its text was retitled and saved has no test
+## issue-76/11: A background scratch tab's title after its text was retitled and saved has no test
 
 Run: issue-76
 Slice: 11 "Scratch notes hardening: carried review items"
@@ -2077,7 +2077,7 @@ Ids, paths and line numbers below are as of the reviewed commit and may have mov
 - Fix: Add a model test: open a new scratch note, edit it to '# Groceries\n', activate another tab so the gate saves it, then assert that scratchTabTitle(id) is 'Groceries' and that the row's title is 'Groceries', with no refreshScratch in between.
 - Fix prompt: In tests/app/model.test.ts, describe 'WorkspaceModel scratch list', add a test. Call start(false), then await workspace.newScratchNote() and take id = workspace.session.scratch?.id. Call workspace.session.edit('# Groceries\n'), then await workspace.activateTab(workspace.tabs.tabs[0]?.key ?? -1) so the gate saves the text and the scratch tab goes to the background. Do not call refreshScratch. Assert that workspace.session.scratch is null, workspace.scratchTabTitle(id) is 'Groceries', and rows() equals [{ id, title: 'Groceries' }]. The test must fail if the session 'change' listener in the WorkspaceModel constructor stops copying scratch.title and updated into #scratchListed.
 
-### issue-76/11: The unheld Discard branch for a tab that became active or held while the request was out has no test
+## issue-76/11: The unheld Discard branch for a tab that became active or held while the request was out has no test
 
 Run: issue-76
 Slice: 11 "Scratch notes hardening: carried review items"
@@ -2094,7 +2094,7 @@ Ids, paths and line numbers below are as of the reviewed commit and may have mov
 - Fix: Add a Navigation or model test that holds the discard of a background scratch tab's note, activates that tab, releases the discard, and asserts that the tab is gone, the session does not hold the scratch note and the next tab is loaded.
 - Fix prompt: In tests/app/model.test.ts, describe 'WorkspaceModel scratch list', add a test. Call start(false), then keptScratch('# Groceries\n'), then workspace.openScratch(id), then activate tab 0 so the scratch tab is in the background. Call net.hold(onPath('/api/scratch/discard'), { once: true }) and start workspace.discardScratch(id) without awaiting it. Wait for net.held.length to be 1, then await workspace.activateTab(<the scratch tab's key>) and release the held request. Await the discard. Assert that strip() is ['meeting.md'], workspace.session.scratch is null, workspace.session.note?.id is 'meeting.md' and workspace.scratchNotes is []. The test must fail if the `if (shown)` branch in Navigation.discardScratch is removed.
 
-### issue-76/11: The refreshScratch test runs two Arrange/Act/Assert cycles in one body
+## issue-76/11: The refreshScratch test runs two Arrange/Act/Assert cycles in one body
 
 Run: issue-76
 Slice: 11 "Scratch notes hardening: carried review items"
@@ -2111,7 +2111,7 @@ Ids, paths and line numbers below are as of the reviewed commit and may have mov
 - Fix: Split the test into two: one for the out-of-order listing that is dropped, one for the failed listing that shows the error notice.
 - Fix prompt: In tests/app/model.test.ts, split 'drops a listing that returns after a later one, and shows a failed listing as the error notice' into two tests, each with one Arrange / Act / Assert: (1) 'drops a listing that returns after a later one' (hold the first /api/scratch, discard, release, assert scratchNotes is []); (2) 'shows a failed scratch listing as the error notice' (net.fail on /api/scratch, await refreshScratch, assert the error notice).
 
-### issue-76/11: A scratch save's 404 starts a separate, unawaited transition from inside whatever transition's gate is flushing
+## issue-76/11: A scratch save's 404 starts a separate, unawaited transition from inside whatever transition's gate is flushing
 
 Run: issue-76
 Slice: 11 "Scratch notes hardening: carried review items"
@@ -2128,7 +2128,7 @@ Ids, paths and line numbers below are as of the reviewed commit and may have mov
 - Fix: Let the outcome travel back to the transition that is running instead of starting a second one. For example, flush/leave() reports the gone id, and the caller (hold or #switch) closes that tab and lets its own #loadActive load the next one. The 404 then goes through one helper that #loadScratch's 404 branch also uses. Only a save outside any transition (an autosave) needs to start its own hold.
 - Fix prompt: In src/app/actions/public/workspace/navigation.ts, stop #scratchGone from starting its own unawaited hold(#loadActive) while an outer transition's gate is flushing. Pull the 'close the gone scratch tab with the notice, mark the list stale' step into one private helper, and use it from both #scratchGone and #loadScratch's 404 branch. When #scratchGone fires while a hold is running (this.#holds > 0), only close the tab and let the running transition's #loadActive load the active tab. Start hold(() => this.#loadActive(), { gate: false }) only when no hold runs (an autosave). Keep the Navigation tests for a deleted scratch note passing: the switch-after-404 test and the Cmd+W close of a gone scratch tab.
 
-### issue-76/11: The background scratch close re-implements hold's 'save the tabs after the work' by hand through a new #edit save:false switch
+## issue-76/11: The background scratch close re-implements hold's 'save the tabs after the work' by hand through a new #edit save:false switch
 
 Run: issue-76
 Slice: 11 "Scratch notes hardening: carried review items"
@@ -2145,7 +2145,7 @@ Ids, paths and line numbers below are as of the reviewed commit and may have mov
 - Fix: Give hold one option that skips the lock (for example `{ gate: false, lock: false }`), or add a small #deferred(run) helper that runs the work and then does hold's persist and relist. Then the background close and discardScratch's unheld branch both go through it, and #edit loses its `save` option.
 - Fix prompt: In src/app/actions/public/workspace/navigation.ts, remove the `{ save = true }` option from #edit, and the hand-written `await this.#relistScratch(); if (this.#holds === 0) this.#persist()` at the end of the background scratch close in #close. Add one way to run work that defers the tab-store save and the scratch relist like hold, without session.lock(true). For example, add a `lock` option to hold (`hold(run, { gate: false, lock: false })`) that counts the work for #persist and #relistScratch but does not lock the session. Use it for the background close and for discardScratch's unheld branch. Keep the tests that check the active note stays editable during a background scratch close, and that a throwing tab store rejects the close after the blank note is gone.
 
-### issue-76/11: ScratchStore's failure and race tests have to vi.mock the whole node:fs/promises module
+## issue-76/11: ScratchStore's failure and race tests have to vi.mock the whole node:fs/promises module
 
 Run: issue-76
 Slice: 11 "Scratch notes hardening: carried review items"
@@ -2162,7 +2162,7 @@ Ids, paths and line numbers below are as of the reviewed commit and may have mov
 - Fix: Inject the file operations ScratchStore uses (a small { writeFileAtomic, writeJsonFile, rm, readFile, stat } port, defaulting to the real ones) through its constructor, so a test passes a port that fails or holds one call, and the module mock goes away.
 - Fix prompt: In src/app/scratch-store.ts, give the ScratchStore constructor an optional second parameter with the file operations it uses: writeFileAtomic, writeJsonFile, readJsonFile, isFile, rm, readFile, stat, readdir. It defaults to the current imports. In tests/app/scratch-store.test.ts, remove the vi.mock('node:fs/promises') block and the hoisted failing/holding switches. Instead, construct the store with a port whose writeFileAtomic fails for the .md file (the create test) or waits on a promise the test controls (the race test). Keep both tests' assertions the same.
 
-### issue-76/11: Save to vault tests copy the choose-dialog answering steps inline instead of reusing chooseFolder
+## issue-76/11: Save to vault tests copy the choose-dialog answering steps inline instead of reusing chooseFolder
 
 Run: issue-76
 Slice: 11 "Scratch notes hardening: carried review items"
@@ -2179,7 +2179,7 @@ Ids, paths and line numbers below are as of the reviewed commit and may have mov
 - Fix: Move the dialog-answering helper to the file's top level, as answerChoose(folder, value?) built from chooseFolder, and use it in every Save to vault test in both describes.
 - Fix prompt: In tests/app/model.test.ts, move chooseFolder (now inside describe('WorkspaceModel Save to vault of a scratch note')) to the file's top level, or turn it into an `answerFolder(folder, { value })` helper. Replace each inline 'await expect.poll(() => workspace.dialog?.kind).toBe("choose"); const dialog = workspace.dialog; if (dialog?.kind !== "choose") throw …; dialog.resolve(…)' block in describe('WorkspaceModel scratch list') and in the Save to vault describe with a call to it. Keep each test's assertions.
 
-### issue-76/11: A Navigation race test fakes session.flush with a call-order counter instead of holding the request
+## issue-76/11: A Navigation race test fakes session.flush with a call-order counter instead of holding the request
 
 Run: issue-76
 Slice: 11 "Scratch notes hardening: carried review items"
@@ -2196,7 +2196,7 @@ Ids, paths and line numbers below are as of the reviewed commit and may have mov
 - Fix: Drive the ordering through the network boundary the other Navigation tests use (net.hold on the /api/scratch/write of the activate's gate), not by counting session.flush calls.
 - Fix prompt: In tests/app/navigation.test.ts, rewrite 'loads the next tab when a held scratch tab closes while an activate of it waits on the same gate' without vi.spyOn(session, 'flush'). Hold the scratch write with net.hold((url) => url.pathname === '/api/scratch/write' ? 'write' : undefined). Start navigation.activate(scratchKey) and then navigation.close(scratchKey) while the write is held. Release the write and await both. Keep the final assertions: the tabs are ['note'], session.scratch is null, session.note is a.md, the session is not locked and the scratch file is kept.
 
-### issue-76/11: The 'folder removed while it loaded' branch of the new stat check has no test
+## issue-76/11: The 'folder removed while it loaded' branch of the new stat check has no test
 
 Run: issue-76
 Slice: 11 "Scratch notes hardening: carried review items"
@@ -2213,7 +2213,7 @@ Ids, paths and line numbers below are as of the reviewed commit and may have mov
 - Fix: Add a VaultSession test like the 'became a file' one, where the beforeRealpath hook only renames (or removes) the folder, and expect NOT_FOUND 'readme.md is gone; open it again'.
 - Fix prompt: In tests/main/vault-session.test.ts, next to '"Open folder as vault" answers "gone" without the path when the folder became a file while it loaded', add a test that sets fsHooks.beforeRealpath = { path: loose, run: () => rename(loose, `${loose}-moved`) }, so the folder is missing when openVault resolves it. Then expect session.openReaderFolder(ticket) to reject with { code: 'NOT_FOUND', message: 'readme.md is gone; open it again' }, and expect fsHooks.beforeRealpath to be undefined. This pins the stat-rejection branch (`() => false`) in VaultSession.openReaderFolder's catch.
 
-### issue-76/11: The 'names the overlap' test checks only the error code, not the overlap message
+## issue-76/11: The 'names the overlap' test checks only the error code, not the overlap message
 
 Run: issue-76
 Slice: 11 "Scratch notes hardening: carried review items"
@@ -2230,7 +2230,7 @@ Ids, paths and line numbers below are as of the reviewed commit and may have mov
 - Fix: Assert the exact rejection: toMatchObject({ code: 'NOT_A_VAULT', message: 'This folder overlaps the scratch notes’ folder; it cannot be opened as a vault' }), and drop the rejects.not.toMatchObject line.
 - Fix prompt: In tests/main/vault-session.test.ts, in the test '"Open folder as vault" names the overlap when the file's folder holds the scratch notes' folder', replace the two rejection assertions with one: await expect(refused).rejects.toMatchObject({ code: 'NOT_A_VAULT', message: 'This folder overlaps the scratch notes’ folder; it cannot be opened as a vault' }). That message is the one openVault throws for an excluded overlap in src/vault/vault.ts.
 
-### issue-76/11: realPathOf repeats migrate.ts's realTarget: a second helper for 'real path of a path that may not exist yet'
+## issue-76/11: realPathOf repeats migrate.ts's realTarget: a second helper for 'real path of a path that may not exist yet'
 
 Run: issue-76
 Slice: 11 "Scratch notes hardening: carried review items"
@@ -2247,7 +2247,7 @@ Ids, paths and line numbers below are as of the reviewed commit and may have mov
 - Fix: Keep one exported helper for it in src/vault/paths.ts (for example `realPathOfMaybeMissing(file)`, the loop form of migrate's realTarget) and use it from both openVault's exclude check and migrate.ts; delete realPathOf and realTarget.
 - Fix prompt: src/vault/vault.ts adds a private realPathOf(file) that returns the real path of the nearest existing ancestor with the missing segments appended. src/migrate/migrate.ts already has the same helper as realTarget(target) (line ~112). Move one implementation into src/vault/paths.ts as an exported function (keep realTarget's loop form and its ENOENT-only rethrow and root stop), call it from openVault's `exclude` check in src/vault/vault.ts and from migrate.ts, and delete both private copies. Behaviour must not change; the existing scratch.test.ts 'refuses to open … as a vault' cases and the migrate tests cover it.
 
-### issue-76/11: New #scratchTab helper is used for some lookups while discardScratch and saveScratch still inline the same find
+## issue-76/11: New #scratchTab helper is used for some lookups while discardScratch and saveScratch still inline the same find
 
 Run: issue-76
 Slice: 11 "Scratch notes hardening: carried review items"
@@ -2264,7 +2264,7 @@ Ids, paths and line numbers below are as of the reviewed commit and may have mov
 - Fix: Use this.#scratchTab(id) at both remaining sites.
 - Fix prompt: In src/app/actions/public/workspace/navigation.ts, replace `this.tabs.tabs.find((item) => item.kind === 'scratch' && item.id === id)` in Navigation.discardScratch (its first line) and in Navigation.saveScratch (inside the hold, after `this.#scratchListStale = true`) with `this.#scratchTab(id)`. No behaviour change.
 
-### issue-76/11: Startup registration of both hotkeys lives in the Quick capture module
+## issue-76/11: Startup registration of both hotkeys lives in the Quick capture module
 
 Run: issue-76
 Slice: 11 "Scratch notes hardening: carried review items"
@@ -2281,7 +2281,7 @@ Ids, paths and line numbers below are as of the reviewed commit and may have mov
 - Fix: Move registerStoredHotkeys (and its tests) next to hotkeyRegistration in src/main/preferences.ts, or into a small src/main/hotkeys.ts, and keep capture.ts to the capture handler.
 - Fix prompt: Move registerStoredHotkeys from src/main/capture.ts to src/main/preferences.ts (beside createPreferenceServices), drop capture.ts's imports of PreferenceServices, sameAccelerator and UiPreferences, update the import in src/main/main.ts, and move its describe block from tests/main/capture.test.ts to a tests/main/preferences test file. No behaviour change.
 
-### issue-76/11: model.test.ts crosses 1000 lines in this slice (913 → 1199); navigation.test.ts grows to 1404
+## issue-76/11: model.test.ts crosses 1000 lines in this slice (913 → 1199); navigation.test.ts grows to 1404
 
 Run: issue-76
 Slice: 11 "Scratch notes hardening: carried review items"
@@ -2297,7 +2297,7 @@ Ids, paths and line numbers below are as of the reviewed commit and may have mov
 - Fix: Split the scratch describes into their own files (for example tests/app/model-scratch.test.ts for 'WorkspaceModel Save to vault of a scratch note' and 'WorkspaceModel scratch list', and tests/app/navigation-scratch.test.ts for 'Navigation of scratch tabs'), moving the setup they share into tests/app/helpers.ts as CODING_STANDARDS.md asks.
 - Fix prompt: Move the 'WorkspaceModel Save to vault of a scratch note' and 'WorkspaceModel scratch list' describe blocks from tests/app/model.test.ts into a new tests/app/model-scratch.test.ts, and the 'Navigation of scratch tabs' describe from tests/app/navigation.test.ts into tests/app/navigation-scratch.test.ts. Put the setup both new files and the old ones need (start/createNavigation, keptScratch, scratchAfterA, a helper that removes a scratch note's .md and .json on disk) in tests/app/helpers.ts rather than copying it. Keep every test unchanged in behaviour.
 
-### issue-76/11: A scratch tab is named `id`, so the test reads `id?.kind` and `id.id`
+## issue-76/11: A scratch tab is named `id`, so the test reads `id?.kind` and `id.id`
 
 Run: issue-76
 Slice: 11 "Scratch notes hardening: carried review items"
@@ -2314,7 +2314,7 @@ Ids, paths and line numbers below are as of the reviewed commit and may have mov
 - Fix: Name it `scratch` (or take the id from newScratch's rejection path differently) and read `scratch.id`.
 - Fix prompt: In tests/app/navigation.test.ts, test 'surfaces a scratch tab save the tab store refuses, and saves both entries on the next transition', rename `const id = navigation.tabs.tabs.find((item) => item.kind === 'scratch')` to `scratch` (or narrow it to a ScratchTab with a type guard) and use `scratch.id` in the store.scratch expectation. No behaviour change.
 
-### issue-76/11: newScratch doc's "so it is no later transition to it" is hard to parse
+## issue-76/11: newScratch doc's "so it is no later transition to it" is hard to parse
 
 Run: issue-76
 Slice: 11 "Scratch notes hardening: carried review items"
@@ -2331,7 +2331,7 @@ Ids, paths and line numbers below are as of the reviewed commit and may have mov
 - Fix: Rewrite as: "Runs one at a time: a New Scratch Note asked for while one is out (two Quick capture presses) starts only once that one is done, so it does not supersede the first (which would answer `shown: false`) and both scratch notes show."
 - Fix prompt: In src/app/actions/public/workspace/navigation.ts, in the newScratch docstring, replace "starts once that one is done, so it is no later transition to it and both scratch notes show." with "starts only once that one is done, so it does not supersede the first (which would then answer `shown: false`) and both scratch notes show."
 
-### issue-76/11: saveScratchToVault docstring breaks a sentence after "On"
+## issue-76/11: saveScratchToVault docstring breaks a sentence after "On"
 
 Run: issue-76
 Slice: 11 "Scratch notes hardening: carried review items"
@@ -2348,7 +2348,7 @@ Ids, paths and line numbers below are as of the reviewed commit and may have mov
 - Fix: Rewrap the paragraph so "On failure the scratch note and its tab stay and the notice says why." sits together.
 - Fix prompt: In src/app/actions/public/workspace/model.ts, in the saveScratchToVault docstring, join the line ending "the note went. On" with the next line beginning "failure the scratch note and its tab stay" and rewrap the paragraph to the file's comment width, without changing any words.
 
-### issue-76/11: [high] New Scratch Note / Quick capture still unmounts a busy Import or Title renames dialog, losing its result and error
+## issue-76/11: [high] New Scratch Note / Quick capture still unmounts a busy Import or Title renames dialog, losing its result and error
 
 Run: issue-76
 Slice: 11 "Scratch notes hardening: carried review items"
@@ -2365,7 +2365,7 @@ Ids, paths and line numbers below are as of the reviewed commit and may have mov
 - Fix: Have newScratchNote leave a busy Import or Title renames dialog open. For example, move the busy state into the model (flags the dialogs set through a model method when their run or apply starts and ends), skip closing a busy dialog, and then create the scratch note without moving the focus behind it, as the code already does for an open 'Update links?' question. Add a model test that marks Import busy, calls newScratchNote, and checks that importOpen stays true and the editor focus is not requested.
 - Fix prompt: In src/app/actions/public/workspace/model.ts, WorkspaceModel.newScratchNote unconditionally sets importOpen and titleRenamesOpen to false. ImportDialog (import-dialog.tsx) and TitleRenamesDialog (title-renames-dialog.tsx) keep a local `busy` flag and refuse to close while their work runs, because their result and error live only in their component state, and workspace.tsx renders them only while the model flags are true. Give the model a busy state for each of the two dialogs: for example importBusy and titleRenamesBusy, set by the dialogs through model methods when run/apply starts and cleared in a finally when it ends. In newScratchNote, do not close a dialog that is busy. Still create the scratch note, but skip #focusEditor while such a dialog stays open, as the code already does when an 'Update links?' dialog stays. Keep closing Preferences and the idle dialogs as now. Add a tests/app/model.test.ts case: set the import busy, open Import, call newScratchNote, and assert that importOpen is still true, a scratch tab opened, and no editor focus was requested. Add a second case with Title renames busy.
 
-### issue-76/11: [high] Comments still say a folder that overlaps the scratch folder is refused, but a vault that holds it now opens
+## issue-76/11: [high] Comments still say a folder that overlaps the scratch folder is refused, but a vault that holds it now opens
 
 Run: issue-76
 Slice: 11 "Scratch notes hardening: carried review items"
@@ -2382,7 +2382,7 @@ Ids, paths and line numbers below are as of the reviewed commit and may have mov
 - Fix: Restate the current rule in each place: refused only when the folder is the scratch folder or lies inside it; a vault that holds it opens and leaves it out. For example: cli/main.ts:217 "// The app's scratch notes live outside every vault: the scratch folder or a folder inside it is no vault here, and a vault that holds it leaves it out."; errors.ts:24 "`openVault`'s refusal of a folder that is its `exclude` folder or lies inside it (the scratch notes' folder)."; vault-session.ts:21 "The scratch notes' folder (`openVault`'s `exclude`): no vault opens on it or inside it, and a vault that holds it leaves it out."; vault-session.ts:147-148 and 243-244: "… when the folder is the scratch notes' folder or lies inside it (`exclude`) …".
 - Fix prompt: Update five comments to match openVault's current exclude rule (src/vault/vault.ts:229-251): it refuses with ScratchOverlapError only a folder that is the exclude folder or lies inside it, and a vault that holds the exclude folder opens and leaves it out. Edit (1) src/cli/main.ts:217 so it no longer says that a folder overlapping the scratch folder is no vault; (2) the ScratchOverlapError docstring at src/vault/errors.ts:24 so it says the refusal covers the exclude folder itself or a folder inside it; (3) VaultSessionOptions.exclude at src/main/vault-session.ts:21 ('A folder no vault may overlap') so it says no vault opens on it or inside it and a holder vault leaves it out; (4) the openReaderFolder docstring at src/main/vault-session.ts:147-148 and (5) the open docstring at src/main/vault-session.ts:243-244 so the ScratchOverlapError / NOT_A_VAULT case reads 'when the folder is the scratch notes' folder or lies inside it' instead of 'overlaps'. Change comments only, no code.
 
-### issue-76/11: [high] Docs say no vault may overlap the scratch folder, but a vault that holds it now opens
+## issue-76/11: [high] Docs say no vault may overlap the scratch folder, but a vault that holds it now opens
 
 Run: issue-76
 Slice: 11 "Scratch notes hardening: carried review items"
@@ -2405,7 +2405,7 @@ A caller reading VaultSession.open's throw list, or the CLI comment, would expec
 - Fix: Reword each comment to the actual rule: the folder is refused when it is the scratch notes' folder or lies inside it; a folder that holds it opens and leaves it out. Suggested texts: vault-session.ts:21 "The scratch notes' folder (`openVault`'s `exclude`): no vault opens on it or inside it, and a vault that holds it leaves it out." vault-session.ts:147-148 and 243-244: "…when the folder is the scratch notes' folder or lies inside it (`exclude`)…". cli/main.ts:217: "The app's scratch notes live outside every vault: the scratch folder, or a folder inside it, is no vault here either, and a vault that holds it leaves it out." errors.ts:24: "`openVault`'s refusal of its `exclude` folder (the scratch notes' folder) or a folder inside it."
 - Fix prompt: Update the comments that say the scratch-folder refusal covers any folder that "overlaps" the scratch notes' folder. openVault refuses only the exclude folder itself or a folder inside it; a folder that holds it opens and leaves it out. Edit: (1) src/main/vault-session.ts:21: replace "A folder no vault may overlap (`openVault`'s `exclude`): the scratch notes' folder." with "The scratch notes' folder (`openVault`'s `exclude`): no vault opens on it or inside it, and a vault that holds it leaves it out." (2) src/main/vault-session.ts:147-148 in the openReaderFolder doc and (3) src/main/vault-session.ts:243-244 in the open doc: replace "overlaps the scratch notes' folder (`exclude`)" with "is the scratch notes' folder or lies inside it (`exclude`)". (4) src/cli/main.ts:217: replace the comment with "The app's scratch notes live outside every vault: the scratch folder, or a folder inside it, is no vault here either, and a vault that holds it leaves it out." (5) src/vault/errors.ts:24: replace with "`openVault`'s refusal of its `exclude` folder (the scratch notes' folder) or a folder inside it." Do not change any code.
 
-### issue-76/11: The new restore guard for a trash entry that holds the scratch folder has no test
+## issue-76/11: The new restore guard for a trash entry that holds the scratch folder has no test
 
 Run: issue-76
 Slice: 11 "Scratch notes hardening: carried review items"
@@ -2422,7 +2422,7 @@ Ids, paths and line numbers below are as of the reviewed commit and may have mov
 - Fix: Add a tests/vault/vault.test.ts case in 'openVault exclude' that trashes a folder (or a note's assets folder) holding the excluded folder before the vault opens with exclude, then expects vault.restore(trashId) to reject with INVALID_PATH and the scratch file to stay in place.
 - Fix prompt: In tests/vault/vault.test.ts, in describe('openVault exclude'), add a test: open the vault without exclude, put 'holder/scratch/a.md' and 'kept.md', deleteFolder('holder') so it goes to the trash, close the vault, find the trashed path of the scratch folder (listTrash gives the trash id; the scratch folder lies under .trash/<entry>), reopen with openVault(root, { exclude: <that scratch path> }), and expect vault.restore(trashId) to reject with { code: 'INVALID_PATH' } while the scratch a.md is still readable at its trash path. Add a second case for a trashed note whose <note>.assets folder holds the scratch folder.
 
-### issue-76/11: The 'reopen waits for the blank discard' guard covers one of the three close paths that send it
+## issue-76/11: The 'reopen waits for the blank discard' guard covers one of the three close paths that send it
 
 Run: issue-76
 Slice: 11 "Scratch notes hardening: carried review items"
@@ -2439,7 +2439,7 @@ Ids, paths and line numbers below are as of the reviewed commit and may have mov
 - Fix: Track the discard where it is sent: have #discardBlank itself put its promise in #discarding (and remove it when it settles), so every close path, held or not, makes a reopen wait. The unheld branch then needs no bookkeeping of its own.
 - Fix prompt: In src/app/actions/public/workspace/navigation.ts, move the #discarding bookkeeping from the unheld background-close branch of #close into #discardBlank. #discardBlank should set this.#discarding.set(id, promise) for its own request and delete the entry in a finally when it is still that promise. Then the held background close and the active close's then-hook also make #loadScratch wait. Remove the now-duplicated set/delete lines from #close. Add a tests/app/navigation.test.ts case: with a blank active scratch tab, hold /api/scratch/discard with net.hold, close the tab, call navigation.openScratch(id) while the discard is held, release it, and assert that no session holds the scratch note and that the reopened tab is closed with the 'no longer exists' notice, mirroring the existing background-close test.
 
-### issue-76/11: The scratch-folder exclusion misses the trash destinations of deletes and the assets copy of Markdown export
+## issue-76/11: The scratch-folder exclusion misses the trash destinations of deletes and the assets copy of Markdown export
 
 Run: issue-76
 Slice: 11 "Scratch notes hardening: carried review items"
@@ -2456,7 +2456,7 @@ Ids, paths and line numbers below are as of the reviewed commit and may have mov
 - Fix: Apply the exclusion to the remaining paths: resolve the .trash destinations of deleteNote and deleteFolder through the exclusion-aware #resolve (or refuse a destination inside the excluded folder), and have exportNoteMarkdown skip the excluded subtree when it copies a note's assets folder (for example a cp filter that leaves out paths inside it, exposed from the Vault). Add vault tests for a scratch folder at .trash/<x>/scratch with a delete of a note in folder <x>/scratch, and an export test for a note whose assets folder holds the scratch folder.
 - Fix prompt: src/vault/vault.ts openVault now opens a vault that holds the excluded (scratch) folder and documents that the folder is never listed, read, written, moved or trashed, and the tests cover holders in .trash, .boostnote and a note's *.assets folder. Two paths still bypass the exclusion. (1) deleteNote (about line 710) and deleteFolder (about line 855) compute the trash destination with plain resolveInside(this.root, [TRASH_DIR, ...]); with the scratch folder at <root>/.trash/app/scratch, deleting a note in vault folder app/scratch moves it into the scratch folder, and emptyTrash then keeps it there for good. Resolve these destinations so a target inside #excluded is refused (an INVALID_PATH like #resolve gives). (2) exportNoteMarkdown in src/markdown/export.ts copies the note's whole <stem>.assets folder with cp(..., { recursive: true }); when that folder holds the scratch folder, the export copies every scratch note and sidecar. Skip the excluded subtree in that copy, for example with cp's filter option and a Vault method that says whether a path lies in the excluded folder. Add tests in tests/vault/vault.test.ts for (1) and in the markdown export tests for (2).
 
-### issue-76/11: The scratch folder's location is rebuilt by hand in the CLI as well as in the app's main
+## issue-76/11: The scratch folder's location is rebuilt by hand in the CLI as well as in the app's main
 
 Run: issue-76
 Slice: 11 "Scratch notes hardening: carried review items"
@@ -2473,7 +2473,7 @@ Ids, paths and line numbers below are as of the reviewed commit and may have mov
 - Fix: Give the scratch folder location one owner, for example a small exported helper (scratchDirOf(userDataDir)) next to ScratchStore or in src/shared, used by main.ts, the CLI and tests/app/helpers.ts.
 - Fix prompt: Add one exported helper that maps a userData folder to the scratch notes' folder (for example `export function scratchDirOf(userData: string): string { return path.join(userData, 'scratch') }` beside ScratchStore in src/app/scratch-store.ts or in src/cli/vault-dir.ts). Use it in src/main/main.ts for scratchDir, in src/cli/main.ts runCli for `exclude`, and in tests/app/helpers.ts where TestApp builds <dir>/userData/scratch, so the folder name is written once.
 
-### issue-76/11: A listing older than a scratch save still reverts that note's title once the session holds another note, or when the save shares the listed millisecond
+## issue-76/11: A listing older than a scratch save still reverts that note's title once the session holds another note, or when the save shares the listed millisecond
 
 Run: issue-76
 Slice: 11 "Scratch notes hardening: carried review items"
@@ -2490,7 +2490,7 @@ Ids, paths and line numbers below are as of the reviewed commit and may have mov
 - Fix: Keep the last save of each scratch note, not only the one the session holds. For example, record id → { title, updated, generation } on every scratch save (the session 'change' or 'saved' event), and when a listing lands, use the recorded save for any row whose listing started before that save (compare a save counter taken when the listing started, not ISO strings). Alternatively, bump #scratchListings on every scratch save so a listing started earlier is dropped and a new one runs. Either way, case 2 (a switch before the listing lands) and case 3 (equal millisecond) must keep the saved title.
 - Fix prompt: In src/app/actions/public/workspace/model.ts, refreshScratch replaces #scratchListed with a listing, and #withOpenScratch overlays only this.session.scratch, and only when its updated is strictly later than the listed row's. Two orders still put an old title back: (a) a listing reads scratch A, A autosaves, the user switches to another tab (no relist runs), then the listing lands, so A's row and its background tab title revert; (b) the save and the listing's stat share one millisecond (updated comes from mtime.toISOString()), so the strict comparison keeps the stale row. Fix both by not judging freshness from the session alone or by ISO strings. For example, keep a counter incremented on every scratch save, record the counter value at the start of each listing, and keep a map of id → last saved { title, updated, counter }. When a listing lands, for each row whose last save's counter is later than the listing's start, use the saved title and updated, then sort newest first. Alternatively, make each scratch save invalidate in-flight listings (bump #scratchListings) and list again. Extend the model test for the delayed listing: hold GET /api/scratch, save A, activate another tab, release the listing, and assert scratchTabTitle(A) is the saved title.
 
-### issue-76/11: A sidecar that exists but cannot be read (EACCES, EISDIR) makes read, write and the whole scratch list fail
+## issue-76/11: A sidecar that exists but cannot be read (EACCES, EISDIR) makes read, write and the whole scratch list fail
 
 Run: issue-76
 Slice: 11 "Scratch notes hardening: carried review items"
@@ -2507,7 +2507,7 @@ Ids, paths and line numbers below are as of the reviewed commit and may have mov
 - Fix: In #created, treat any failure to read the sidecar as no valid sidecar: catch errors from readJsonFile (or read the file through a small helper that answers undefined on any error), then take the birth time and persist it best effort as now. The best-effort write already swallows its own failure.
 - Fix prompt: In src/app/scratch-store.ts ScratchStore.#created, wrap `await readJsonFile(this.#meta(id))` so that any rejection (EACCES, EISDIR, EIO as well as ENOENT and invalid JSON) counts as an unreadable sidecar: `const meta = await readJsonFile(this.#meta(id)).catch(() => undefined)`. Keep the birth-time fallback and the best-effort `writeJsonFile(...).catch(() => {})`. Add a ScratchStore test that replaces <id>.json with a directory, then calls read(id) and list() and expects the note with its file's birth time as created, not a rejection.
 
-### issue-76/11: The holder and exclusion guards compare paths as requested, so a symlinked ancestor, a case variant or a trash destination reaches the scratch folder
+## issue-76/11: The holder and exclusion guards compare paths as requested, so a symlinked ancestor, a case variant or a trash destination reaches the scratch folder
 
 Run: issue-76
 Slice: 11 "Scratch notes hardening: carried review items"
@@ -2524,7 +2524,7 @@ Ids, paths and line numbers below are as of the reviewed commit and may have mov
 - Fix: Guard on real paths and on every destination. Before a folder move or delete, realpath the source folder (and for a note, its assets folder when it exists) and refuse when that real path holds the excluded folder, so symlinked ancestors and case variants are caught. Resolve trash destinations (trashDir in deleteNote, trashParent in deleteFolder) through the exclusion check too, so nothing is moved into the excluded folder.
 - Fix prompt: In src/vault/vault.ts, #guardHolder compares the lexical path of the requested id with the excluded folder's real path. Make the holder check use the real path. For deleteFolder and #relocateFolder, call it on `await realpath(dir)` after #existingFolder, not on path.join(root, ...folderSegments(id)). For deleteNote and #relocateNote, call it on the realpath of assetsDirOf(file) when that folder exists. Then an id under an in-vault symlink to an ancestor of the scratch folder, or a case variant such as 'library' on macOS, is refused too. Also apply the exclusion to trash destinations. In deleteNote, build trashDir with this.#resolve (or resolveInside(root, segments, this.#excluded)) instead of plain resolveInside, and do the same for trashParent in deleteFolder, so nothing is moved into the scratch folder when it sits under .trash. Add tests in tests/vault/vault.test.ts: a vault holding the excluded folder with a symlink <root>/lnk -> the excluded folder's parent's parent, where deleteFolder('lnk/<parent name>') and moveFolder of it are refused with the folder still in place; and the excluded folder at <root>/.trash/foo/scratch, where deleteNote('foo/scratch/<32 hex>.md') is refused (or moves nothing into the excluded folder).
 
-### issue-76/11: Trashing a note can move it into the excluded scratch folder when that folder sits in the vault's .trash
+## issue-76/11: Trashing a note can move it into the excluded scratch folder when that folder sits in the vault's .trash
 
 Run: issue-76
 Slice: 11 "Scratch notes hardening: carried review items"
@@ -2541,7 +2541,7 @@ Ids, paths and line numbers below are as of the reviewed commit and may have mov
 - Fix: Resolve trash destinations with the excluded folder, so that a trash path at or inside it is refused. One way: give the deleteNote and deleteFolder trash resolveInside calls, and #trashPath, this.#excluded. Another: check isInside(this.#excluded, destination) before the rename and throw INVALID_PATH. Add a vault test with exclude <root>/.trash/scratch that deletes a note at scratch/<32 hex>.md. It should expect a refusal, or a destination outside the excluded folder, and the scratch folder's contents unchanged.
 - Fix prompt: In src/vault/vault.ts, Vault.deleteNote and Vault.deleteFolder resolve their .trash destination with resolveInside(this.root, [TRASH_DIR, ...]) and leave out this.#excluded, and #trashPath (used by restore) does the same. When the excluded scratch folder is <root>/.trash/<something>, which openVault now accepts, trashing a note or folder from <root>/<something>/ renames it into the scratch folder. Pass this.#excluded to these resolveInside calls (use this.#resolve with the TRASH_DIR segments), so a destination at or inside the excluded folder throws INVALID_PATH before anything is renamed. Add a test to tests/vault/vault.test.ts. Open a vault with exclude path.join(root, '.trash', 'scratch'), which already holds a scratch file, and create a note scratch/<32 hex>.md. Assert that deleteNote of that note is refused, or leaves the excluded folder's entries and file contents unchanged, and that no vault file appears in the excluded folder.
 
-### issue-76/11: emptyTrash's removeExcept follows a symlinked folder on the way to the excluded folder and deletes outside the vault
+## issue-76/11: emptyTrash's removeExcept follows a symlinked folder on the way to the excluded folder and deletes outside the vault
 
 Run: issue-76
 Slice: 11 "Scratch notes hardening: carried review items"
@@ -2558,7 +2558,7 @@ Ids, paths and line numbers below are as of the reviewed commit and may have mov
 - Fix: Walk toward `keep` without following symlinks. Use readdir(target, { withFileTypes: true }) and lstat. Descend only into a real directory (entry.isDirectory() is true and the entry is not a symbolic link). Remove anything else, a symlink included, with rm, which unlinks it without following it. Optionally, check once that realpath(target) still equals target before descending.
 - Fix prompt: In src/vault/vault.ts, removeExcept(target, keep) descends into any path that lexically holds `keep` by calling readdir(target), which follows symlinks, and then rm-recursives the entries under it. If a folder on the way to the excluded scratch folder is a symlink, Empty Trash deletes the contents of the symlink's target outside the vault. Change removeExcept so it never follows a symlink. Before descending, lstat(target): if it is a symbolic link or not a directory, rm(target, { force: true }) and return (or keep it when target === keep). Only real directories are read and walked. Add a test in tests/vault/vault.test.ts: open a vault whose exclude is <root>/.trash/app/scratch while <root>/.trash/app does not exist yet. Then create <root>/.trash/app as a symlink to an outside folder holding a file, call emptyTrash(), and assert that the outside file still exists.
 
-### issue-76/11: CLI and MCP exclude only the default profile's scratch folder, so a side-by-side profile's scratch notes are exposed
+## issue-76/11: CLI and MCP exclude only the default profile's scratch folder, so a side-by-side profile's scratch notes are exposed
 
 Run: issue-76
 Slice: 11 "Scratch notes hardening: carried review items"
@@ -2575,7 +2575,7 @@ Ids, paths and line numbers below are as of the reviewed commit and may have mov
 - Fix: Let the CLI learn which scratch folder to exclude when the app runs on a non-default profile. One way: a BOOSTNOTE_USER_DATA_DIR env var (or a --user-data-dir flag) that appUserDataDir honours. Another: the app records its scratch folder somewhere the CLI reads. At least document that a vault holding a side-by-side profile's scratch folder is not protected in the CLI and MCP server.
 - Fix prompt: src/cli/main.ts runCli excludes path.join(appUserDataDir(io.env), 'scratch'), which is always the default profile (<appData>/Boostnote Modern). The app's main (src/main/main.ts, the hasSwitch('user-data-dir') branch) keeps scratch notes under whatever --user-data-dir it was launched with. So with a side-by-side profile, `boostnote --vault <dir holding that profile>` and the MCP server index its scratch notes as vault notes, and an MCP client can read, edit, move or delete them. Make appUserDataDir in src/cli/vault-dir.ts honour an override the app's profile can also be given, such as a BOOSTNOTE_USER_DATA_DIR env var, and use it for both the settings file and the scratch exclusion. Add a tests/cli/scratch-exclude.test.ts case: with the override set to <tmp>/profile, opening <tmp> as a vault lists no scratch notes from <tmp>/profile/scratch.
 
-### issue-76/11: scratchNotes now hands out the model's own #scratchListed array under a mutable type
+## issue-76/11: scratchNotes now hands out the model's own #scratchListed array under a mutable type
 
 Run: issue-76
 Slice: 11 "Scratch notes hardening: carried review items"
@@ -2592,7 +2592,7 @@ Ids, paths and line numbers below are as of the reviewed commit and may have mov
 - Fix: Type the list as readonly: make #scratchListed a readonly ScratchSummary[] (or ReadonlyArray<Readonly<ScratchSummary>>) and give the scratchNotes getter that return type, so the compiler refuses an in-place change.
 - Fix prompt: In src/app/actions/public/workspace/model.ts, change `#scratchListed: ScratchSummary[] = []` to `#scratchListed: readonly ScratchSummary[] = []`, and change the return type of `get scratchNotes()` and `#withOpenScratch` (parameter and result) to `readonly ScratchSummary[]`. Fix any caller the typecheck then flags (scratch-list.tsx and workspace.tsx only read it). No behaviour change.
 
-### issue-76/11: newScratchNote's late focus checks only the dialog, so a panel opened while the create is out gets the editor focused behind it
+## issue-76/11: newScratchNote's late focus checks only the dialog, so a panel opened while the create is out gets the editor focused behind it
 
 Run: issue-76
 Slice: 11 "Scratch notes hardening: carried review items"
@@ -2609,7 +2609,7 @@ Ids, paths and line numbers below are as of the reviewed commit and may have mov
 - Fix: At focus time, check every modal the command closed before the create, not only the dialog: focus the editor only when no dialog shows and preferencesOpen, importOpen and titleRenamesOpen are all false (for example one private `#modalOpen` getter used both here and by the closing code above).
 - Fix prompt: In src/app/actions/public/workspace/model.ts WorkspaceModel.newScratchNote, the line `if (created?.shown && !this.dialog) this.#focusEditor(true)` checks only the dialog. Add a private getter (for example `get #modalOpen()`) that is true when this.dialog is set or preferencesOpen, importOpen or titleRenamesOpen is true, and focus the editor only when `created?.shown && !this.#modalOpen`. Add a model test: hold /api/scratch/create (net.hold), call newScratchNote(), set preferencesOpen = true (as opening Preferences does) while the create is held, release it, and expect no editor-focus request (takeEditorFocus() returns null and no focus event fired).
 
-### issue-76/11: The scratch-folder exclusion is checked by hand at each Vault call site, in a vault module that now names the app's scratch feature
+## issue-76/11: The scratch-folder exclusion is checked by hand at each Vault call site, in a vault module that now names the app's scratch feature
 
 Run: issue-76
 Slice: 11 "Scratch notes hardening: carried review items"
@@ -2626,7 +2626,7 @@ Ids, paths and line numbers below are as of the reviewed commit and may have mov
 - Fix: Make the exclusion one owned rule rather than a check per method. Route every path Vault builds, trash destinations included, through one resolver that applies the excluded-folder rule, and put the 'this entry holds the excluded folder' refusal into the single move/remove primitive that deleteNote, deleteFolder, restore and the relocations share. Then no method can skip it. Keep src/vault generic: name the error after the option (for example an ExcludedFolderError, or a VaultError code with the message passed in by the caller) and let VaultSession or the CLI supply the scratch wording.
 - Fix prompt: In src/vault/vault.ts, replace the per-call-site exclusion checks with one enforcement point. (1) Make every path the Vault builds go through #resolve, including the trash destinations in deleteNote (trashDir), deleteFolder (trashParent) and #trashPath, so no raw resolveInside(this.root, …) call is left in the class. (2) Move the #guardHolder refusal into one shared helper that every rename or rm of a vault entry goes through (delete, restore, folder and note relocations, assets folder moves), instead of calling #guardHolder by hand before each one. (3) Keep src/vault free of app wording: rename ScratchOverlapError in src/vault/errors.ts to a generic name tied to openVault's `exclude` option, and drop 'scratch notes’ folder' from the messages in src/vault/paths.ts resolveInside and Vault.#guardHolder (use a generic 'excluded folder' text, or let the caller pass the message). Update src/main/vault-session.ts and src/cli/main.ts to the new name, and keep the existing tests in tests/vault/vault.test.ts and tests/cli/scratch-exclude.test.ts passing.
 
-### issue-76/11: The CLI exclude test has to vi.mock node:os because appUserDataDir reads the home folder from a global
+## issue-76/11: The CLI exclude test has to vi.mock node:os because appUserDataDir reads the home folder from a global
 
 Run: issue-76
 Slice: 11 "Scratch notes hardening: carried review items"
@@ -2643,7 +2643,7 @@ Ids, paths and line numbers below are as of the reviewed commit and may have mov
 - Fix: Pass the home folder through the seam that already exists: give CliIo (or appUserDataDir) the home folder, defaulting to os.homedir() at the entry point, and have the test pass the temp folder instead of mocking node:os.
 - Fix prompt: In src/cli/vault-dir.ts and src/cli/main.ts, let appUserDataDir take the home folder as a parameter (for example appUserDataDir(env, home = os.homedir())), and give CliIo an optional `home` that runCli passes on. In tests/cli/scratch-exclude.test.ts, remove the vi.hoisted `home` object and the vi.mock('node:os') block, and pass the temp folder as `home` in the CliIo the cli() helper builds.
 
-### issue-76/11: A discard test monkeypatches session.lock to count hold calls instead of observing the editor at the network boundary
+## issue-76/11: A discard test monkeypatches session.lock to count hold calls instead of observing the editor at the network boundary
 
 Run: issue-76
 Slice: 11 "Scratch notes hardening: carried review items"
@@ -2660,49 +2660,49 @@ Ids, paths and line numbers below are as of the reviewed commit and may have mov
 - Fix: Assert the behaviour the way the sibling tests do. Hold POST /api/scratch/discard with net.hold, check session.locked is false while the request is out (and, if wanted, that session.edit is accepted), then release it. Do not reassign session.lock.
 - Fix prompt: In tests/app/navigation.test.ts, rewrite 'closes a tab-less discarded row without holding the open note while no tab is active'. Remove the session.lock reassignment and the `holds` counter. Instead, hold the discard request with net.hold((url) => (url.pathname === '/api/scratch/discard' ? 'discard' : undefined), { once: true }), start navigation.discardScratch(other), wait with expect.poll until net.held has one entry, expect(session.locked).toBe(false), release the held request, await the discard, and keep the final scratchIds assertion. Mirror 'keeps the active note editable while a background scratch tab’s blank check is out' in the same describe.
 
-### issue-76/retro: Detect and restart a hung subagent model request
+## issue-76/retro: Detect and restart a hung subagent model request
 
 Run: issue-76
 Retro finding (factory, tool-economy, high)
 
 In slice 11 fix round 4, implementer Impl11Fix4 stopped at 123 requests from 11:34; for about 15 minutes its session file got only cache-warm model_usage records (stopReason length). A message to agent://Impl11Fix4 did not wake it. The orchestrator had to find this by hand (proc status, session-file mtime), kill the agent and spawn a second implementer with a hand-written resume note about one commit and uncommitted edits. The earlier session of this run also aborted mid-implementer. The factory could watch implementer progress (no new request for N minutes) and give the orchestrator a resume recipe: kill, then spawn a fresh fix-mode implementer told which commits since the fix file exist and which tracked files are dirty.
 
-### issue-76/retro: End-queue follow-up slice took 66 carried items in one slice
+## issue-76/retro: End-queue follow-up slice took 66 carried items in one slice
 
 Run: issue-76
 Retro finding (factory, no-ops, high)
 
 Slice 11 carried 66 end-queue items from slices 01-10 (ticket 854 lines). Peak implementer context was 379,777 of the 400,000 budget, the slice used all 3 fix rounds, each fix round raised new findings (r1 3 high, r3 1, r5 1, r6 2, r7 1), and it ended accepted unresolved with high findings still open. factory_follow_up puts every waiting item into one slice; it should split the queue into several follow-up slices by area (for example store/routes, navigation/tabs, hotkeys, frontmatter, e2e) with an item or token cap per slice.
 
-### issue-76/retro: Accepted-unresolved high findings are raised again by later reviews
+## issue-76/retro: Accepted-unresolved high findings are raised again by later reviews
 
 Run: issue-76
 Retro finding (factory, no-ops, medium)
 
 bug-new-scratch-closes-busy-import-and-title-renames-dialogs was accepted unresolved after review 11-r5 and sent to DEFERRED.md. Review 11-r6 raised it again as holistic-new-scratch-closes-busy-import-and-title-renames-dialogs and the validator kept it high because accepted-unresolved findings are not in the KNOWN OBSERVATIONS ledger, so it had no rule to drop it. Add accepted-unresolved findings to the ledger the validator checks, marked as accepted unresolved.
 
-### issue-76/retro: Fix-mode advisor pushed design churn beyond the fix items
+## issue-76/retro: Fix-mode advisor pushed design churn beyond the fix items
 
 Run: issue-76
 Retro finding (factory, coding-standards, medium)
 
 In fix round 4 an advisor blocker made the implementer rework openVault's scratch-folder rule three times (e32426e5 refuse holders, 7a718763 refuse assets holders, d99df967 open holders and guard moves/restores/empty-trash). The churn left stale 'overlap is refused' comments in src/cli/main.ts, src/vault/errors.ts and src/main/vault-session.ts, which became the high comments finding in 11-r6 and 11-r7 that no fix round remained to fix. In the last fix round, a design change that reverses earlier commits should stop as an Open question for the orchestrator instead of landing, and the comments sibling search should run on every commit of the round.
 
-### issue-76/retro: pnpm run test fails on first run and passes on rerun
+## issue-76/retro: pnpm run test fails on first run and passes on rerun
 
 Run: issue-76
 Retro finding (repo, automated-checks, medium)
 
 factory_checks marked pnpm run test flaky three times in slice 11 (first run exit 1 in about 11-12s, pass on rerun). The implementer also saw a model.test.ts focus test ('leaves the editor focus alone when a new scratch note opens with an Update links? question parked under a prompt') fail under parallel load. Find the flaky vitest tests in tests/app (model.test.ts, navigation.test.ts) and remove their timing dependence, for example by awaiting the hold or gate the test depends on instead of sleeps.
 
-### issue-76/retro: Editor stays read-only while overlapping holds run; New Scratch Note focuses it anyway
+## issue-76/retro: Editor stays read-only while overlapping holds run; New Scratch Note focuses it anyway
 
 Run: issue-76
 Retro finding (repo, information-access, medium)
 
 Fix round 2 found that Navigation.hold unlocks the session only after every overlapping hold settles, but WorkspaceModel.newScratchNote focuses the new scratch editor when its own hold returns. A New Scratch Note or Quick capture started while an earlier close's hold still loads the next note focuses a read-only editor, and keys typed at once are dropped (seen in tests/e2e/scratch.spec.ts as 'eep this'). The e2e test now waits for an editable editor, but the product behaviour is unchanged. Add a Navigation/model test that overlaps a close with newScratch and asserts the focused editor is editable, then focus only once no hold runs.
 
-### issue-76/retro: Import can copy scratch notes into a vault
+## issue-76/retro: Import can copy scratch notes into a vault
 
 Run: issue-76
 Retro finding (repo, information-access, low)
