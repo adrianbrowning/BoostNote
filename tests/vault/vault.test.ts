@@ -50,11 +50,38 @@ describe('openVault exclude', () => {
     expect((await vault.tree()).notes.map((note) => note.id)).toEqual(['kept.md'])
   })
 
-  it('still refuses a root that holds the excluded folder where it would be indexed', async () => {
-    await mkdir(path.join(root, 'app', 'scratch'), { recursive: true })
-    await expect(openVault(root, { exclude: path.join(root, 'app', 'scratch') })).rejects.toMatchObject({
-      code: 'NOT_A_VAULT',
+  it.each([
+    ['.trash', '.trash/app/scratch'],
+    ['.boostnote', '.boostnote/app/scratch'],
+  ])('refuses a root that holds the excluded folder in its own %s folder', async (_, rel) => {
+    await mkdir(path.join(root, rel), { recursive: true })
+    await expect(openVault(root, { exclude: path.join(root, rel) })).rejects.toMatchObject({ code: 'NOT_A_VAULT' })
+  })
+
+  it('opens a root that holds the excluded folder elsewhere, and never lists, reads, writes or moves it', async () => {
+    const scratch = path.join(root, 'app', 'data', 'scratch')
+    await put('app/data/scratch/a.md', '# Scratch')
+    await put('app/data/other.md', '# Other')
+    await put('kept.md', '# Kept')
+    vault = await openVault(root, { exclude: scratch })
+
+    expect((await vault.notes()).map((note) => note.id).sort()).toEqual(['app/data/other.md', 'kept.md'])
+    expect(vault.folders).toEqual(['app', 'app/data'])
+    expect(await vault.search('Scratch')).toEqual([])
+    await expect(vault.readNote('app/data/scratch/a.md')).rejects.toMatchObject({ code: 'INVALID_PATH' })
+    await expect(vault.writeNote('app/data/scratch/b.md', { body: 'x' })).rejects.toMatchObject({
+      code: 'INVALID_PATH',
     })
+    await expect(vault.createNote('app/data/scratch')).rejects.toMatchObject({ code: 'INVALID_PATH' })
+    await expect(vault.moveNote('kept.md', 'app/data/scratch')).rejects.toMatchObject({ code: 'INVALID_PATH' })
+    for (const folder of ['app', 'app/data']) {
+      await expect(vault.renameFolder(folder, 'moved')).rejects.toMatchObject({ code: 'INVALID_PATH' })
+      await expect(vault.moveFolder(folder, '')).rejects.toMatchObject({ code: 'INVALID_PATH' })
+      await expect(vault.deleteFolder(folder)).rejects.toMatchObject({ code: 'INVALID_PATH' })
+    }
+    await vault.emptyTrash()
+    expect(await read('app/data/scratch/a.md')).toBe('# Scratch')
+    expect(await read('kept.md')).toBe('# Kept')
   })
 })
 

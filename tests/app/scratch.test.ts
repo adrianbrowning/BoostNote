@@ -265,8 +265,6 @@ describe('/api/scratch', () => {
   })
 
   it.each([
-    ['userData', 'the folder that holds the scratch folder'],
-    ['.', 'a folder above it'],
     ['userData/scratch', 'the scratch folder'],
     ['userData/scratch/inside', 'a folder inside it'],
   ])('refuses to open %j (%s) as a vault, so no vault reads, writes or deletes a scratch note', async (folder) => {
@@ -280,9 +278,19 @@ describe('/api/scratch', () => {
     expect((await list()).map((note) => note.id)).toEqual([id])
   })
 
-  it('refuses a folder that holds the scratch folder as a vault before any scratch note exists', async () => {
-    await expect(app.openVault('userData')).rejects.toMatchObject({ code: 'NOT_A_VAULT' })
-    expect(app.vaults.current).toBeUndefined()
+  it.each([
+    ['userData', 'the folder that holds the scratch folder'],
+    ['.', 'a folder above it'],
+  ])('opens %j (%s) as a vault that leaves the scratch notes out of its notes and search', async (folder) => {
+    const { id } = await create()
+    await write(id, '# Zebra\nzebra')
+    await app.openVault(folder)
+
+    const workspace: WorkspaceData = await (await app.get('/api/workspace')).json()
+    expect(workspace.notes.map((note) => note.id).filter((note) => note.includes(id))).toEqual([])
+    expect(await (await app.get('/api/search?q=zebra')).json()).toEqual({ ids: [] })
+    expect(await readFile(path.join(app.scratchDir, `${id}.md`), 'utf8')).toBe('# Zebra\nzebra')
+    expect((await list()).map((note) => note.id)).toEqual([id])
   })
 })
 

@@ -27,31 +27,35 @@ afterEach(async () => {
   await rm(home.dir, { recursive: true, force: true })
 })
 
-async function cli(vault: string): Promise<{ code: number; stderr: string }> {
+async function cli(vault: string): Promise<{ code: number; stdout: string; stderr: string }> {
+  let stdout = ''
   let stderr = ''
   const code = await runCli(['--vault', vault, 'list'], {
-    stdout: () => {},
+    stdout: (text) => {
+      stdout += text
+    },
     stderr: (text) => {
       stderr += text
     },
     stdin: async () => undefined,
     env,
   })
-  return { code, stderr }
+  return { code, stdout, stderr }
 }
 
 describe('the CLI and the scratch notes’ folder', () => {
-  it('refuses a vault that holds the app’s scratch folder, and still opens one elsewhere', async () => {
+  it('opens a vault that holds the app’s scratch folder without its scratch notes, and refuses the scratch folder', async () => {
     const scratch = path.join(appUserDataDir(env), 'scratch')
     await mkdir(scratch, { recursive: true })
     await writeFile(path.join(scratch, `${'a'.repeat(32)}.md`), '# Scratch')
-    const elsewhere = path.join(home.dir, 'notes')
-    await mkdir(elsewhere)
+    await writeFile(path.join(home.dir, 'kept.md'), '# Kept')
 
-    const refused = await cli(home.dir)
+    const holder = await cli(home.dir)
+    expect(holder.code).toBe(0)
+    expect(holder.stdout).toContain('kept')
+    expect(holder.stdout).not.toContain('a'.repeat(32))
+    const refused = await cli(scratch)
     expect(refused.code).not.toBe(0)
     expect(refused.stderr).toContain('overlaps the scratch notes’ folder')
-    expect((await cli(scratch)).code).not.toBe(0)
-    expect((await cli(elsewhere)).code).toBe(0)
   })
 })
