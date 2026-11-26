@@ -249,3 +249,127 @@ test('a scratch tab comes back after a restart with no vault open', async ({ app
   await expect(editor(page)).toHaveText('No vault needed')
   await expect(page.locator('[data-notice]')).toHaveCount(0)
 })
+
+const scratchRow = (page: Page) => page.locator('[data-scratch-row]')
+
+/** Opens a new scratch note, types `text` into it and closes its tab; its id. */
+async function keepScratch(app: AppHandle, text: string): Promise<string> {
+  await app.clickMenu('new-scratch-note')
+  await expect(editor(app.page)).toBeFocused()
+  await app.page.keyboard.type(text)
+  const id = (await scratchTab(app.page).getAttribute('data-scratch-tab')) ?? ''
+  await app.clickMenu('close-tab')
+  await expect(scratchTab(app.page)).toHaveCount(0)
+  return id
+}
+
+test('a scratch note closed with text is listed in the sidebar Scratch section by title; its row opens it again', async ({
+  app,
+}) => {
+  const { page } = app
+  await expect(page.locator('[data-note="a.md"]')).toBeVisible()
+  const id = await keepScratch(app, '# Groceries\n\nMilk')
+
+  const list = page.getByRole('navigation', { name: 'Vault' }).getByRole('region', { name: 'Scratch' })
+  await expect(list.locator('[data-scratch-row]')).toHaveCount(1)
+  await expect(list.locator(`[data-scratch-row="${id}"] [data-scratch-open]`)).toHaveText('Groceries')
+  await expect(list.getByRole('button', { name: 'Save to vault…' })).toBeEnabled()
+
+  await list.locator('[data-scratch-open]').click()
+  await expect(scratchTab(page)).toHaveAttribute('data-scratch-tab', id)
+  await expect(scratchTab(page)).toHaveAttribute('aria-selected', 'true')
+  await expect(editor(page)).toContainText('Milk')
+  expect(await scratchFiles(app)).toEqual({ [`${id}.md`]: '# Groceries\n\nMilk' })
+})
+
+test('Discard with confirmDelete on asks first: Cancel keeps the row and its tab, Discard deletes the file, the row and the tab', async ({
+  app,
+}) => {
+  const { page } = app
+  await expect(page.locator('[data-note="a.md"]')).toBeVisible()
+  const id = await keepScratch(app, 'Throw away')
+  await scratchRow(page).locator('[data-scratch-open]').click()
+  await expect(scratchTab(page)).toHaveAttribute('aria-selected', 'true')
+
+  await scratchRow(page).getByRole('button', { name: 'Discard' }).click()
+  const dialog = page.getByRole('dialog', { name: 'Discard scratch note' })
+  await expect(dialog).toContainText('Discard “Throw away”? Its text is deleted for good.')
+  await dialog.getByRole('button', { name: 'Cancel' }).click()
+  await expect(dialog).toHaveCount(0)
+  await expect(scratchRow(page)).toHaveCount(1)
+  await expect(scratchTab(page)).toHaveCount(1)
+  expect(await scratchFiles(app)).toEqual({ [`${id}.md`]: 'Throw away' })
+
+  await scratchRow(page).getByRole('button', { name: 'Discard' }).click()
+  await page.getByRole('dialog', { name: 'Discard scratch note' }).getByRole('button', { name: 'Discard' }).click()
+  await expect(scratchRow(page)).toHaveCount(0)
+  await expect(scratchTab(page)).toHaveCount(0)
+  await expect.poll(() => readdir(path.join(app.userDataDir, 'scratch')).catch(() => [])).toEqual([])
+})
+
+test.describe('with confirmDelete off', () => {
+  test.use({ ui: { confirmDelete: false } })
+
+  test('Discard deletes a kept scratch note without asking', async ({ app }) => {
+    const { page } = app
+    await expect(page.locator('[data-note="a.md"]')).toBeVisible()
+    await keepScratch(app, 'Gone at once')
+    await expect(scratchRow(page)).toHaveCount(1)
+
+    await scratchRow(page).getByRole('button', { name: 'Discard' }).click()
+    await expect(scratchRow(page)).toHaveCount(0)
+    await expect(page.getByRole('dialog')).toHaveCount(0)
+    await expect.poll(() => readdir(path.join(app.userDataDir, 'scratch')).catch(() => [])).toEqual([])
+  })
+})
+
+test('with no vault open the welcome screen lists the kept scratch notes and reopens one', async ({ app }) => {
+  const { page } = app
+  await expect(page.locator('[data-note="a.md"]')).toBeVisible()
+  const id = await keepScratch(app, 'Call the plumber')
+  await closeVault(page)
+
+  const welcome = page.getByRole('main', { name: 'Welcome' })
+  const row = welcome.locator(`[data-scratch-row="${id}"]`)
+  await expect(row.locator('[data-scratch-open]')).toHaveText('Call the plumber')
+  const save = row.getByRole('button', { name: 'Save to vault…' })
+  await expect(save).toBeDisabled()
+  await expect(save).toHaveAccessibleDescription('Open a vault to save a scratch note to it')
+
+  await row.locator('[data-scratch-open]').click()
+  await expect(scratchTab(page)).toHaveAttribute('data-scratch-tab', id)
+  await expect(editor(page)).toHaveText('Call the plumber')
+})
+
+test('with no vault open and tabs open the scratch list shows beside the editor pane: rows reopen, Save is disabled, Discard works', async ({
+  app,
+}) => {
+  const { page } = app
+  await expect(page.locator('[data-note="a.md"]')).toBeVisible()
+  const first = await keepScratch(app, 'Call the plumber')
+  const second = await keepScratch(app, 'Buy stamps')
+  await closeVault(page)
+
+  await page.getByRole('main', { name: 'Welcome' }).locator(`[data-scratch-row="${first}"] [data-scratch-open]`).click()
+  await expect(scratchTab(page)).toHaveAttribute('data-scratch-tab', first)
+  await expect(page.getByRole('main', { name: 'Welcome' })).toHaveCount(0)
+
+  const list = page.getByRole('complementary', { name: 'Scratch notes' }).getByRole('region', { name: 'Scratch' })
+  await expect(list.locator('[data-scratch-open]')).toHaveText(['Buy stamps', 'Call the plumber'])
+  const row = list.locator(`[data-scratch-row="${second}"]`)
+  const save = row.getByRole('button', { name: 'Save to vault…' })
+  await expect(save).toBeDisabled()
+  await expect(save).toHaveAccessibleDescription('Open a vault to save a scratch note to it')
+  await expect(editor(page)).toBeVisible()
+
+  await row.locator('[data-scratch-open]').click()
+  await expect(page.locator(`[role="tab"][data-scratch-tab="${second}"]`)).toHaveAttribute('aria-selected', 'true')
+  await expect(editor(page)).toHaveText('Buy stamps')
+
+  await row.getByRole('button', { name: 'Discard' }).click()
+  await page.getByRole('dialog', { name: 'Discard scratch note' }).getByRole('button', { name: 'Discard' }).click()
+  await expect(row).toHaveCount(0)
+  await expect(page.locator(`[role="tab"][data-scratch-tab="${second}"]`)).toHaveCount(0)
+  await expect(list.locator('[data-scratch-open]')).toHaveText(['Call the plumber'])
+  expect(Object.keys(await scratchFiles(app))).toEqual([`${first}.md`])
+})
