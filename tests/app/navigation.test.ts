@@ -1369,4 +1369,26 @@ describe('Navigation of scratch tabs', () => {
     expect(session.note?.id).toBe('a.md')
     expect(session.locked).toBe(false)
   })
+
+  it('loads the next tab when a held scratch tab closes while an activate of it waits on the same gate', async () => {
+    const id = await scratchAfterA()
+    net.fail = (url) => url.pathname === '/api/notes/read'
+    await navigation.activate(tab(0))
+    net.fail = null
+    session.edit('Typed.\n')
+    net.hold((url) => (url.pathname === '/api/scratch/write' ? 'write' : undefined))
+    const scratchKey = tab(1)
+    const activating = navigation.activate(scratchKey)
+    await expect.poll(() => net.held.length).toBe(1)
+    const closing = navigation.close(scratchKey)
+    net.hold(null)
+    net.held[0]?.release()
+    await activating
+    await closing
+    expect(navigation.tabs.tabs.map((item) => item.kind)).toEqual(['note'])
+    expect(session.scratch).toBeNull()
+    expect(session.note?.id).toBe('a.md')
+    expect(session.locked).toBe(false)
+    expect(await scratchIds()).toEqual([id])
+  })
 })
