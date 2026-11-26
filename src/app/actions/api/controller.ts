@@ -456,8 +456,9 @@ export function createApiController(services: AppServices) {
 
       /**
        * Save to vault, in the vault queue, into the vault the request names (`?vault=`, the page's; `409 NO_VAULT`
-       * without one, or once it is closed): the scratch text, parsed as a note's (valid frontmatter stays
-       * frontmatter), becomes a note in `folder` named by its title (`scratchTitle`, made unique as `createNote`
+       * without one, or once it is closed): the scratch text, read as a note file (a valid frontmatter block is kept
+       * byte for byte, `created`/`updated` added only when missing), becomes a note in `folder` named by its title
+       * (`scratchTitle`, made unique as `createNote`
        * does), then the scratch note is removed; the answer has that vault's lists. When the note cannot be created
        * the scratch note stays; when removing it fails afterwards, the note stays in the vault and the scratch note
        * stays listed.
@@ -474,11 +475,7 @@ export function createApiController(services: AppServices) {
             : `This vault is not open: ${root}`,
           async (vault): Promise<ScratchSaveResult> => {
             const scratch = await services.scratch.read(id)
-            const note = parseNoteText(scratch.text)
-            const created = await vault.createNote(folder, scratch.title, {
-              body: note.body,
-              frontmatter: note.frontmatter,
-            })
+            const created = await vault.createNote(folder, scratch.title, { text: scratch.text })
             await services.scratch.discard(id)
             return { id: created.id, workspace: await workspaceData(services, vault.root) }
           },

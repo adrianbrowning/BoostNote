@@ -343,9 +343,11 @@ vault left fails, the other vault still shows (the switch counts) and the store 
   to it) saves the typed text first (the leave-note gate), asks for a folder of the open vault in the choose dialog
   of a reader's "Add to vault…" (`folderOptions`, `dropFolder` first), then posts `{ id, folder }` to
   `POST /api/scratch/save`, naming the vault on screen (`?vault=`). Main runs it in `VaultSession`'s vault queue
-  (`inVault`) on that vault (`409 NO_VAULT` without one, or once it is closed): the scratch text parsed as a note's
-  text (valid frontmatter stays frontmatter) becomes `vault.createNote(folder, scratchTitle, { body, frontmatter })`
-  (a taken name gets ` 2`), then the scratch note is removed (its sidecar first, then its file), and it answers the
+  (`inVault`) on that vault (`409 NO_VAULT` without one, or once it is closed): the scratch text becomes
+  `vault.createNote(folder, scratchTitle, { text })`, read as a note file: a valid frontmatter block is kept byte for
+  byte (comments, quoting, order, values, a typed `created`/`updated`) with `created`/`updated` added only when
+  missing (spliced in place); without one the whole text is the body and both are added. A taken name gets ` 2`.
+  Then the scratch note is removed (its sidecar first, then its file), and it answers the
   note id and that vault's lists (`ScratchSaveResult`). The scratch tab becomes the note's tab at its position
   (`Navigation.saveScratch`), active when it was active. A vault switch while the folder dialog is open saves nothing
   (the error notice says so; the folders offered were the vault left's). When the vault switched while the request

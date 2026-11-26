@@ -122,6 +122,13 @@ export interface CreateNoteOptions {
   body?: string
   /** Extra frontmatter; `created`/`updated` are always set. */
   frontmatter?: Frontmatter
+  /**
+   * The note's whole text, read as a note file is (a scratch note's text as typed), in place of `body` and
+   * `frontmatter`: a valid frontmatter block is kept byte for byte (comments, quoting, order, values, a typed
+   * `created`/`updated`), with `created`/`updated` added only when missing; without one, all of it is the body and
+   * both are added.
+   */
+  text?: string
 }
 
 /** One file rename proposed by `planTitleRenames`: `from` → `to` in the same folder. */
@@ -431,8 +438,17 @@ export class Vault {
       const stem = await uniqueStem(dir, noteFileName(title), '.md')
       const id = joinId(folder, `${stem}.md`)
       const now = new Date().toISOString()
-      const frontmatter = { ...options.frontmatter, created: now, updated: now }
-      const raw = serializeNoteText(frontmatter, options.body ?? '')
+      let raw: string
+      if (options.text === undefined) {
+        raw = serializeNoteText({ ...options.frontmatter, created: now, updated: now }, options.body ?? '')
+      } else {
+        const text = parseNoteText(options.text)
+        // The typed keys in their order, then the missing ones: the block is spliced, not re-emitted.
+        const frontmatter = { ...text.frontmatter }
+        if (!('created' in frontmatter)) frontmatter.created = now
+        if (!('updated' in frontmatter)) frontmatter.updated = now
+        raw = serializeNoteText(frontmatter, text.body, text.yaml === null ? undefined : text)
+      }
       const file = path.join(dir, `${stem}.md`)
       await writeFileAtomic(file, raw)
       return this.#track(id, file, raw)

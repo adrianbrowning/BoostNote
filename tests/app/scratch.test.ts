@@ -223,6 +223,33 @@ describe('/api/scratch/save', () => {
     expect((await filesUnder(vault.root)).filter((file) => file.endsWith('.md'))).toEqual([])
   })
 
+  it('keeps a valid frontmatter block byte for byte, adding only the created/updated keys it lacks', async () => {
+    const vault = await app.openVault()
+    const typed = await create()
+    const partly = [
+      '---',
+      'title: "Quoted: value" # kept comment',
+      "tags: ['a', b]",
+      'created: 2020-01-02T03:04:05.000Z',
+      '---',
+      '# Partly',
+      '',
+    ].join('\n')
+    await write(typed.id, partly)
+    const full = await create()
+    const complete = '---\nupdated: "2021-05-06" # typed\ncreated: 2021-05-05\n---\n# Complete\n'
+    await write(full.id, complete)
+
+    expect((await app.post('/api/scratch/save', { id: typed.id, folder: '' })).status).toBe(201)
+    expect((await app.post('/api/scratch/save', { id: full.id, folder: '' })).status).toBe(201)
+
+    const saved = await readFile(path.join(vault.root, 'Partly.md'), 'utf8')
+    const updated = /\nupdated: (.+)\n---\n/.exec(saved)?.[1] ?? ''
+    expect(updated).toMatch(/^\d{4}-\d{2}-\d{2}T/)
+    expect(saved).toBe(partly.replace('---\n# Partly', `updated: ${updated}\n---\n# Partly`))
+    expect(await readFile(path.join(vault.root, 'Complete.md'), 'utf8')).toBe(complete)
+  })
+
   it('saves into the vault the request names, not the active one, and answers that vault’s lists', async () => {
     const first = await app.openVault('first')
     const second = await app.openVault('second')
