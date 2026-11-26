@@ -94,8 +94,12 @@ describe('installEditContextMenu', () => {
   it('pops up the built menu on the window for an editable target', () => {
     const { webContents, session } = fakes()
     installEditContextMenu(webContents, session, window)
-    webContents.emit('context-menu', {}, { isEditable: true, misspelledWord: '', dictionarySuggestions: [] })
-    expect(buildFromTemplate).toHaveBeenCalledExactlyOnceWith(EDIT)
+    webContents.emit('context-menu', {}, { isEditable: true, misspelledWord: 'teh', dictionarySuggestions: ['the'] })
+    expect(buildFromTemplate).toHaveBeenCalledOnce()
+    const template = buildFromTemplate.mock.calls[0]?.[0] ?? []
+    expect(template.slice(0, 2).map((item) => item.label)).toEqual(['the', 'Add to Dictionary'])
+    template[0]?.click?.({} as never, undefined, {} as never)
+    expect(webContents.replaceMisspelling).toHaveBeenCalledExactlyOnceWith('the')
     expect(popup).toHaveBeenCalledExactlyOnceWith({ window })
   })
 })

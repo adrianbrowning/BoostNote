@@ -25,10 +25,20 @@ async function wordCentre(page: Page, word: string): Promise<{ x: number; y: num
   }, word)
 }
 
+/** Main-process state of the test: `params.misspelledWord` of each `context-menu` event. */
+type SpellingCapture = { misspelledWords?: string[] }
+
 test('a spelling suggestion from the native menu replaces the word, is saved and undoes', async ({ app }) => {
   const { page, vault, electronApp } = app
   const file = path.join(vault, 'spelling.md')
   const menus = await captureContextMenus(electronApp)
+  // What Chromium reported for each right-click, read from the event params in main, independent of the menu the app builds.
+  await electronApp.evaluate(({ BrowserWindow }) => {
+    const reported: string[] = []
+    ;(globalThis as SpellingCapture).misspelledWords = reported
+    for (const window of BrowserWindow.getAllWindows())
+      window.webContents.on('context-menu', (_event, params) => reported.push(params.misspelledWord))
+  })
   await page.locator('[data-note="spelling.md"]').click()
   await editor(page).click()
   await page.keyboard.press('ControlOrMeta+End')
@@ -55,12 +65,19 @@ test('a spelling suggestion from the native menu replaces the word, is saved and
       )
       .toBe(true)
   } catch (error) {
-    // Skip only on a seen menu without spelling items: macOS always has the system checker, elsewhere
-    // Chromium may have no dictionary to mark with. Any other failure fails the test. Read the last menu
-    // from main again: a callback dropped at the deadline may not have recorded it.
+    // Skip only when the spellchecker is on, a Cut-led menu was seen and Chromium marked no word on any
+    // right-click: macOS always has the system checker, elsewhere Chromium may have no dictionary to
+    // mark with. A reported word with a menu lacking spelling items, a disabled spellchecker or any
+    // other failure fails the test.
+    const reported = await electronApp.evaluate(() => (globalThis as SpellingCapture).misspelledWords ?? [])
+    const spellcheck = await electronApp.evaluate(({ session }) => session.defaultSession.isSpellCheckerEnabled())
     const seen = (await menus.labels()).at(-1)?.[0]
     test.skip(
-      process.platform !== 'darwin' && seen === 'Cut',
+      process.platform !== 'darwin' &&
+        spellcheck &&
+        seen === 'Cut' &&
+        reported.length > 0 &&
+        reported.every((w) => w === ''),
       `Chromium marks no misspelled word on ${process.platform}: no spellcheck dictionary (manual check in PLAN.md)`,
     )
     throw error
