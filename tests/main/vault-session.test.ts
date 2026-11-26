@@ -423,4 +423,18 @@ describe('VaultSession', () => {
     expect(session.readers.path(ticket)).toBe(path.join(loose, 'readme.md'))
     await session.dispose()
   })
+
+  it('"Open folder as vault" names the overlap when the file\'s folder holds the scratch notes\' folder', async () => {
+    const holder = await realpath(await folder('holder'))
+    const scratch = await folder('holder/scratch')
+    await writeFile(path.join(holder, 'readme.md'), '# Readme\n')
+    const session = new VaultSession({ settings: new SettingsStore(file), events, exclude: scratch })
+    session.requestOpen(path.join(holder, 'readme.md'))
+    const request = await session.takeOpenRequest()
+    const ticket = request?.kind === 'external' ? request.ticket : ''
+    const refused = session.openReaderFolder(ticket)
+    await expect(refused).rejects.toMatchObject({ code: 'NOT_A_VAULT' })
+    await expect(refused).rejects.not.toMatchObject({ message: 'readme.md is gone; open it again' })
+    await session.dispose()
+  })
 })

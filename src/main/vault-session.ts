@@ -1,4 +1,4 @@
-import { realpath } from 'node:fs/promises'
+import { realpath, stat } from 'node:fs/promises'
 import * as path from 'node:path'
 
 import { HttpError } from '../app/http.ts'
@@ -163,9 +163,14 @@ export class VaultSession {
       const root = path.dirname(granted)
       let vault = this.#vaults.get(root)
       if (!vault) {
-        const loaded = await this.#load(root).catch((error: unknown) => {
-          // The folder went away meanwhile (`openVault`'s message would name its path).
-          throw error instanceof VaultError && error.code === 'NOT_A_VAULT' ? gone() : error
+        const loaded = await this.#load(root).catch(async (error: unknown) => {
+          // `NOT_A_VAULT` means the folder went away meanwhile (`openVault`'s message would name its
+          // path) or overlaps the scratch notes' folder; only the first is "gone", the overlap keeps its message.
+          const missing = await stat(root).then(
+            () => false,
+            () => true,
+          )
+          throw error instanceof VaultError && error.code === 'NOT_A_VAULT' && missing ? gone() : error
         })
         // A parent folder swapped for a symlink while it loaded: that is another folder, not the granted one.
         if (loaded.root !== root) {
@@ -236,8 +241,8 @@ export class VaultSession {
 
   /**
    * Makes the vault at `root` active, opening (and starting to watch) it unless it is open already;
-   * other open vaults stay open. Throws `VaultError('NOT_A_VAULT')` when the folder is missing; the
-   * active vault then stays as it was.
+   * other open vaults stay open. Throws `VaultError('NOT_A_VAULT')` when the folder is missing or
+   * overlaps the scratch notes' folder (`exclude`); the active vault then stays as it was.
    */
   open(root: string): Promise<Vault> {
     return this.#exclusive(async () => {
