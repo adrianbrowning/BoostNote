@@ -132,3 +132,35 @@ test('Toggle Properties opens no properties panel in a scratch tab, nor for the 
   await expect(page.locator('[data-toggle-properties]')).toHaveAttribute('aria-pressed', 'false')
   await expect(page.locator('[data-properties]')).toHaveCount(0)
 })
+
+test('an image pasted over selected text in a scratch tab is refused with the notice and keeps the text, writing no file', async ({
+  app,
+}) => {
+  const { page, vault } = app
+  await expect(page.locator('[data-note="a.md"]')).toBeVisible()
+  const vaultFiles = (await readdir(vault, { recursive: true })).sort()
+  await app.clickMenu('new-scratch-note')
+  const tab = scratchTab(page)
+  await expect(editor(page)).toBeFocused()
+  await page.keyboard.type('Keep this')
+  const id = await tab.getAttribute('data-scratch-tab')
+  await expect.poll(() => scratchFiles(app)).toEqual({ [`${id}.md`]: 'Keep this' })
+
+  await page.keyboard.press('ControlOrMeta+a')
+  await editor(page).evaluate((target) => {
+    const data = new DataTransfer()
+    data.items.add(new File([new Uint8Array([137, 80, 78, 71])], 'shot.png', { type: 'image/png' }))
+    target.dispatchEvent(new ClipboardEvent('paste', { clipboardData: data, bubbles: true, cancelable: true }))
+  })
+  await expect(page.locator('[data-notice]')).toContainText(
+    'Images need a vault note: save this scratch note to the vault to add images.',
+  )
+  await expect(editor(page)).toHaveText('Keep this')
+  await page.keyboard.press('ControlOrMeta+End')
+  await page.keyboard.type('!')
+  await expect.poll(() => scratchFiles(app)).toEqual({ [`${id}.md`]: 'Keep this!' })
+  // Only the note (and its creation-time sidecar): no image file.
+  const names = await readdir(path.join(app.userDataDir, 'scratch'))
+  expect(names.filter((name) => name !== `${id}.md` && name !== `${id}.json`)).toEqual([])
+  expect((await readdir(vault, { recursive: true })).sort()).toEqual(vaultFiles)
+})
