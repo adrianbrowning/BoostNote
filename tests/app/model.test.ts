@@ -412,6 +412,41 @@ describe('WorkspaceModel Save to vault of a scratch note', () => {
     expect(await readFile(path.join(app.scratchDir, `${id}.md`), 'utf8')).toBe('Keep me')
   })
 
+  it('saves the text typed while the folder dialog was open', async () => {
+    const { id } = await scratchBetweenNotes('# Draft\n')
+    const saving = workspace.saveScratchToVault(id)
+    await expect.poll(() => workspace.dialog?.kind).toBe('choose')
+    workspace.session.edit('# Draft\n\nTyped while choosing.\n')
+    await chooseFolder('')
+    await saving
+
+    expect(await readFile(path.join(app.dir, 'vault', 'Draft.md'), 'utf8')).toMatch(
+      /\n---\n# Draft\n\nTyped while choosing\.\n$/,
+    )
+    expect(await readdir(app.scratchDir)).toEqual([])
+  })
+
+  it('sends no save and keeps the scratch tab when the text typed while the dialog was open cannot be saved', async () => {
+    const { id, key } = await scratchBetweenNotes('# Draft\n')
+    const saving = workspace.saveScratchToVault(id)
+    await expect.poll(() => workspace.dialog?.kind).toBe('choose')
+    net.fail = (url) => url.pathname === '/api/scratch/write'
+    net.hold(onPath('/api/scratch/save'))
+    workspace.session.edit('# Draft\n\nNot saved.\n')
+    await chooseFolder('')
+    await saving
+
+    expect(net.held).toEqual([])
+    expect(workspace.tabs.active).toEqual({ key, kind: 'scratch', id })
+    expect(workspace.session.body).toBe('# Draft\n\nNot saved.\n')
+    expect(workspace.notice).toEqual({
+      kind: 'error',
+      text: 'This note has unsaved changes that could not be saved. Resolve them first.',
+    })
+    expect(await readFile(path.join(app.scratchDir, `${id}.md`), 'utf8')).toBe('# Draft\n')
+    expect((await readdir(path.join(app.dir, 'vault'))).filter((name) => name.startsWith('Draft'))).toEqual([])
+  })
+
   it('saves nothing, keeping the scratch tab, when the vault switched while the folder dialog was open', async () => {
     const second = await realpath(await folderWith(app, 'second', { 'in second.md': '# In second\n' }))
     await workspace.newScratchNote()

@@ -494,8 +494,9 @@ export class WorkspaceModel extends TypedEventTarget<{
   }
 
   /**
-   * A scratch note's "Save to vault…": saves its text first (the leave-note gate), asks for a folder of the open vault
-   * (`dropFolder` first) in the dialog of a reader's "Add to vault…", then main creates the note there, named by the
+   * A scratch note's "Save to vault…": saves its text first (the leave-note gate, run again right before the request,
+   * so text typed while the dialog is open is saved too; a refused save sends nothing), asks for a folder of the open
+   * vault (`dropFolder` first) in the dialog of a reader's "Add to vault…", then main creates the note there, named by the
    * scratch note's title (`scratchTitle`), and removes the scratch note. Its tab becomes the new note's tab at its
    * position (`Navigation.saveScratch`). A vault switch while the folder dialog is open saves nothing (an error
    * notice). The request names the vault on screen, so a vault switch while it is out does not move the note: its

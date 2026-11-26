@@ -340,8 +340,9 @@ vault left fails, the other vault still shows (the switch counts) and the store 
   Edit › Find and the live preview work as in notes. No request with a scratch id reaches a vault route other than
   the save below.
 - The banner's "Save to vault…" (`WorkspaceModel.saveScratchToVault`; disabled with no vault open, the reason next
-  to it) saves the typed text first (the leave-note gate), asks for a folder of the open vault in the choose dialog
-  of a reader's "Add to vault…" (`folderOptions`, `dropFolder` first), then posts `{ id, folder }` to
+  to it) saves the typed text first (the leave-note gate, run again under the hold right before the request, so text
+  typed while the dialog is open is saved too; a refused save sends nothing), asks for a folder of the open vault in
+  the choose dialog of a reader's "Add to vault…" (`folderOptions`, `dropFolder` first), then posts `{ id, folder }` to
   `POST /api/scratch/save`, naming the vault on screen (`?vault=`). Main runs it in `VaultSession`'s vault queue
   (`inVault`) on that vault (`409 NO_VAULT` without one, or once it is closed): the scratch text becomes
   `vault.createNote(folder, scratchTitle, { text })`, read as a note file: a valid frontmatter block is kept byte for
