@@ -75,8 +75,9 @@ export const routes = route({
     scratchWrite: post('/scratch/write'),
     scratchDiscard: post('/scratch/discard'),
     /**
-     * Save to vault (`{ id, folder }`): the scratch note becomes a note in `folder` of the open vault and is removed
-     * (`ScratchSaveResult`); `409 NO_VAULT` without an open vault.
+     * Save to vault (`{ id, folder }`): the scratch note becomes a note in `folder` of the vault named by `?vault=`
+     * and is removed (`ScratchSaveResult`); `409 NO_VAULT` when `?vault=` is missing or that vault is no longer open,
+     * even if another vault is open.
      */
     scratchSave: post('/scratch/save'),
   }),

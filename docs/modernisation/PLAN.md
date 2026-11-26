@@ -416,6 +416,7 @@ SSR props carry `{ ui, hotkeyRegistered, captureHotkeyRegistered, update }`.
 | `confirmDelete` | ask before moving notes/folders to the Trash |
 | `outsideFile` (`reader` default, `vault`) | "Opening a .md or .mdx outside a vault": Read only (reader tab) or Open its folder as vault (see "Opening `.md` files") |
 | `globalHotkey` (default `CommandOrControl+Shift+Space`; `''` = off) | recorded by key capture; main registers it with `globalShortcut.register` before storing it. If the OS refuses (another app has it) the route answers `409 HOTKEY_UNAVAILABLE`, the previous hotkey stays registered and nothing is stored. The hotkey hides the app when it is focused, else shows and focuses the window |
+| `captureHotkey` (default `''` = off) | Quick capture: recorded by key capture and validated like `globalHotkey` (an accelerator or `''`). A value equal to the current `globalHotkey`, or a `globalHotkey` equal to the current `captureHotkey`, answers `409 HOTKEY_UNAVAILABLE` before anything is registered; if the OS refuses it, nothing is stored and main registers the previous capture hotkey again, when the OS still grants it (`captureHotkeyRegistered` tells). The hotkey shows and focuses the main window (it never hides the app) and then sends the `new-scratch-note` menu event, so a new scratch note opens in the connected page. The event is not queued: when no page is connected (for example the window was closed on macOS and the hotkey has to create a new one) the window shows but no scratch note opens |
 | `panes` | sidebar/list widths, sidebar/list collapsed, properties open |
 
 `AppServices.preferences` (`src/main/preferences.ts` in the app, a fake in tests) is the Electron
@@ -599,6 +600,27 @@ left open, and a drain that starts meanwhile waits for it. In
 `localStorage`, have no back/forward trail, are skipped by rebase/forget, stay open when the vault switches or
 closes, and are, with scratch tabs, the only tabs while no vault is open. Grants live in memory, so reader tabs
 are gone after a restart.
+
+### Scratch notes
+
+A scratch note is a note outside any vault, for quick capture (File › New Scratch Note ⌥⌘N or the
+`captureHotkey`). Main's `ScratchStore` (`AppServices.scratch`) keeps each one as
+`<userData>/scratch/<id>.md`, the text as typed (no frontmatter split, last write wins), with its creation time
+in a sidecar `<id>.json` (`{ created }`). The id is opaque: 32 random lowercase hex characters. The
+`/api/scratch…` routes (`GET /api/scratch` the list, `POST /api/scratch/create`, `GET /api/scratch/read?id=`,
+`POST /api/scratch/write`, `POST /api/scratch/discard`, `POST /api/scratch/save`) name a scratch note only by
+that id and never take or return the path of its file under `<userData>/scratch`; they answer `404 NOT_FOUND` for
+an id of another form or a missing note (`400 BAD_REQUEST` when the id is missing or not a string), write
+atomically and need no open vault (except Save to vault). Save to vault also takes a `folder` of the vault named
+by `?vault=` and answers `{ id, workspace }` with that vault's lists. It runs in `VaultSession`'s vault queue,
+creates the note in the chosen folder of the vault the request names with `?vault=` (the vault the page shows;
+`409 NO_VAULT` when `?vault=` is missing or that vault is no longer open, even if another vault is open) and then
+removes the scratch note; a failed create keeps the scratch note. Closing a scratch tab
+whose text is empty or whitespace only deletes the scratch note; one with text is kept and shows in the scratch
+list (sidebar "Scratch" section with a vault open, the welcome screen, or a panel beside the editor while tabs
+are open with no vault), where each row reopens, saves to the vault or discards it (see "Tabs"). Scratch notes
+live outside every vault, so the CLI and the MCP server (see "CLI and MCP"), which work on vaults only,
+cannot reach them.
 
 ### End-to-end tests (`tests/e2e`, `pnpm test:e2e`)
 

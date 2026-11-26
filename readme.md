@@ -26,6 +26,9 @@ choose, so any editor, `git` or sync tool works with them. The background and de
   list), full-text search, sort, a Trash with restore, drag and drop. Renaming or moving a note or
   folder offers to update the links to it.
 - **Tabs** with per-tab back/forward, restored per vault. A **properties panel** for frontmatter.
+- **Scratch notes** for quick capture: File › New Scratch Note (⌥⌘N) or an optional global Quick
+  capture hotkey opens a note outside any vault; kept scratch notes are listed to reopen, discard, or
+  move into a vault with **Save to vault…**.
 - **Export:** a note as standalone HTML (math, diagrams and images included, no scripts), PDF, or
   Markdown with its assets; print; a folder or the whole vault as a static HTML site.
 - **Several vaults open at once.** The vault menu at the top of the sidebar lists the open vaults
@@ -36,7 +39,8 @@ choose, so any editor, `git` or sync tool works with them. The background and de
   the note's `.assets/` folder, links between dropped notes are kept working, and the originals are
   never moved or changed.
 - **Preferences:** light/dark/system theme, editor font, size and width, spellcheck, a global
-  show/hide hotkey. Every command has a native menu item and shortcut.
+  show/hide hotkey and an optional Quick capture hotkey (off by default) for scratch notes. Every
+  command has a native menu item and shortcut.
 
 ## Install
 
