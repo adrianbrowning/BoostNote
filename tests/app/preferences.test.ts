@@ -4,7 +4,14 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import type { NoteDocument, PreferencesState } from '../../src/app/actions/public/workspace/types.ts'
 import { routes } from '../../src/app/routes.ts'
-import { DEFAULT_HOTKEY, DEFAULT_UI, isAccelerator, normalizeUi, SettingsStore } from '../../src/main/settings.ts'
+import {
+  DEFAULT_HOTKEY,
+  DEFAULT_UI,
+  isAccelerator,
+  normalizeUi,
+  SettingsStore,
+  sameAccelerator,
+} from '../../src/main/settings.ts'
 import { TestApp } from './helpers.ts'
 
 const api = routes.api
@@ -161,6 +168,22 @@ describe('preferences route', () => {
     })
   })
 
+  it('refuses the platform form of the default show/hide hotkey as Quick capture hotkey', async () => {
+    const alias = process.platform === 'darwin' ? 'Command+Shift+Space' : 'Control+Shift+Space'
+    const setHotkey = vi.spyOn(app.preferences, 'setHotkey')
+    const setCaptureHotkey = vi.spyOn(app.preferences, 'setCaptureHotkey')
+
+    const capture = await app.post(api.preferencesSave.href(), { captureHotkey: alias })
+    expect(capture.status).toBe(409)
+    expect(await capture.json()).toEqual({
+      error: 'HOTKEY_UNAVAILABLE',
+      message: `${alias} is already the show/hide hotkey.`,
+    })
+    expect(setHotkey).not.toHaveBeenCalled()
+    expect(setCaptureHotkey).not.toHaveBeenCalled()
+    expect(app.settings.ui).toMatchObject({ globalHotkey: DEFAULT_HOTKEY, captureHotkey: '' })
+  })
+
   it('puts the show/hide hotkey of a patch back when the Quick capture hotkey of the same patch is refused', async () => {
     await app.post(api.preferencesSave.href(), { globalHotkey: 'CommandOrControl+Alt+K' })
     app.takenHotkeys.push('Control+Shift+F6')
@@ -219,6 +242,19 @@ describe('preferences route', () => {
     for (const invalid of ['', 'A', 'Shift+A', 'Command', 'Command+Command+A', 'Hyper+A', 'Command+AB']) {
       expect(isAccelerator(invalid), invalid).toBe(false)
     }
+  })
+
+  it('compares accelerators by what they press on the platform', () => {
+    expect(sameAccelerator('CommandOrControl+Shift+Space', 'Command+Shift+Space', 'darwin')).toBe(true)
+    expect(sameAccelerator('CmdOrCtrl+Shift+Space', 'Shift+Cmd+space', 'darwin')).toBe(true)
+    expect(sameAccelerator('CommandOrControl+Shift+Space', 'Control+Shift+Space', 'darwin')).toBe(false)
+    expect(sameAccelerator('CommandOrControl+Shift+Space', 'Control+Shift+Space', 'linux')).toBe(true)
+    expect(sameAccelerator('CmdOrCtrl+Alt+K', 'Alt+Ctrl+k', 'linux')).toBe(true)
+    expect(sameAccelerator('CommandOrControl+Shift+Space', 'Command+Shift+Space', 'linux')).toBe(false)
+    expect(sameAccelerator('Control+Alt+K', 'Control+Alt+J', 'linux')).toBe(false)
+    expect(sameAccelerator('Control+Alt+K', 'Control+Shift+Alt+K', 'linux')).toBe(false)
+    expect(sameAccelerator('', '', 'linux')).toBe(false)
+    expect(sameAccelerator('', 'Control+Alt+K', 'darwin')).toBe(false)
   })
 })
 

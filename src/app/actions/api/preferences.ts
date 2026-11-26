@@ -1,4 +1,4 @@
-import { PANE_FIELDS, type PaneLayout, UI_FIELDS, type UiPatch } from '../../../main/settings.ts'
+import { PANE_FIELDS, type PaneLayout, sameAccelerator, UI_FIELDS, type UiPatch } from '../../../main/settings.ts'
 import { isUpdateShown } from '../../../main/updates.ts'
 import { HttpError } from '../../http.ts'
 import type { AppServices } from '../../services.ts'
@@ -56,8 +56,9 @@ export function parseUiPatch(body: Record<string, unknown>): UiPatch {
 /**
  * Merges `patch` into the stored preferences and applies them. A new show/hide or Quick capture
  * hotkey is registered first; when the OS refuses it nothing is stored and the previous hotkeys stay
- * registered (`409 HOTKEY_UNAVAILABLE`). The two hotkeys never share an accelerator: a patch that
- * would make them equal is refused the same way before anything is registered.
+ * registered (`409 HOTKEY_UNAVAILABLE`). The two hotkeys never share an accelerator, aliases included
+ * (`CommandOrControl+Shift+Space` and `Command+Shift+Space` on macOS): a patch that would make them
+ * equal is refused the same way before anything is registered.
  */
 export function savePreferences(services: AppServices, patch: UiPatch): PreferencesState {
   const current = services.settings.ui
@@ -65,8 +66,7 @@ export function savePreferences(services: AppServices, patch: UiPatch): Preferen
   const { preferences } = services
   if (
     (patch.globalHotkey !== undefined || patch.captureHotkey !== undefined) &&
-    next.captureHotkey !== '' &&
-    next.captureHotkey === next.globalHotkey
+    sameAccelerator(next.captureHotkey, next.globalHotkey)
   ) {
     throw new HttpError(
       409,

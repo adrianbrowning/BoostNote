@@ -23,7 +23,7 @@ import { installMenu } from './menu.ts'
 import { createPreferenceServices } from './preferences.ts'
 import { handleBoostProtocol, registerBoostScheme } from './protocol.ts'
 import { createQuitDisposal, raceTimeout } from './quit.ts'
-import { SettingsStore } from './settings.ts'
+import { SettingsStore, sameAccelerator } from './settings.ts'
 import { checkForUpdate, createUpdater } from './updates.ts'
 import { VaultSession } from './vault-session.ts'
 import { createMainWindow } from './window.ts'
@@ -226,10 +226,11 @@ if (!app.requestSingleInstanceLock()) {
     const ui = settings.ui
     preferences.apply(ui)
     if (!preferences.setHotkey(ui.globalHotkey)) console.warn(`Could not register the hotkey ${ui.globalHotkey}`)
-    // One accelerator stored for both (a hand-edited settings.json) stays the show/hide hotkey.
+    // One accelerator stored for both, aliases included (a hand-edited settings.json), stays the
+    // show/hide hotkey.
     if (
       ui.captureHotkey !== '' &&
-      (ui.captureHotkey === ui.globalHotkey || !preferences.setCaptureHotkey(ui.captureHotkey))
+      (sameAccelerator(ui.captureHotkey, ui.globalHotkey) || !preferences.setCaptureHotkey(ui.captureHotkey))
     ) {
       console.warn(`Could not register the Quick capture hotkey ${ui.captureHotkey}`)
     }

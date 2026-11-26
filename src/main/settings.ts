@@ -110,6 +110,35 @@ export function isAccelerator(value: string): boolean {
   return /^F\d/.test(key) || parts.some((part) => part !== 'Shift')
 }
 
+/** The full name of each modifier alias, by platform (`CommandOrControl` presses Command on macOS only). */
+function modifierName(part: string, platform: NodeJS.Platform): string {
+  if (part === 'CommandOrControl' || part === 'CmdOrCtrl') return platform === 'darwin' ? 'Command' : 'Control'
+  if (part === 'Cmd') return 'Command'
+  if (part === 'Ctrl') return 'Control'
+  return part
+}
+
+/**
+ * Whether two accelerators press the same keys on `platform`: aliases such as `CommandOrControl` and
+ * `Command` (macOS) or `Control` (elsewhere) count as one, modifiers in any order, the key in any case.
+ * `''` (no hotkey) is never the same as anything.
+ */
+export function sameAccelerator(a: string, b: string, platform: NodeJS.Platform = process.platform): boolean {
+  if (a === '' || b === '') return false
+  const canonical = (value: string) => {
+    const parts = value.split(/\+(?!$)/)
+    const key = (parts.pop() ?? '').toUpperCase()
+    return { key, modifiers: new Set(parts.map((part) => modifierName(part, platform))) }
+  }
+  const left = canonical(a)
+  const right = canonical(b)
+  return (
+    left.key === right.key &&
+    left.modifiers.size === right.modifiers.size &&
+    [...left.modifiers].every((modifier) => right.modifiers.has(modifier))
+  )
+}
+
 /** A global hotkey preference: an accelerator, or `''` for none. */
 const isHotkey = (value: unknown): boolean => typeof value === 'string' && (value === '' || isAccelerator(value))
 
