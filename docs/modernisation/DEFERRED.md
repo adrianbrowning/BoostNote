@@ -345,3 +345,79 @@ The CommonMark `<...>` destination unwrap is written four times: src/editor/rend
 - Title: When both extension-case twins are title-renamed, neither gets the plain name ("Hello 2" and "Hello 3", no "Hello")
 - Problem: Take `work/hello.md` and `work/hello.MD` on a case-sensitive disk, both titled `Hello`, so both are slug-named. Each finds a name-key count of 2, so `own` is undefined for both. The first planned gets `Hello 2.MD` (the plain `Hello` is taken by both existing entries), and the second gets `Hello 3.md`. Once the first rename is applied, the second note's case-only rename to `Hello.md` would be free, so the plan numbers both notes and leaves the plain name unused. The apply succeeds, so nothing breaks, but the user ends up with `Hello 2` and `Hello 3` and no `Hello`. Raised in review 04-r3 of issue-22-md-case (deferred there); the user put it out of scope for issue #17.
 - Suggested fix: In `planTitleRenames`, count the earlier picks of the same plan: once a twin has been planned away from the shared name key, the next twin may take the plain name. Add a `pnpm test:case-sensitive` test with two twins titled the same.
+
+## issue-75/01: Doc comments on MenuWebContents and MenuSession restate their Pick declarations
+
+Run: issue-75
+Slice: 01 "Native spelling and edit context menu for editable fields"
+Review: 01-r1
+Reviewed commit: ab2fc2550ef80ac31d2937235e1450583d95c4a4
+
+### [observation] comments-narrow-type-docs-restate-pick
+
+- Symbol: MenuWebContents
+- Location at filing time: src/main/context-menu.ts:5
+- Title: Doc comments on MenuWebContents and MenuSession restate their Pick declarations
+- Problem: src/main/context-menu.ts:5 and :9 | "/** The parts of `webContents` the menu uses. */" and "/** The parts of `session` the menu uses. */" | delete | The Pick<WebContents, 'replaceMisspelling'> and Pick<Session, 'isSpellCheckerEnabled' | 'addWordToSpellCheckerDictionary'> declarations already say exactly which parts are used; the comments add no reason, constraint or contract beyond the type.
+- Fix: Delete both one-line doc comments, or rewrite them to state the non-obvious why (for example: narrowed so tests can pass a fake EventEmitter and session instead of real Electron objects).
+- Fix prompt: In src/main/context-menu.ts, delete the doc comments `/** The parts of `webContents` the menu uses. */` above `MenuWebContents` and `/** The parts of `session` the menu uses. */` above `MenuSession`, since the Pick types already state the same thing. Alternatively, replace them with one comment that explains why the types are narrowed (so tests can pass fakes instead of real Electron objects).
+
+## issue-75/02: Spelling test threads poll state through a mutable outer variable and a try/catch skip
+
+Run: issue-75
+Slice: 02 "Editor spelling replacement saves and undoes (end-to-end)"
+Review: 02-r1
+Reviewed commit: d50b197a4a35648904e89e6e1bc414c2da10d9c6
+
+### [observation] thermo-spelling-poll-leaks-state-through-mutable-first
+
+- Symbol: a spelling suggestion from the native menu replaces the word, is saved and undoes
+- Location at filing time: tests/e2e/spelling.spec.ts:44
+- Title: Spelling test threads poll state through a mutable outer variable and a try/catch skip
+- Problem: The poll callback writes `first` (reset to undefined, then set), the catch block reads it to decide whether to skip, and after the poll the code re-checks `first` for undefined/'No suggestions'. Three places interpret one mutable value, and the 'no spelling items' case is inferred from the magic label 'Cut' (Electron's role label for the first edit item). It works, but the control flow is hard to follow and the sentinel silently depends on the EDIT item order in src/main/context-menu.ts.
+- Fix: Extract a small helper, e.g. `rightClickUntilSpellingMenu(page, menus, point): Promise<string[] | 'no-spelling'>`, that polls until the last popped menu either leads with a non-edit item or the timeout passes, and returns the last seen labels. The test then does one branch: skip off macOS when the result has no spelling item, fail on 'No suggestions', otherwise use labels[0].
+- Fix prompt: In tests/e2e/spelling.spec.ts, replace the mutable `first` variable shared between the expect.poll callback, the catch block and the post-poll checks with a helper that right-clicks the word until a menu pops up whose first item is not an edit role item, and returns the last seen menu labels (or a marker when only edit-item menus were seen before the timeout). Make the test branch once on that result: test.skip off darwin with the platform-naming reason when no spelling item was seen, throw on 'No suggestions', otherwise click labels[0]. Keep the behaviour and reason text unchanged.
+
+## issue-75/03: Install test still passes when installEditContextMenu hard-codes the test's own params
+
+Run: issue-75
+Slice: 03 "Tighten context-menu install and spelling-skip tests"
+Review: 03-r3
+Reviewed commit: d0061820c12f320ca034ee9a492c6be2e6dfd0e4
+
+### [observation] test-validity-install-test-passes-with-hardcoded-teh-params
+
+- Symbol: pops up the built menu on the window for an editable target
+- Location at filing time: tests/main/context-menu.test.ts:97
+- Title: Install test still passes when installEditContextMenu hard-codes the test's own params
+- Problem: tests/main/context-menu.test.ts | 'pops up the built menu on the window for an editable target' | The test emits one payload, { misspelledWord: 'teh', dictionarySuggestions: ['the'] }, and asserts the labels and click that this payload produces. If installEditContextMenu ignored the event and called buildEditContextMenu({ misspelledWord: 'teh', dictionarySuggestions: ['the'] }, webContents, session), the labels would still be ['the', 'Add to Dictionary'] and the click would still call replaceMisspelling('the'), so the test passes. The acceptance criterion, read literally, says: "fails if `installEditContextMenu` passes empty or fixed params ... to the builder". This one fixed value gets through. Escaping bug: params forwarding replaced by a constant (for example a debugging leftover) would not be caught.
+- Fix: Keep the prescribed 'teh'/'the' assertions, and add a second context-menu event in the same test (or a second test) with a different payload, for example { isEditable: true, misspelledWord: 'wrod', dictionarySuggestions: ['word', 'wood'] }. Assert that its template starts with 'word', 'wood', 'Add to Dictionary', and that clicking 'word' calls replaceMisspelling with 'word'. No fixed payload can then satisfy both events.
+- Fix prompt: In tests/main/context-menu.test.ts, in 'pops up the built menu on the window for an editable target', keep the existing 'teh' -> ['the'] emit and its assertions on labels, click->replaceMisspelling('the') and popup({ window }). Then clear the mocks (buildFromTemplate.mockClear(), popup.mockClear(), webContents.replaceMisspelling.mockClear()), or use mock.calls[1], and emit a second event { isEditable: true, misspelledWord: 'wrod', dictionarySuggestions: ['word', 'wood'] }. Assert that the second template's labels start with ['word', 'wood', 'Add to Dictionary'] and that clicking its first item calls replaceMisspelling exactly once with 'word'. A hard-coded params object in installEditContextMenu would then fail one of the two events.
+
+## issue-75/retro: No local way to run the e2e suite off macOS
+
+Run: issue-75
+Retro finding (repo, information-access, high)
+
+The off-macOS skip and fail branches of tests/e2e/spelling.spec.ts never ran in this run: every implementer worked on macOS, and the repo has no way to run the Playwright e2e suite on Linux locally (`pnpm test:linux` runs only the Vitest paths). Three review rounds (02-r1, 02-r3, 03-r1) found bugs in that skip logic that no run could show. Add e2e support to scripts/test-linux.sh (Docker with Electron, xvfb and a hunspell dictionary), or name in AGENTS.md the CI job that runs e2e on Linux.
+
+## issue-75/retro: AGENTS.md smoke pointer implies an interactive session
+
+Run: issue-75
+Retro finding (repo, navigation, medium)
+
+AGENTS.md says to smoke-run the real app with `pnpm smoke`, but scripts/smoke.ts closes the app at once when neither `--steps` nor `--shot` is given. The slice 02 implementer wrote a manual check in docs/modernisation/PLAN.md around that command, and review 02-r1 blocked it. State in the AGENTS.md smoke line that `pnpm smoke` is scripted (needs `--steps` or `--shot`) and is not an interactive session, or add an interactive flag to scripts/smoke.ts.
+
+## issue-75/retro: Validator gets advisor notes about scope fix-item verdicts
+
+Run: issue-75
+Retro finding (factory, no-ops, medium)
+
+In targeted reviews 02-r2, 02-r4 and 03-r2 the validator got an advisor note asking it to give verdicts on the fix items, which is the scope reviewer's job through factory_review_submit. Each validator spent a turn refusing the note. Fix the advisor or gate text so it addresses the scope reviewer, not the validator.
+
+## issue-75/retro: Platform-only behaviors get no follow-up after seenRed false
+
+Run: issue-75
+Retro finding (factory, automated-checks, low)
+
+For a behavior that runs only on another platform (the off-macOS skip in the spelling e2e test), the implementer cannot see a test fail first, so fix rounds 02-f2 and slice 03 reported seenRed false with an Open note. The factory accepted it, but nothing marks such behaviors for a later run on that platform. Consider a report field for platform-bound behaviors that lists them in the PR body for a manual or CI check.
