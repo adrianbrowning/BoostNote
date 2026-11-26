@@ -332,7 +332,7 @@ SSR props carry `{ ui, hotkeyRegistered }`.
 | --- | --- |
 | `theme` `system`/`light`/`dark` | main sets `nativeTheme.themeSource`, which drives the renderer's `prefers-color-scheme`: `base.css` and the editor (`setTheme`, mermaid `dark`) switch without a reload |
 | `editorFont`, `fontSize`, `lineWidth` (`0` = full width) | `--editor-font`, `--editor-font-size`, `--editor-max-width` on the workspace root |
-| `spellcheck` | `session.defaultSession.setSpellCheckerEnabled` |
+| `spellcheck` | `session.defaultSession.setSpellCheckerEnabled`; while on, right-clicking a misspelled word in an editable field lists spelling suggestions and "Add to Dictionary" in the native context menu (see "Menus and shortcuts") |
 | `confirmDelete` | ask before moving notes/folders to the Trash |
 | `outsideFile` (`reader` default, `vault`) | "Opening a .md outside a vault": Read only (reader tab) or Open its folder as vault (see "Opening `.md` files") |
 | `globalHotkey` (default `CommandOrControl+Shift+Space`; `''` = off) | recorded by key capture; main registers it with `globalShortcut.register` before storing it. If the OS refuses (another app has it) the route answers `409 HOTKEY_UNAVAILABLE`, the previous hotkey stays registered and nothing is stored. The hotkey hides the app when it is focused, else shows and focuses the window |
@@ -342,6 +342,16 @@ SSR props carry `{ ui, hotkeyRegistered }`.
 side; `SettingsStore.ui` normalises the stored section (invalid fields fall back to defaults).
 
 ### Menus and shortcuts
+
+Right-clicking an editable field in the main window (the note editor, inputs: Electron's
+`params.isEditable`) opens a native context menu that `installEditContextMenu`
+(`src/main/context-menu.ts`) pops up from the main window's webContents `context-menu` event. On a
+misspelled word with the spellchecker on (`session.isSpellCheckerEnabled()`) it lists up to 5 of
+Chromium's `dictionarySuggestions` (each calls `webContents.replaceMisspelling`), or a disabled "No
+suggestions" item, then "Add to Dictionary" (`session.addWordToSpellCheckerDictionary`) and a
+separator; Cut, Copy, Paste and Select All (roles) always follow. A non-editable target gets no
+native menu, so the renderer's note-list and sidebar menus are unchanged; other windows (export)
+get none. The spellcheck language is Electron's default (the system checker on macOS).
 
 Every app command is one row of the command table `COMMANDS` in `src/shared/commands.ts` (id, label,
 accelerator, whether it needs a vault); `MenuCommand` is derived from it, `src/main/menu.ts` builds
