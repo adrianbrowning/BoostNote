@@ -138,8 +138,8 @@ export class Tabs {
   /**
    * Opens the scratch tabs of a persisted `ScratchTabsSnapshot` after every tab, in order; ids that `exists` denies
    * and ids whose tab is open already are skipped. With `activate`, the snapshot's active scratch tab becomes active
-   * when it is kept. When no tab is active afterwards, the nearest kept scratch tab before the snapshot's active one
-   * (else the first kept one) becomes active.
+   * when it is kept. When no tab is active afterwards, the kept scratch tab nearest at or before the snapshot's active
+   * one (else the first kept one) becomes active.
    */
   restoreScratch(snapshot: ScratchTabsSnapshot, exists: (id: string) => boolean, activate: boolean): void {
     let nearest: ScratchTab | undefined

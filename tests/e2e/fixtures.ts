@@ -134,7 +134,8 @@ export async function launchApp(files: VaultFiles, options: LaunchOptions = {}):
 
 /**
  * Quits the app (`quitWithoutDialog`) and launches it again on the same temp root and `--user-data-dir` profile, so
- * its settings, the page's `localStorage` and the scratch notes carry over (nothing is passed on the command line).
+ * its settings, the page's `localStorage` and the scratch notes carry over (the loose files launchApp opened are not
+ * passed again).
  * `app` then drives the new run: its `electronApp` and `page` are replaced, so read them from `app` after this.
  */
 export async function relaunchApp(app: AppHandle): Promise<void> {
