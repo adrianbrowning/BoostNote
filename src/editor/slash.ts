@@ -9,10 +9,11 @@ import { ChangeSet, EditorSelection, type EditorState, type Extension, type Tran
 import type { EditorView } from '@codemirror/view'
 import type { SyntaxNode } from '@lezer/common'
 
+import { setEditorFocused } from './live-preview/selection.ts'
 import { imageMarkdown, insertSavedImages, trackInsertion } from './paste.ts'
 
 /** A block the slash menu inserts. `cursor` is the offset inside `text` where the cursor lands. */
-interface BlockTemplate {
+export interface BlockTemplate {
   text: string
   cursor: number
 }
@@ -29,11 +30,22 @@ export interface SlashCommand {
   id: string
   label: string
   keywords: string
-  /** Fixed template, an inline date/time command, or `'image'` for the file-picker command. */
-  template: BlockTemplate | InlineCommand | 'image'
+  /** Fixed template, an inline date/time command, `'table'` for the size grid or `'image'` for the file picker. */
+  template: BlockTemplate | InlineCommand | 'table' | 'image'
 }
 
 const template = (text: string, cursor = text.length): BlockTemplate => ({ text, cursor })
+
+/**
+ * A GFM table of `columns` columns and `rows` empty body rows, under a `Column 1…N` header and a `---`
+ * separator; the cursor lands in the first header cell.
+ */
+export function tableTemplate(columns: number, rows: number): BlockTemplate {
+  const row = (cell: (index: number) => string) =>
+    `|${Array.from({ length: columns }, (_, index) => ` ${cell(index)} |`).join('')}`
+  const body = Array.from({ length: rows }, () => row(() => ''))
+  return template([row((index) => `Column ${index + 1}`), row(() => '---'), ...body].join('\n'), 2)
+}
 
 const MERMAID_STARTER =
   '```mermaid\nflowchart TD\n  A[Start] --> B{Decision}\n  B -->|Yes| C[Do it]\n  B -->|No| D[Skip]\n```'
@@ -54,12 +66,7 @@ export const slashCommands: readonly SlashCommand[] = [
     template: template(MERMAID_STARTER, '```mermaid\n'.length),
   },
   { id: 'math', label: 'Math block', keywords: 'math latex katex equation formula', template: template('$$\n\n$$', 3) },
-  {
-    id: 'table',
-    label: 'Table',
-    keywords: 'table grid',
-    template: template('| Column 1 | Column 2 |\n| --- | --- |\n|  |  |', 2),
-  },
+  { id: 'table', label: 'Table', keywords: 'table grid', template: 'table' },
   {
     id: 'divider',
     label: 'Divider',
@@ -187,9 +194,134 @@ async function runImageCommand(view: EditorView, from: number, to: number): Prom
   }
 }
 
+interface TableSize {
+  columns: number
+  rows: number
+}
+
+/** The size grid's limit, in columns and in body rows. */
+const MAX_TABLE_SIZE = 10
+
+/**
+ * Opens the table size grid at `pos` and focuses it: hover or arrows (clamped at 1 and `MAX_TABLE_SIZE`) move the
+ * highlight, click or Enter picks that size. Resolves with the size, or `undefined` on Esc or once the grid loses
+ * focus. Picking and Esc return focus to the editor; focus moved elsewhere stays there.
+ */
+function pickTableSize(view: EditorView, pos: number): Promise<TableSize | undefined> {
+  const { promise, resolve } = Promise.withResolvers<TableSize | undefined>()
+  const popup = document.createElement('div')
+  popup.className = 'cm-tooltip cm-lp-table-size'
+  popup.setAttribute('role', 'dialog')
+  popup.setAttribute('aria-label', 'Table size')
+  popup.tabIndex = -1
+  const cells = document.createElement('div')
+  cells.className = 'cm-lp-table-size-cells'
+  cells.setAttribute('aria-hidden', 'true')
+  for (let rows = 1; rows <= MAX_TABLE_SIZE; rows++) {
+    for (let columns = 1; columns <= MAX_TABLE_SIZE; columns++) {
+      const cell = document.createElement('div')
+      cell.dataset.columns = String(columns)
+      cell.dataset.rows = String(rows)
+      cells.append(cell)
+    }
+  }
+  const label = document.createElement('div')
+  label.className = 'cm-lp-table-size-label'
+  label.setAttribute('role', 'status')
+  popup.append(cells, label)
+
+  let size: TableSize = { columns: 2, rows: 1 }
+  const highlight = (columns: number, rows: number) => {
+    size = {
+      columns: Math.min(Math.max(columns, 1), MAX_TABLE_SIZE),
+      rows: Math.min(Math.max(rows, 1), MAX_TABLE_SIZE),
+    }
+    for (const cell of cells.children) {
+      const { dataset } = cell as HTMLElement
+      cell.classList.toggle(
+        'cm-lp-table-size-on',
+        Number(dataset.columns) <= size.columns && Number(dataset.rows) <= size.rows,
+      )
+    }
+    label.textContent = `${size.columns} × ${size.rows}`
+  }
+  let closed = false
+  const close = (picked: TableSize | undefined, refocus: boolean) => {
+    if (closed) return
+    closed = true
+    if (refocus) {
+      view.focus()
+      // CodeMirror reports the focus change later; until then the table would render as a widget around the cursor.
+      if (view.hasFocus) view.dispatch({ effects: setEditorFocused.of(true) })
+    }
+    popup.remove()
+    resolve(picked)
+  }
+  const cellSize = (target: EventTarget | null): TableSize | undefined => {
+    const dataset = target instanceof HTMLElement ? target.dataset : undefined
+    return dataset?.columns && dataset.rows
+      ? { columns: Number(dataset.columns), rows: Number(dataset.rows) }
+      : undefined
+  }
+
+  popup.addEventListener('keydown', (event) => {
+    if (event.key === 'ArrowRight') highlight(size.columns + 1, size.rows)
+    else if (event.key === 'ArrowLeft') highlight(size.columns - 1, size.rows)
+    else if (event.key === 'ArrowDown') highlight(size.columns, size.rows + 1)
+    else if (event.key === 'ArrowUp') highlight(size.columns, size.rows - 1)
+    else if (event.key === 'Enter') close(size, true)
+    else if (event.key === 'Escape') close(undefined, true)
+    else return
+    event.preventDefault()
+    event.stopPropagation()
+  })
+  popup.addEventListener('mouseover', (event) => {
+    const hovered = cellSize(event.target)
+    if (hovered) highlight(hovered.columns, hovered.rows)
+  })
+  // Clicks keep the focus on the grid, so only a click outside it closes it through `focusout`.
+  popup.addEventListener('mousedown', (event) => event.preventDefault())
+  popup.addEventListener('click', (event) => {
+    const clicked = cellSize(event.target)
+    if (clicked) close(clicked, true)
+  })
+  popup.addEventListener('focusout', (event) => {
+    if (!(event.relatedTarget instanceof Node && popup.contains(event.relatedTarget))) close(undefined, false)
+  })
+
+  highlight(size.columns, size.rows)
+  const coords = view.coordsAtPos(pos)
+  popup.style.left = `${coords?.left ?? 0}px`
+  popup.style.top = `${(coords?.bottom ?? 0) + 4}px`
+  view.dom.append(popup)
+  popup.focus()
+  return promise
+}
+
+async function runTableCommand(view: EditorView, from: number, to: number): Promise<void> {
+  // Remove the `/query` first; the document may change while the grid is open (a live reload), so the table goes
+  // where the `/query` maps to. While the editor is read-only (a transition holds the note) the insert waits.
+  view.dispatch({ changes: { from, to }, userEvent: 'input.slash' })
+  const target = trackInsertion(view, from)
+  try {
+    const size = await pickTableSize(view, from)
+    if (!size) return
+    await target.whenEditable()
+    const at = target.at()
+    if (at === undefined) return
+    view.dispatch(slashCommandTransaction(view.state, at, at, tableTemplate(size.columns, size.rows)))
+  } finally {
+    target.done()
+  }
+}
+
 function applySlashCommand(view: EditorView, command: SlashCommand, from: number, to: number): void {
   if (command.template === 'image') {
     void runImageCommand(view, from, to).catch((error: unknown) => console.error('Inserting image failed', error))
+    return
+  }
+  if (command.template === 'table') {
+    void runTableCommand(view, from, to).catch((error: unknown) => console.error('Inserting table failed', error))
     return
   }
   if ('inline' in command.template) {

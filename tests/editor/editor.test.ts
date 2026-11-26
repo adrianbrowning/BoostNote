@@ -113,6 +113,29 @@ describe('createLivePreviewEditor', () => {
     }
   })
 
+  it('picking /table opens the size grid; a table picked after the document changed lands where the /query maps to', async () => {
+    const { editor } = mount('Intro\n\n/table')
+    const { state } = editor.view
+    const result = slashCompletionSource(new CompletionContext(state, state.doc.length, false))
+    const option = result?.options.find((candidate) => candidate.label === '/table')
+    if (typeof option?.apply !== 'function') throw new Error('no /table command')
+    option.apply(editor.view, option, result?.from ?? 0, state.doc.length)
+    const grid = document.querySelector<HTMLElement>('[role="dialog"][aria-label="Table size"]')
+    expect(grid).not.toBeNull()
+    expect(editor.view.state.doc.toString()).toBe('Intro\n\n')
+    // A live reload adds a title above while the grid is open.
+    editor.setDoc('# Title\n\nIntro\n\n', { preserveSelection: true })
+    grid?.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }))
+    // The command exposes no promise; a macrotask runs only after every queued microtask, so the insert has run by then.
+    const { promise, resolve } = Promise.withResolvers<void>()
+    setTimeout(resolve, 0)
+    await promise
+    expect(docWithSelection(editor.view.state)).toBe(
+      '# Title\n\nIntro\n\n| ‸Column 1 | Column 2 |\n| --- | --- |\n|  |  |',
+    )
+    expect(document.querySelector('[aria-label="Table size"]')).toBeNull()
+  })
+
   it('reports user edits through onChange but not setDoc', () => {
     const { editor, onChange } = mount('# Hello')
     editor.view.dispatch({ changes: { from: 7, insert: ' world' } })
