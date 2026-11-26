@@ -1,7 +1,9 @@
 import { mkdir, readdir, readFile, rm, utimes, writeFile } from 'node:fs/promises'
 import * as path from 'node:path'
+import { setImmediate as nextTurn, setTimeout as sleep } from 'node:timers/promises'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
+import { createClient } from '../../src/app/actions/public/workspace/api.ts'
 import type {
   ScratchNote,
   ScratchSaveResult,
@@ -111,12 +113,107 @@ describe('/api/scratch', () => {
       updated: '2026-01-03T10:00:00.000Z',
     })
 
+    // Reversed times: no single file order (the ids are random) gives both orders without the sort.
+    await touch(first.id, '2026-01-05T10:00:00.000Z')
+    await touch(second.id, '2026-01-01T10:00:00.000Z')
+    expect((await list()).map((note) => note.id)).toEqual([first.id, third.id, second.id])
+
     const discarded = await app.post('/api/scratch/discard', { id: third.id })
     expect(discarded.status).toBe(200)
-    expect((await list()).map((note) => note.id)).toEqual([second.id, first.id])
+    expect((await list()).map((note) => note.id)).toEqual([first.id, second.id])
     expect(await filesUnder(app.scratchDir)).toEqual(
       [`${first.id}.json`, `${first.id}.md`, `${second.id}.json`, `${second.id}.md`].sort(),
     )
+  })
+
+  it('lists no scratch note, with 200, before the scratch folder exists', async () => {
+    expect(await filesUnder(path.join(app.dir, 'userData'))).not.toContain('scratch')
+    expect(await list()).toEqual([])
+  })
+
+  it('answers 400 BAD_REQUEST for a missing or non-string id and touches nothing', async () => {
+    const { id } = await create()
+    await write(id, 'kept')
+    const before = await filesUnder(app.dir)
+
+    const responses = [
+      await app.get('/api/scratch/read'),
+      await app.post('/api/scratch/write', { text: 'x' }),
+      await app.post('/api/scratch/write', { id: 1, text: 'x' }),
+      await app.post('/api/scratch/discard', {}),
+      await app.post('/api/scratch/discard', { id: 1 }),
+    ]
+
+    for (const response of responses) {
+      expect(response.status).toBe(400)
+      expect((await readJson<{ error: string }>(response)).error).toBe('BAD_REQUEST')
+    }
+    expect(await filesUnder(app.dir)).toEqual(before)
+    expect(await readFile(path.join(app.scratchDir, `${id}.md`), 'utf8')).toBe('kept')
+  })
+
+  it('creates, writes, reads, lists and discards through the page’s client', async () => {
+    const client = createClient(app.fetch)
+
+    const { id } = await client.createScratch()
+    expect((await client.writeScratch(id, '# T')).text).toBe('# T')
+    expect((await client.readScratch(id)).text).toBe('# T')
+    expect((await client.listScratch()).map((note) => ({ id: note.id, title: note.title }))).toEqual([
+      { id, title: 'T' },
+    ])
+    await client.discardScratch(id)
+    expect(await client.listScratch()).toEqual([])
+  })
+
+  it('keeps a scratch note’s creation time once its sidecar is lost, through later writes', async () => {
+    const { id } = await create()
+    await rm(path.join(app.scratchDir, `${id}.json`))
+    const first: ScratchNote = await (await app.get(`/api/scratch/read?id=${id}`)).json()
+    // A real pause: the new file's birth time comes from the file system's clock, which fake timers do not move.
+    await sleep(20)
+
+    expect((await write(id, '# Later')).status).toBe(200)
+    const again: ScratchNote = await (await app.get(`/api/scratch/read?id=${id}`)).json()
+    expect(again.created).toBe(first.created)
+    expect(await filesUnder(app.scratchDir)).toEqual([`${id}.json`, `${id}.md`])
+  })
+
+  it('lets no write racing a discard bring the scratch note back, and answers 404 to a write after it', async () => {
+    for (let turns = 0; turns < 16; turns++) {
+      const { id } = await create()
+      const writing = write(id, `text ${turns}`)
+      for (let turn = 0; turn < turns; turn++) await nextTurn()
+      const discarded = await app.post('/api/scratch/discard', { id })
+      const written = await writing
+
+      expect(discarded.status).toBe(200)
+      expect([200, 404]).toContain(written.status)
+      expect(await filesUnder(app.scratchDir)).toEqual([])
+      expect(await list()).toEqual([])
+
+      const late = await write(id, 'late')
+      expect(late.status).toBe(404)
+      expect((await readJson<{ error: string }>(late)).error).toBe('NOT_FOUND')
+      expect(await filesUnder(app.scratchDir)).toEqual([])
+    }
+  })
+
+  it('discards a scratch note asked ifBlank only when its text is blank, answering whether it did', async () => {
+    const blank = await create()
+    await write(blank.id, ' \n\t\n')
+    const typed = await create()
+    await write(typed.id, '  kept\n')
+
+    const removed = await app.post('/api/scratch/discard', { id: blank.id, ifBlank: true })
+    expect(removed.status).toBe(200)
+    expect(await readJson(removed)).toEqual({ discarded: true })
+    const kept = await app.post('/api/scratch/discard', { id: typed.id, ifBlank: true })
+    expect(kept.status).toBe(200)
+    expect(await readJson(kept)).toEqual({ discarded: false })
+
+    expect(await filesUnder(app.scratchDir)).toEqual([`${typed.id}.json`, `${typed.id}.md`])
+    expect((await app.post('/api/scratch/discard', { id: blank.id, ifBlank: true })).status).toBe(404)
+    expect((await app.post('/api/scratch/discard', { id: typed.id, ifBlank: 'yes' })).status).toBe(400)
   })
 
   it.each([
@@ -132,7 +229,7 @@ describe('/api/scratch', () => {
     const outside = path.join(app.dir, 'userData', 'x.md')
     await mkdir(app.scratchDir, { recursive: true })
     await writeFile(outside, 'outside')
-    await writeFile(path.join(app.dir, `${'a'.repeat(32)}.md`), 'parent')
+    await writeFile(path.join(app.dir, 'userData', `${'a'.repeat(32)}.md`), 'parent')
     const before = await filesUnder(app.dir)
 
     const responses = [
@@ -147,7 +244,7 @@ describe('/api/scratch', () => {
     }
     expect(await filesUnder(app.dir)).toEqual(before)
     expect(await readFile(outside, 'utf8')).toBe('outside')
-    expect(await readFile(path.join(app.dir, `${'a'.repeat(32)}.md`), 'utf8')).toBe('parent')
+    expect(await readFile(path.join(app.dir, 'userData', `${'a'.repeat(32)}.md`), 'utf8')).toBe('parent')
   })
 
   it('works while a vault is open and keeps scratch notes out of its notes, search and workspace', async () => {
@@ -165,6 +262,35 @@ describe('/api/scratch', () => {
     expect((await filesUnder(vault.root)).filter((file) => file.endsWith('.md'))).toEqual(['Kept.md'])
 
     expect((await app.post('/api/scratch/discard', { id })).status).toBe(200)
+  })
+
+  it.each([
+    ['userData/scratch', 'the scratch folder'],
+    ['userData/scratch/inside', 'a folder inside it'],
+  ])('refuses to open %j (%s) as a vault, so no vault reads, writes or deletes a scratch note', async (folder) => {
+    const { id } = await create()
+    await write(id, '# Zebra\nzebra')
+    await mkdir(path.join(app.dir, folder), { recursive: true })
+
+    await expect(app.openVault(folder)).rejects.toMatchObject({ code: 'NOT_A_VAULT' })
+    expect(app.vaults.current).toBeUndefined()
+    expect(await readFile(path.join(app.scratchDir, `${id}.md`), 'utf8')).toBe('# Zebra\nzebra')
+    expect((await list()).map((note) => note.id)).toEqual([id])
+  })
+
+  it.each([
+    ['userData', 'the folder that holds the scratch folder'],
+    ['.', 'a folder above it'],
+  ])('opens %j (%s) as a vault that leaves the scratch notes out of its notes and search', async (folder) => {
+    const { id } = await create()
+    await write(id, '# Zebra\nzebra')
+    await app.openVault(folder)
+
+    const workspace: WorkspaceData = await (await app.get('/api/workspace')).json()
+    expect(workspace.notes.map((note) => note.id).filter((note) => note.includes(id))).toEqual([])
+    expect(await (await app.get('/api/search?q=zebra')).json()).toEqual({ ids: [] })
+    expect(await readFile(path.join(app.scratchDir, `${id}.md`), 'utf8')).toBe('# Zebra\nzebra')
+    expect((await list()).map((note) => note.id)).toEqual([id])
   })
 })
 
@@ -185,7 +311,7 @@ describe('/api/scratch/save', () => {
     expect(saved.status).toBe(201)
     const result: ScratchSaveResult = await saved.json()
     expect(result.id).toBe('work/Plan.md')
-    expect(result.workspace.notes.map((note) => note.id)).toEqual(['work/Plan.md'])
+    expect(result.workspace?.notes.map((note) => note.id)).toEqual(['work/Plan.md'])
     const raw = await readFile(path.join(vault.root, 'work', 'Plan.md'), 'utf8')
     expect(raw).toMatch(/^---\ncreated: .+\nupdated: .+\n---\n# Plan\n\n- one\n$/)
 
@@ -322,8 +448,8 @@ describe('/api/scratch/save', () => {
     expect(response.status).toBe(201)
     const result: ScratchSaveResult = await response.json()
     expect(result.id).toBe('Into first.md')
-    expect(result.workspace.vault?.root).toBe(first.root)
-    expect(result.workspace.notes.map((note) => note.id)).toEqual(['Into first.md'])
+    expect(result.workspace?.vault?.root).toBe(first.root)
+    expect(result.workspace?.notes.map((note) => note.id)).toEqual(['Into first.md'])
     expect((await filesUnder(first.root)).filter((file) => file.endsWith('.md'))).toEqual(['Into first.md'])
     expect((await filesUnder(second.root)).filter((file) => file.endsWith('.md'))).toEqual([])
   })
@@ -340,6 +466,110 @@ describe('/api/scratch/save', () => {
     expect((await readJson<{ error: string }>(response)).error).toBe('NO_VAULT')
     expect(await filesUnder(app.scratchDir)).toEqual([`${id}.json`, `${id}.md`])
     expect((await filesUnder(second.root)).filter((file) => file.endsWith('.md'))).toEqual([])
+  })
+
+  it('answers 404 for a scratch note already saved, gone or malformed, writing no note', async () => {
+    const vault = await app.openVault()
+    const { id } = await create()
+    await write(id, '# Once\n')
+    expect((await save(id, '')).status).toBe(201)
+
+    for (const gone of [id, 'f'.repeat(32), '../x']) {
+      const response = await save(gone, '')
+      expect(response.status).toBe(404)
+      expect((await readJson<{ error: string }>(response)).error).toBe('NOT_FOUND')
+    }
+    expect((await filesUnder(vault.root)).filter((file) => file.endsWith('.md'))).toEqual(['Once.md'])
+  })
+
+  it('answers 400 BAD_REQUEST without an id or a folder and keeps the scratch note', async () => {
+    await app.openVault()
+    const { id } = await create()
+    await write(id, 'Keep me')
+
+    for (const body of [{ folder: '' }, { id }]) {
+      const response = await app.post('/api/scratch/save', body)
+      expect(response.status).toBe(400)
+      expect((await readJson<{ error: string }>(response)).error).toBe('BAD_REQUEST')
+    }
+    expect(await filesUnder(app.scratchDir)).toEqual([`${id}.json`, `${id}.md`])
+  })
+
+  it('waits in the vault queue: a close queued first makes it answer 409 NO_VAULT, keeping the scratch note', async () => {
+    const first = await app.openVault('first')
+    const { id } = await create()
+    await write(id, 'Keep me')
+
+    const closing = app.vaults.close(first.root)
+    const response = await app.post('/api/scratch/save', { id, folder: '' }, { vault: first.root })
+    await closing
+
+    expect(response.status).toBe(409)
+    expect((await readJson<{ error: string }>(response)).error).toBe('NO_VAULT')
+    expect(await filesUnder(app.scratchDir)).toEqual([`${id}.json`, `${id}.md`])
+    expect((await filesUnder(first.root)).filter((file) => file.endsWith('.md'))).toEqual([])
+  })
+
+  it('appends created/updated to a CRLF frontmatter block with CRLF line endings', async () => {
+    const vault = await app.openVault()
+    const { id } = await create()
+    await write(id, '---\r\ntitle: x # c\r\n---\r\n# Crlf\r\n')
+
+    expect((await save(id, '')).status).toBe(201)
+
+    const saved = await readFile(path.join(vault.root, 'Crlf.md'), 'utf8')
+    const stamp = /\r\ncreated: (\S+)\r\nupdated: \1\r\n/.exec(saved)?.[1] ?? ''
+    expect(stamp).toMatch(/^\d{4}-\d{2}-\d{2}T/)
+    expect(saved).toBe(`---\r\ntitle: x # c\r\ncreated: ${stamp}\r\nupdated: ${stamp}\r\n---\r\n# Crlf\r\n`)
+  })
+
+  it.each([
+    ['a map', 'a: &a {self: *a}'],
+    ['a sequence', 'a: &a [*a]'],
+  ])('saves text whose leading block has a recursive alias in %s as body, and the note opens', async (_, yaml) => {
+    const vault = await app.openVault()
+    const { id } = await create()
+    const typed = `---\n${yaml}\n---\n# Loop\n`
+    await write(id, typed)
+
+    const response = await save(id, '')
+    expect(response.status).toBe(201)
+    const { id: note } = await readJson<ScratchSaveResult>(response)
+    const saved = await readFile(path.join(vault.root, note), 'utf8')
+    expect(saved).toMatch(/^---\ncreated: \S+\nupdated: \S+\n---\n/)
+    expect(saved.replace(/^---\ncreated: \S+\nupdated: \S+\n---\n/, '')).toBe(typed)
+    expect((await app.get(`/api/notes/read?${new URLSearchParams({ id: note })}`)).status).toBe(200)
+  })
+
+  it('answers the saved note’s id without lists when the vault’s lists cannot be read after the save', async () => {
+    const vault = await app.openVault()
+    const { id } = await create()
+    await write(id, '# Listed\n')
+    vi.spyOn(vault, 'listTrash').mockRejectedValueOnce(new Error('EIO: i/o error'))
+
+    const response = await save(id, '')
+    expect(response.status).toBe(201)
+    expect(await readJson(response)).toEqual({ id: 'Listed.md' })
+    expect((await vault.readNote('Listed.md')).body).toBe('# Listed\n')
+    expect(await list()).toEqual([])
+    expect(await filesUnder(app.scratchDir)).toEqual([])
+  })
+
+  it('answers the saved note when the list’s Discard removed the scratch note while the save ran', async () => {
+    const vault = await app.openVault()
+    const { id } = await create()
+    await write(id, '# Raced\n')
+    const createNote = vault.createNote.bind(vault)
+    vi.spyOn(vault, 'createNote').mockImplementation(async (...args) => {
+      const note = await createNote(...args)
+      expect((await app.post('/api/scratch/discard', { id })).status).toBe(200)
+      return note
+    })
+
+    const response = await save(id, '')
+    expect(response.status).toBe(201)
+    expect((await readJson<ScratchSaveResult>(response)).id).toBe('Raced.md')
+    expect(await filesUnder(app.scratchDir)).toEqual([])
   })
 })
 

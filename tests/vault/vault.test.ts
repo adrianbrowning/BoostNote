@@ -24,6 +24,118 @@ afterEach(async () => {
   await rm(root, { recursive: true, force: true })
 })
 
+describe('openVault exclude', () => {
+  it('refuses a root inside the excluded folder under a `..`-prefixed name', async () => {
+    const excluded = path.join(root, 'scratch')
+    await mkdir(path.join(excluded, '..inner'), { recursive: true })
+    await expect(openVault(path.join(excluded, '..inner'), { exclude: excluded })).rejects.toMatchObject({
+      code: 'NOT_A_VAULT',
+    })
+  })
+
+  it.each([
+    ['present', true],
+    ['not yet created', false],
+  ])('opens a root that holds the excluded folder under a `..`-prefixed (hidden) name (%s)', async (_, made) => {
+    const excluded = path.join(root, '..profile', 'scratch')
+    if (made) await put('..profile/scratch/a.md', '# Scratch')
+    vault = await openVault(root, { exclude: excluded })
+    expect((await vault.tree()).notes).toEqual([])
+  })
+
+  it('opens a root that holds the excluded folder under a hidden folder, which it never indexes', async () => {
+    await put('.config/app/scratch/a.md', '# Scratch')
+    await put('kept.md', '# Kept')
+    vault = await openVault(root, { exclude: path.join(root, '.config', 'app', 'scratch') })
+    expect((await vault.tree()).notes.map((note) => note.id)).toEqual(['kept.md'])
+  })
+
+  it('opens a root that holds the excluded folder in its trash; emptying the trash keeps the excluded folder', async () => {
+    await put('.trash/app/scratch/a.md', '# Scratch')
+    await put('gone.md', '# Gone')
+    vault = await openVault(root, { exclude: path.join(root, '.trash', 'app', 'scratch') })
+    await vault.deleteNote('gone.md')
+    await vault.emptyTrash()
+    expect(await read('.trash/app/scratch/a.md')).toBe('# Scratch')
+    expect(await vault.listTrash()).toEqual([])
+    expect((await readdir(path.join(root, '.trash'))).sort()).toEqual(['app'])
+  })
+
+  it('opens a root that holds the excluded folder in its config folder', async () => {
+    await put('.boostnote/app/scratch/a.md', '# Scratch')
+    await put('kept.md', '# Kept')
+    vault = await openVault(root, { exclude: path.join(root, '.boostnote', 'app', 'scratch') })
+    expect((await vault.tree()).notes.map((note) => note.id)).toEqual(['kept.md'])
+    expect(await read('.boostnote/app/scratch/a.md')).toBe('# Scratch')
+  })
+
+  it.each([
+    ['foo.md', 'foo.assets/app/scratch'],
+    ['notes/foo.md', 'notes/foo.assets/scratch'],
+  ])(
+    'opens a root that holds the excluded folder in the assets folder of %s, which never moves or trashes it',
+    async (note, rel) => {
+      await put(note, '# Foo')
+      await put(`${rel}/a.md`, '# Scratch')
+      await mkdir(path.join(root, 'elsewhere'))
+      vault = await openVault(root, { exclude: path.join(root, rel) })
+      expect((await vault.notes()).map((entry) => entry.id)).toEqual([note])
+      await expect(vault.deleteNote(note)).rejects.toMatchObject({ code: 'INVALID_PATH' })
+      await expect(vault.moveNote(note, 'elsewhere')).rejects.toMatchObject({ code: 'INVALID_PATH' })
+      await expect(vault.renameNote(note, 'bar')).rejects.toMatchObject({ code: 'INVALID_PATH' })
+      expect(await read(`${rel}/a.md`)).toBe('# Scratch')
+      expect(await read(note)).toBe('# Foo')
+    },
+  )
+
+  it('opens a root that holds the excluded folder elsewhere, and never lists, reads, writes or moves it', async () => {
+    const scratch = path.join(root, 'app', 'data', 'scratch')
+    await put('app/data/scratch/a.md', '# Scratch')
+    await put('app/data/other.md', '# Other')
+    await put('kept.md', '# Kept')
+    vault = await openVault(root, { exclude: scratch })
+
+    expect((await vault.notes()).map((note) => note.id).sort()).toEqual(['app/data/other.md', 'kept.md'])
+    expect(vault.folders).toEqual(['app', 'app/data'])
+    expect(await vault.search('Scratch')).toEqual([])
+    await expect(vault.readNote('app/data/scratch/a.md')).rejects.toMatchObject({ code: 'INVALID_PATH' })
+    await expect(vault.writeNote('app/data/scratch/b.md', { body: 'x' })).rejects.toMatchObject({
+      code: 'INVALID_PATH',
+    })
+    await expect(vault.createNote('app/data/scratch')).rejects.toMatchObject({ code: 'INVALID_PATH' })
+    await expect(vault.moveNote('kept.md', 'app/data/scratch')).rejects.toMatchObject({ code: 'INVALID_PATH' })
+    for (const folder of ['app', 'app/data']) {
+      await expect(vault.renameFolder(folder, 'moved')).rejects.toMatchObject({ code: 'INVALID_PATH' })
+      await expect(vault.moveFolder(folder, '')).rejects.toMatchObject({ code: 'INVALID_PATH' })
+      await expect(vault.deleteFolder(folder)).rejects.toMatchObject({ code: 'INVALID_PATH' })
+    }
+    await vault.emptyTrash()
+    expect(await read('app/data/scratch/a.md')).toBe('# Scratch')
+    expect(await read('kept.md')).toBe('# Kept')
+  })
+
+  it('plans and applies title renames past the excluded folder and an .mdx stem twin, leaving the excluded folder', async () => {
+    // The excluded folder is the assets folder name of the title's stem; an .mdx note takes the next stem.
+    await put('Work/Meeting notes.assets/a.md', '# Scratch')
+    await put('Work/meeting-notes.md', '---\ntitle: Meeting notes\n---\nbody\n')
+    await put('Work/Meeting notes 2.mdx', '# Other\n')
+    vault = await openVault(root, { exclude: path.join(root, 'Work', 'Meeting notes.assets') })
+
+    const plan = await vault.planTitleRenames()
+    expect(plan.renames).toEqual([
+      { from: 'Work/meeting-notes.md', to: 'Work/Meeting notes 3.md', title: 'Meeting notes' },
+    ])
+    const report = await vault.applyTitleRenames(plan)
+    expect(report.renamed).toEqual(plan.renames)
+    expect((await vault.notes()).map((note) => note.id).sort()).toEqual([
+      'Work/Meeting notes 2.mdx',
+      'Work/Meeting notes 3.md',
+    ])
+    expect(await read('Work/Meeting notes.assets/a.md')).toBe('# Scratch')
+    expect(await read('Work/Meeting notes 2.mdx')).toBe('# Other\n')
+  })
+})
+
 describe('vault notes', () => {
   it('lists the tree and reads notes with metadata', async () => {
     await put('inbox.md', '# Inbox\n\nHello\n')

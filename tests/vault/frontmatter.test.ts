@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { parseNoteText, serializeNoteText } from '../../src/vault/frontmatter.ts'
+import { parseNoteText, serializeNoteText, updateYaml } from '../../src/vault/frontmatter.ts'
 
 const NOTE = `---
 title: "Hello: world"   # keep this comment
@@ -94,5 +94,71 @@ describe('frontmatter', () => {
     expect(serializeNoteText({ title: 'A' }, text.body, text)).toBe(crlf)
     const empty = parseNoteText('---\n---\nbody')
     expect(empty).toMatchObject({ frontmatter: {}, yaml: '', body: 'body' })
+  })
+})
+
+describe('frontmatter with aliases', () => {
+  it.each(['x: *missing', 'a: &a {self: *a}', 'a: &a [*a]'])('treats a leading block with %j as body', (yaml) => {
+    const raw = `---\n${yaml}\n---\nbody`
+    expect(parseNoteText(raw)).toMatchObject({ frontmatter: {}, yaml: null, body: raw })
+  })
+})
+
+describe('frontmatter as a flow mapping, on a note save', () => {
+  const raw = '---\n{a: 1} # c\n---\nb\n'
+
+  it.each([
+    ['adds a key', { a: 1, b: 2 }],
+    ['changes a key', { a: 3 }],
+    ['drops a key', {}],
+    ['adds a value over several lines', { a: 1, b: 'one\ntwo' }],
+  ])('%s and parses back as the new frontmatter, keeping the body', (_, after) => {
+    const text = serializeNoteText(after, 'b\n', parseNoteText(raw))
+    expect(parseNoteText(text)).toMatchObject({ frontmatter: after, body: 'b\n' })
+  })
+
+  it('adds a key to a key-only entry', () => {
+    const text = serializeNoteText({ a: null, b: 1 }, '', parseNoteText('---\n{a}\n---\n'))
+    expect(Object.entries(parseNoteText(text).frontmatter)).toEqual([
+      ['a', null],
+      ['b', 1],
+    ])
+  })
+})
+
+describe('frontmatter with integer-like keys, on a note save', () => {
+  const parsed = (yaml: string) => parseNoteText(`---\n${yaml}---\n`).frontmatter
+
+  it('keeps every line of a mapping with an array-index key and appends the new key', () => {
+    const yaml = "z: 'q' # c\ntags: [a,b]\n1: 2\n"
+    expect(updateYaml(yaml, parsed(yaml), { ...parsed(yaml), n: 3 })).toBe(`${yaml}n: 3\n`)
+  })
+
+  it('moves a key past the array-index range (4294967295) when only the key order changes', () => {
+    const yaml = 'a: 1\n4294967295: 2\n'
+    const text = updateYaml(yaml, parsed(yaml), { '4294967295': 2, a: 1 })
+    expect(Object.keys(parsed(text))).toEqual(['4294967295', 'a'])
+    expect(parsed(text)).toEqual({ '4294967295': 2, a: 1 })
+  })
+})
+
+describe('frontmatter whose keys are reordered on a note save', () => {
+  it('writes the block anew when the new order would put an alias before its anchor', () => {
+    const yaml = 'a: &x {v: 1}\nb: *x\n'
+    const before = parseNoteText(`---\n${yaml}---\n`).frontmatter
+    const after = { b: { v: 1 }, a: { v: 1 } }
+    const text = updateYaml(yaml, before, after)
+    const parsed = parseNoteText(`---\n${text}---\nbody`)
+    expect(parsed.frontmatter).toEqual(after)
+    expect(Object.keys(parsed.frontmatter)).toEqual(['b', 'a'])
+    expect(parsed.body).toBe('body')
+  })
+
+  it('keeps the typed order of array-index keys when only a value of a flow mapping changes', () => {
+    const yaml = '{title: x, 2024: y}\n'
+    const before = parseNoteText(`---\n${yaml}---\n`).frontmatter
+    const text = updateYaml(yaml, before, { ...before, title: 'z' })
+    expect(text.indexOf('title')).toBeLessThan(text.indexOf('2024'))
+    expect(parseNoteText(`---\n${text}---\n`).frontmatter).toEqual({ title: 'z', 2024: 'y' })
   })
 })

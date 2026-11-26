@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { MAX_CLOSED_TABS, type Tab, Tabs } from '../../src/app/actions/public/workspace/tabs.ts'
+import { MAX_CLOSED_TABS, scratchTabsOf, type Tab, Tabs } from '../../src/app/actions/public/workspace/tabs.ts'
 
 const always = () => true
 /** A note tab's path, `reader:<name>` for a reader tab, or `scratch:<id>` for a scratch tab. */
@@ -312,7 +312,7 @@ describe('Tabs', () => {
       const scratch = tabs.openScratch('s1')
       tabs.openNew('b.md')
       const note = tabs.replaceScratch(scratch.key, 'new.md')
-      expect(note).toEqual({ key: note?.key, kind: 'note', path: 'new.md', back: [], forward: [] })
+      expect(note).toEqual({ key: scratch.key, kind: 'note', path: 'new.md', back: [], forward: [] })
       expect(paths(tabs)).toEqual(['a.md', 'new.md', 'b.md'])
       expect(label(tabs.active)).toBe('new.md')
 
@@ -331,5 +331,46 @@ describe('Tabs', () => {
       expect(tabs.replaceScratch(tabs.tabs[0]?.key ?? 0, 'x.md')).toBeUndefined()
       expect(paths(tabs)).toEqual(['a.md', 'c.md', 'new.md'])
     })
+
+    it('leave a reader tab turned into a note tab under its key, at its slot, active', () => {
+      const tabs = new Tabs()
+      tabs.navigate('a.md')
+      tabs.openNew('b.md')
+      tabs.select(0)
+      const reader = tabs.openReader('t1', 'r.md')
+      const note = tabs.replaceReader(reader.key, 'r.md')
+      expect(note).toEqual({ key: reader.key, kind: 'note', path: 'r.md', back: [], forward: [] })
+      expect(paths(tabs)).toEqual(['a.md', 'r.md', 'b.md'])
+      expect(tabs.activeKey).toBe(reader.key)
+    })
+  })
+})
+
+describe('scratchTabsOf', () => {
+  it.each([
+    [null, { ids: [], active: -1 }],
+    ['x', { ids: [], active: -1 }],
+    [
+      { ids: 'a', active: 0 },
+      { ids: [], active: -1 },
+    ],
+    [
+      { ids: [1, 'a', 'b'], active: 2 },
+      { ids: ['a', 'b'], active: 1 },
+    ],
+    [
+      { ids: ['a'], active: 5 },
+      { ids: ['a'], active: -1 },
+    ],
+    [
+      { ids: [1, 'a'], active: 0 },
+      { ids: ['a'], active: -1 },
+    ],
+    [
+      { ids: ['a', 'b'], active: '1' },
+      { ids: ['a', 'b'], active: -1 },
+    ],
+  ])('reads the stored entry %j as %j', (stored, snapshot) => {
+    expect(scratchTabsOf(stored)).toEqual(snapshot)
   })
 })

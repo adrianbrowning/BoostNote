@@ -315,12 +315,13 @@ vault left fails, the other vault still shows (the switch counts) and the store 
   place, as `replaceReader` does. Like reader tabs they have no back/forward trail, are not in `TabsSnapshot`,
   are skipped by rebase and forget, and stay open when the vault switches or closes (an active scratch tab
   stays active); navigating from one opens a new note tab. Closing one does not put it on the closed-tab
-  stack, so ⇧⌘T does not bring it back. Closing one (⌘W, ×, middle-click, Close Tab; `Navigation.close`) removes
-  its scratch note (`POST /api/scratch/discard`) when its text is empty or whitespace only, and keeps it when it has
-  text: an active one's text is saved by the leave-note gate first, so a note typed just before the close is kept
-  (a refused save keeps the tab), and the editor lets it go even when the next tab's read fails. When reading or
-  removing it fails, the tab still closes, the scratch note stays and the notice shows the failure; one already
-  gone (`404`) closes without a notice.
+  stack, so ⇧⌘T does not bring it back. Closing one (⌘W, ×, middle-click, Close Tab; `Navigation.close`) sends one
+  `POST /api/scratch/discard` with `{ id, ifBlank: true }`: main deletes the scratch note only when its text is empty
+  or whitespace only, keeps it when it has text, and answers `{ discarded }`. An active one's text is saved by the
+  leave-note gate first, so a note typed just before the close is kept (a refused save keeps the tab), and the editor
+  lets it go even when the next tab's read fails. A reopen from the scratch list while a background tab's discard is
+  out reads the note only once that discard answered. When the discard fails, the tab still closes, the scratch note
+  stays and the notice shows the failure; one already gone (`404`) closes without a notice.
 - The open scratch tabs are kept across restarts by the tab store in one entry of their own (`localTabStore`:
   `localStorage` under `boostnote.scratch-tabs`, apart from the `boostnote.tabs:<vault root>` entries), saved
   whenever they change: `ScratchTabsSnapshot`, their ids in strip order and the index of the active one (`-1`: none
@@ -357,8 +358,11 @@ vault left fails, the other vault still shows (the switch counts) and the store 
   after the YAML only when it then parses to the typed mapping plus those keys, so flow mappings and complex, alias or
   null keys stay exactly as typed, without them (no splice, no re-emit); without a block the whole text is the body
   and both are added. A taken name gets ` 2`.
-  Then the scratch note is removed (its sidecar first, then its file), and it answers the
-  note id and that vault's lists (`ScratchSaveResult`). The scratch tab becomes the note's tab at its position
+  Then the scratch note is removed (its sidecar first, then its file; one already discarded meanwhile counts as
+  removed), and it answers `{ id, workspace? }` (`ScratchSaveResult`): the note id and that vault's lists, the lists
+  left out when they cannot be read after the save (the save still stands and the page reads the lists again). When
+  the gate's save finds the scratch note gone, its tab closes with the notice and no folder dialog shows. The scratch
+  tab becomes the note's tab at its position
   (`Navigation.saveScratch`), active unless the active tab changed while the request was out. A vault switch while
   the folder dialog is open saves nothing (the error notice says so; the folders offered were the vault left's). When
   the vault switched while the request
@@ -374,9 +378,11 @@ vault left fails, the other vault still shows (the switch counts) and the store 
   vault, the reason above the list; the new note opens: in a new tab when the scratch note had none, else in its tab,
   active, unless the active tab changed while the save was out) and Discard (`discardScratch`: asks first when the
   confirmDelete preference is on, lets a save of the open scratch note's text still out end, deletes the scratch note
-  through `POST /api/scratch/discard`, then closes its tab when open; a failed delete keeps both, with the notice). The
+  through `POST /api/scratch/discard`, then closes its tab when open; a failed delete keeps both, with the notice;
+  disabled, and `discardScratch` does nothing, while that scratch note's Save to vault is in flight). The
   list is read again (`refreshScratch`) after the tab restore, New Scratch Note, a scratch tab closed (a blank one
-  is deleted), a reopen of one gone, Save to vault and Discard.
+  is deleted), a reopen of one gone, Save to vault and Discard; the open scratch note's row takes the title and time
+  of its last save (also over a listing read before it), keeping the list newest updated first.
 
 ### Properties panel
 
@@ -416,7 +422,7 @@ SSR props carry `{ ui, hotkeyRegistered, captureHotkeyRegistered, update }`.
 | `confirmDelete` | ask before moving notes/folders to the Trash |
 | `outsideFile` (`reader` default, `vault`) | "Opening a .md or .mdx outside a vault": Read only (reader tab) or Open its folder as vault (see "Opening `.md` files") |
 | `globalHotkey` (default `CommandOrControl+Shift+Space`; `''` = off) | recorded by key capture; main registers it with `globalShortcut.register` before storing it. If the OS refuses (another app has it) the route answers `409 HOTKEY_UNAVAILABLE`, the previous hotkey stays registered and nothing is stored. The hotkey hides the app when it is focused, else shows and focuses the window |
-| `captureHotkey` (default `''` = off) | Quick capture: recorded by key capture and validated like `globalHotkey` (an accelerator or `''`). A value equal to the current `globalHotkey`, or a `globalHotkey` equal to the current `captureHotkey`, answers `409 HOTKEY_UNAVAILABLE` before anything is registered; if the OS refuses it, nothing is stored and main registers the previous capture hotkey again, when the OS still grants it (`captureHotkeyRegistered` tells). The hotkey shows and focuses the main window (it never hides the app) and then sends the `new-scratch-note` menu event, so a new scratch note opens in the connected page. The event is not queued: when no page is connected (for example the window was closed on macOS and the hotkey has to create a new one) the window shows but no scratch note opens |
+| `captureHotkey` (default `''` = off) | Quick capture: recorded by key capture and validated like `globalHotkey` (an accelerator or `''`). The rule against equal hotkeys covers only set accelerators: a nonempty `captureHotkey` that presses the same keys as the current or patched `globalHotkey`, or a nonempty `globalHotkey` that presses the same keys as the current or patched `captureHotkey` (aliases such as `CommandOrControl`/`Command`, `Esc`/`Escape` or `!`/`Shift+1` count as the same), answers `409 HOTKEY_UNAVAILABLE` before anything is registered, while `''` (off) never clashes, so both hotkeys can be off; if the OS refuses it, nothing is stored and main registers the previous capture hotkey again, when the OS still grants it (`captureHotkeyRegistered` tells). The hotkey shows and focuses the main window (it never hides the app) and then sends the `new-scratch-note` menu event, so a new scratch note opens in the connected page. The event is not queued: when no page is connected (for example the window was closed on macOS and the hotkey has to create a new one) the window shows but no scratch note opens |
 | `panes` | sidebar/list widths, sidebar/list collapsed, properties open |
 
 `AppServices.preferences` (`src/main/preferences.ts` in the app, a fake in tests) is the Electron
@@ -612,15 +618,21 @@ in a sidecar `<id>.json` (`{ created }`). The id is opaque: 32 random lowercase 
 that id and never take or return the path of its file under `<userData>/scratch`; they answer `404 NOT_FOUND` for
 an id of another form or a missing note (`400 BAD_REQUEST` when the id is missing or not a string), write
 atomically and need no open vault (except Save to vault). Save to vault also takes a `folder` of the vault named
-by `?vault=` and answers `{ id, workspace }` with that vault's lists. It runs in `VaultSession`'s vault queue,
+by `?vault=` and answers `{ id, workspace }` with that vault's lists, or `{ id }` alone when the lists cannot be read
+after the save (the save still stands and the page reads the lists again); a scratch note discarded meanwhile counts
+as removed. It runs in `VaultSession`'s vault queue,
 creates the note in the chosen folder of the vault the request names with `?vault=` (the vault the page shows;
 `409 NO_VAULT` when `?vault=` is missing or that vault is no longer open, even if another vault is open) and then
 removes the scratch note; a failed create keeps the scratch note. Closing a scratch tab
 whose text is empty or whitespace only deletes the scratch note; one with text is kept and shows in the scratch
 list (sidebar "Scratch" section with a vault open, the welcome screen, or a panel beside the editor while tabs
 are open with no vault), where each row reopens, saves to the vault or discards it (see "Tabs"). Scratch notes
-live outside every vault, so the CLI and the MCP server (see "CLI and MCP"), which work on vaults only,
-cannot reach them.
+live outside every vault: `openVault` refuses (`ScratchOverlapError`, `NOT_A_VAULT`) a folder that is
+`<userData>/scratch` or lies inside it. A vault that holds it (a home folder on macOS or Windows) opens and leaves it
+out: its scan and watcher skip it, no note or asset path resolves into it, no folder or note assets folder holding it
+can be moved, renamed, trashed or restored, and emptying the trash keeps it. The app (`VaultSession`'s
+`exclude`) and the CLI and the MCP server (see "CLI and MCP"; `runCli` passes the app's `<userData>/scratch`) all
+apply it, so none of them can reach scratch notes.
 
 ### End-to-end tests (`tests/e2e`, `pnpm test:e2e`)
 
@@ -1055,5 +1067,7 @@ styles and CSP, the asset server, controlled inputs, testing) are in
   on change). macOS FSEvents can drop changes made in the first moments after a watcher starts, so one
   extra reconcile runs a second after `startWatching` (on its own timer, so early events can't cancel
   it); `vault.refresh()` forces one (e.g. on window focus).
-- **Frontmatter writes edit the YAML text in place:** unchanged keys keep their exact bytes (quotes,
-  comments, flow lists); invalid YAML is treated as body, so nothing is ever lost.
+- **Frontmatter writes edit the YAML text in place** where the layout allows (a plain block mapping, keys in their
+  order): unchanged keys keep their exact bytes (quotes, comments, flow lists); other layouts are re-emitted through
+  the YAML document model (comments kept, array-index keys not moved unless the user reordered keys), and as a last
+  resort written anew; invalid YAML is treated as body, so nothing is ever lost.

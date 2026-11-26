@@ -28,7 +28,7 @@ import {
   writeConfig,
   writeTrashIndex,
 } from './config.ts'
-import { isNodeError, VaultError } from './errors.ts'
+import { isNodeError, ScratchOverlapError, VaultError } from './errors.ts'
 import { copyFileAtomic, exists, isFile, writeFileAtomic } from './files.ts'
 import { type Frontmatter, keepUnchangedValues, parseNoteText, serializeNoteText } from './frontmatter.ts'
 import { type ImportFilesReport, type ImportOptions, planImport } from './import-files.ts'
@@ -52,6 +52,7 @@ import {
   encodeLinkPath,
   folderSegments,
   isHiddenName,
+  isInside,
   noteFileName,
   noteSegments,
   resolveInside,
@@ -78,6 +79,12 @@ export interface OpenVaultOptions {
   watch?: boolean
   /** Quiet period before a burst of file-system events is processed (default 100 ms). */
   debounceMs?: number
+  /**
+   * An absolute folder that is no part of any vault (the scratch notes' folder): opening a vault on it or inside it is
+   * refused (`ScratchOverlapError`); a vault that holds it leaves it out (see `openVault`), so its files are never
+   * notes of a vault.
+   */
+  exclude?: string
 }
 
 export interface FolderNode {
@@ -229,7 +236,12 @@ interface KnownFile {
 /** Delay of the reconcile that follows starting the watcher (covers events lost during start-up). */
 const WATCHER_SETTLE_MS = 1000
 
-/** Opens the folder at `root` as a vault and indexes its notes. */
+/**
+ * Opens the folder at `root` as a vault and indexes its notes. Throws `VaultError('NOT_A_VAULT')` when the folder is
+ * missing, and `ScratchOverlapError` (code `NOT_A_VAULT`) when it is the `exclude` folder or lies inside it. A vault
+ * that holds it opens and leaves it out: it is never listed, read, written, moved or trashed, nor is any folder or
+ * note assets folder that holds it moved, renamed, trashed or restored, and emptying the trash keeps it.
+ */
 export async function openVault(root: string, options: OpenVaultOptions = {}): Promise<Vault> {
   let real: string
   try {
@@ -239,10 +251,30 @@ export async function openVault(root: string, options: OpenVaultOptions = {}): P
     if (isNodeError(error, 'ENOENT')) throw new VaultError('NOT_A_VAULT', `Vault folder does not exist: ${root}`)
     throw error
   }
-  const vault = new Vault(real, await readConfig(real))
+  let excluded: string | undefined
+  if (options.exclude !== undefined) {
+    const exclude = await realPathOf(options.exclude)
+    if (isInside(exclude, real)) throw new ScratchOverlapError()
+    if (isInside(real, exclude)) {
+      // A holder opens; its scan skips the folder, and every move or removal that would carry it is refused.
+      excluded = exclude
+    }
+  }
+  const vault = new Vault(real, await readConfig(real), excluded)
   await vault.refresh()
   if (options.watch) vault.startWatching(options.debounceMs ?? 100)
   return vault
+}
+
+/** `file`'s real path, also when it does not exist yet: its nearest existing parent's real path with the rest appended. */
+async function realPathOf(file: string): Promise<string> {
+  try {
+    return await realpath(file)
+  } catch (error) {
+    const parent = path.dirname(file)
+    if (!isNodeError(error, 'ENOENT') || parent === file) throw error
+    return path.join(await realPathOf(parent), path.basename(file))
+  }
 }
 
 /**
@@ -265,9 +297,25 @@ export class Vault {
   #queue: Promise<unknown> = Promise.resolve()
 
   /** Use `openVault`. */
-  constructor(root: string, config: VaultConfig) {
+  constructor(root: string, config: VaultConfig, excluded?: string) {
     this.root = root
     this.#config = config
+    this.#excluded = excluded
+  }
+
+  /** A folder inside the root that is no part of the vault (`openVault`'s `exclude`), as a real path. */
+  readonly #excluded: string | undefined
+
+  /** `resolveInside` for this vault: inside its root, never in the excluded folder. */
+  #resolve(segments: readonly string[]): Promise<string> {
+    return resolveInside(this.root, segments, this.#excluded)
+  }
+
+  /** Refuses to move, rename or remove the file-system entry `target` (named `name`) when it holds the excluded folder. */
+  #guardHolder(target: string, name: string): void {
+    if (this.#excluded !== undefined && isInside(target, this.#excluded)) {
+      throw new VaultError('INVALID_PATH', `${name} holds the scratch notes’ folder; it cannot be moved or deleted`)
+    }
   }
 
   get config(): VaultConfig {
@@ -303,6 +351,7 @@ export class Vault {
     this.#watcher = watch(this.root, { recursive: true }, (_event, filename) => {
       // Dot-entries (.trash, .boostnote, our temp files) and assets never affect notes or folders.
       if (filename?.split(/[\\/]/).some(isHiddenName)) return
+      if (this.#excluded !== undefined && filename && isInside(this.#excluded, path.join(this.root, filename))) return
       clearTimeout(this.#timer)
       this.#timer = setTimeout(rescan, debounceMs)
     })
@@ -378,7 +427,7 @@ export class Vault {
   }
 
   async readNote(id: string): Promise<Note> {
-    const file = await resolveInside(this.root, noteSegments(id))
+    const file = await this.#resolve(noteSegments(id))
     try {
       const raw = await readFile(file, 'utf8')
       return toNote(id, raw, parseNoteText(raw), await stat(file))
@@ -392,7 +441,7 @@ export class Vault {
 
   /** Absolute path of an existing note's file (validated, no symlink escapes); NOT_FOUND when missing. */
   async notePath(id: string): Promise<string> {
-    const file = await resolveInside(this.root, noteSegments(id))
+    const file = await this.#resolve(noteSegments(id))
     if (!(await isFile(file))) throw new VaultError('NOT_FOUND', `Note not found: ${id}`)
     return file
   }
@@ -520,7 +569,7 @@ export class Vault {
         }
         let names = folders.get(note.folder)
         if (!names) {
-          names = await readFolderNames(await resolveInside(this.root, folderSegments(note.folder)))
+          names = await readFolderNames(await this.#resolve(folderSegments(note.folder)))
           folders.set(note.folder, names)
         }
         const { extension } = splitNoteExtension(id)
@@ -531,7 +580,7 @@ export class Vault {
         // A foreign assets folder of the target's key (any entry by `nameKey` but the note's own, on a
         // case-sensitive disk `Hello.assets` or `hELLo.assets` beside `hello.md`) takes the stem too,
         // as `#relocateNote` would refuse it.
-        const dir = await resolveInside(this.root, folderSegments(note.folder))
+        const dir = await this.#resolve(folderSegments(note.folder))
         const file = path.join(dir, lastSegment(id))
         const assetsEntries = names.entries.get(nameKey(`${target}${ASSETS_SUFFIX}`)) ?? 0
         const ownFree =
@@ -591,7 +640,7 @@ export class Vault {
           if (note.frontmatter.title === noteStem(rename.to)) {
             const text = parseNoteText(note.raw)
             const raw = serializeNoteText(rest, text.body, text)
-            const file = await resolveInside(this.root, noteSegments(rename.to))
+            const file = await this.#resolve(noteSegments(rename.to))
             await writeFileAtomic(file, raw)
             await this.#track(rename.to, file, raw)
             report.titlesRemoved++
@@ -643,8 +692,8 @@ export class Vault {
     return Promise.all(
       moves.map(async (move) => {
         if (move.kind !== 'note' || move.assets !== undefined) return move
-        const from = assetsDirOf(await resolveInside(this.root, noteSegments(move.from)))
-        const to = assetsDirOf(await resolveInside(this.root, noteSegments(move.to)))
+        const from = assetsDirOf(await this.#resolve(noteSegments(move.from)))
+        const to = assetsDirOf(await this.#resolve(noteSegments(move.to)))
         const stayed = (await exists(from)) && !((await exists(to)) && (await sameOrMissing(from, to)))
         return { ...move, assets: !stayed }
       }),
@@ -685,7 +734,7 @@ export class Vault {
    */
   deleteNote(id: string): Promise<TrashEntry> {
     return this.#exclusive(async () => {
-      const file = await resolveInside(this.root, noteSegments(id))
+      const file = await this.#resolve(noteSegments(id))
       if (!(await isFile(file))) throw new VaultError('NOT_FOUND', `Note not found: ${id}`)
       const trashDir = await resolveInside(this.root, [TRASH_DIR, ...folderSegments(parentOf(id))])
       await mkdir(trashDir, { recursive: true })
@@ -694,6 +743,7 @@ export class Vault {
       const trashName = `${trashStem}${extension}`
       const trashId = joinId(parentOf(id), trashName)
       const assetsLeftBehind = await sharedAssetsOf(id, file)
+      if (assetsLeftBehind === undefined) this.#guardHolder(assetsDirOf(file), id)
       await rename(file, path.join(trashDir, trashName))
       if (assetsLeftBehind === undefined) {
         await renameIfExists(assetsDirOf(file), path.join(trashDir, `${trashStem}${ASSETS_SUFFIX}`))
@@ -740,8 +790,10 @@ export class Vault {
       if (!entry) throw new VaultError('NOT_FOUND', `Not in trash: ${trashId}`)
       const source = await this.#trashPath(trashId, entry.kind)
       if (!(await exists(source))) throw new VaultError('NOT_FOUND', `Not in trash: ${trashId}`)
+      this.#guardHolder(source, trashId)
+      if (entry.kind === 'note' && entry.assetsLeftBehind === undefined) this.#guardHolder(assetsDirOf(source), trashId)
       const parent = parentOf(entry.originalPath)
-      const parentDir = await resolveInside(this.root, folderSegments(parent))
+      const parentDir = await this.#resolve(folderSegments(parent))
       await mkdir(parentDir, { recursive: true })
       const { assetsLeftBehind } = entry
       const leftBehindStill =
@@ -784,10 +836,10 @@ export class Vault {
     })
   }
 
-  /** Permanently deletes everything in the trash. */
+  /** Permanently deletes everything in the trash, except the excluded folder and the folders that hold it. */
   emptyTrash(): Promise<void> {
     return this.#exclusive(async () => {
-      await rm(path.join(this.root, TRASH_DIR), { recursive: true, force: true })
+      await removeExcept(path.join(this.root, TRASH_DIR), this.#excluded)
     })
   }
 
@@ -829,6 +881,7 @@ export class Vault {
   deleteFolder(id: string): Promise<TrashEntry> {
     return this.#exclusive(async () => {
       if (id === '') throw new VaultError('INVALID_PATH', 'Cannot delete the vault root')
+      this.#guardHolder(path.join(this.root, ...folderSegments(id)), id)
       const dir = await this.#existingFolder(id)
       const trashParent = await resolveInside(this.root, [TRASH_DIR, ...folderSegments(parentOf(id))])
       await mkdir(trashParent, { recursive: true })
@@ -889,7 +942,7 @@ export class Vault {
       const file = await this.notePath(noteId)
       const name = assetFileName(bytes, ext)
       const target = path.join(assetsDirOf(file), name)
-      await resolveInside(this.root, path.relative(this.root, target).split(path.sep))
+      await this.#resolve(path.relative(this.root, target).split(path.sep))
       if (!(await exists(target))) await writeFileAtomic(target, bytes)
       return `./${encodeLinkPath(noteStem(noteId))}${ASSETS_SUFFIX}/${name}`
     })
@@ -906,10 +959,10 @@ export class Vault {
       const dir = await this.#existingFolder(folder)
       const plan = await planImport({ sources, folder, dir, ...options })
       for (const note of plan.notes) {
-        const file = await resolveInside(this.root, noteSegments(note.id))
+        const file = await this.#resolve(noteSegments(note.id))
         for (const asset of note.assets) {
           const target = path.join(assetsDirOf(file), asset.name)
-          await resolveInside(this.root, path.relative(this.root, target).split(path.sep))
+          await this.#resolve(path.relative(this.root, target).split(path.sep))
           if (await exists(target)) continue
           if (asset.data) await writeFileAtomic(target, asset.data)
           else await copyFileAtomic(asset.source, target)
@@ -931,7 +984,7 @@ export class Vault {
     if (!isRelativeLink(href)) throw new VaultError('INVALID_PATH', `Not a relative link: ${href}`)
     const target = resolveLinkPath(parentOf(noteId), linkPath(href))
     if (target === undefined || target === '') throw new VaultError('INVALID_PATH', `Link leaves the vault: ${href}`)
-    return resolveInside(this.root, target.split('/'))
+    return this.#resolve(target.split('/'))
   }
 
   // ── Internals ──────────────────────────────────────────────────────────────────────────────
@@ -945,7 +998,7 @@ export class Vault {
 
   /** Saves `input`; `read` is the note the caller already read, else the file is read here. */
   async #writeNote(id: string, input: WriteNoteInput, read?: Note): Promise<WriteNoteResult> {
-    const file = await resolveInside(this.root, noteSegments(id))
+    const file = await this.#resolve(noteSegments(id))
     const matchesBase = (raw: string | undefined) =>
       input.baseHash === undefined || (raw === undefined ? null : hashText(raw)) === input.baseHash
     const conflict = async () => ({ status: 'conflict' as const, current: await this.#currentNote(id) })
@@ -986,7 +1039,7 @@ export class Vault {
   }
 
   async #existingFolder(folder: string): Promise<string> {
-    const dir = await resolveInside(this.root, folderSegments(folder))
+    const dir = await this.#resolve(folderSegments(folder))
     try {
       if ((await stat(dir)).isDirectory()) return dir
     } catch (error) {
@@ -1026,13 +1079,17 @@ export class Vault {
   }
 
   async #relocateNote(fromId: string, toId: string): Promise<NoteRelocation> {
-    const from = await resolveInside(this.root, noteSegments(fromId))
-    const to = await resolveInside(this.root, noteSegments(toId))
+    const from = await this.#resolve(noteSegments(fromId))
+    const to = await this.#resolve(noteSegments(toId))
     const raw = await readOptional(from)
     if (raw === undefined) throw new VaultError('NOT_FOUND', `Note not found: ${fromId}`)
     if (fromId === toId) return { note: await this.#track(fromId, from, raw), moves: [] }
     const assetsLeftBehind = await sharedAssetsOf(fromId, from)
     const assetsMove = assetsLeftBehind === undefined
+    if (assetsMove) {
+      this.#guardHolder(assetsDirOf(from), fromId)
+      this.#guardHolder(assetsDirOf(to), toId)
+    }
     if (
       !(await sameOrMissing(from, to)) ||
       (await stemTakenByOthers(to, from)) ||
@@ -1059,8 +1116,9 @@ export class Vault {
    */
   async #relocateFolder(id: string, toId: string): Promise<FolderRelocation> {
     if (id === '') throw new VaultError('INVALID_PATH', 'Cannot move the vault root')
+    this.#guardHolder(path.join(this.root, ...folderSegments(id)), id)
     const from = await this.#existingFolder(id)
-    const to = await resolveInside(this.root, folderSegments(toId))
+    const to = await this.#resolve(folderSegments(toId))
     if (id === toId) return { folder: id, moves: [] }
     await this.#existingFolder(parentOf(toId))
     if (!(await sameOrMissing(from, to))) throw new VaultError('EXISTS', `Already exists: ${toId}`)
@@ -1071,7 +1129,7 @@ export class Vault {
     await rename(from, to)
     const moves: LinkMove[] = [{ from: id, to: toId, kind: 'folder' }]
     for (const { fromId, noteId } of inside) {
-      const file = await resolveInside(this.root, noteSegments(noteId))
+      const file = await this.#resolve(noteSegments(noteId))
       const raw = await readOptional(file)
       if (raw === undefined) continue
       const text = parseNoteText(raw)
@@ -1103,7 +1161,7 @@ export class Vault {
         move.kind === 'note' ? move.to !== meta.id : !isUnder(meta.id, move.to),
       )
       if (applicable.length === 0) continue
-      const file = await resolveInside(this.root, noteSegments(meta.id))
+      const file = await this.#resolve(noteSegments(meta.id))
       const raw = await readOptional(file)
       if (raw === undefined) continue
       const text = parseNoteText(raw)
@@ -1138,6 +1196,8 @@ export class Vault {
       }
       for (const entry of entries) {
         if (isHiddenName(entry.name) || entry.name.includes('\\')) continue
+        // The excluded folder (the scratch notes') is no part of the vault: neither listed nor read.
+        if (this.#excluded !== undefined && path.join(dir, entry.name) === this.#excluded) continue
         const id = joinId(folder, entry.name)
         if (entry.isDirectory()) {
           folders.add(id)
@@ -1221,6 +1281,23 @@ function keepTypedFrontmatter(raw: string, now: string): string {
 
 function assetsDirOf(noteFile: string): string {
   return path.join(path.dirname(noteFile), `${noteStem(noteFile)}${ASSETS_SUFFIX}`)
+}
+
+/** Removes `target` recursively, keeping `keep` (when inside it) and the folders on the way to it. */
+async function removeExcept(target: string, keep: string | undefined): Promise<void> {
+  if (keep === undefined || !isInside(target, keep)) {
+    await rm(target, { recursive: true, force: true })
+    return
+  }
+  if (target === keep) return
+  let names: string[]
+  try {
+    names = await readdir(target)
+  } catch (error) {
+    if (isNodeError(error, 'ENOENT')) return
+    throw error
+  }
+  for (const name of names) await removeExcept(path.join(target, name), keep)
 }
 
 /** The file's text, or `undefined` when it does not exist. */

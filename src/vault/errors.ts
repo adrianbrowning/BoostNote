@@ -21,6 +21,13 @@ export class VaultError extends Error {
   }
 }
 
+/** `openVault`'s refusal of a folder that overlaps its `exclude` folder (the scratch notes' folder). */
+export class ScratchOverlapError extends VaultError {
+  constructor() {
+    super('NOT_A_VAULT', 'This folder overlaps the scratch notes’ folder; it cannot be opened as a vault')
+  }
+}
+
 export function isNodeError(error: unknown, code: string): boolean {
   return error instanceof Error && (error as NodeJS.ErrnoException).code === code
 }

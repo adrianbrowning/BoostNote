@@ -117,6 +117,24 @@ describe('notes', () => {
     expect(note.hash).toMatch(/^[0-9a-f]{64}$/)
   })
 
+  it.each([
+    ['an unresolved alias', 'x: *missing'],
+    ['a recursive alias', 'a: &a {self: *a}'],
+  ])('reads a note whose leading block has %s as all body, with no frontmatter', async (_, yaml) => {
+    const raw = `---\n${yaml}\n---\nbody`
+    await writeFile(path.join(vault.root, 'alias.md'), raw)
+    await vault.refresh()
+
+    const response = await app.get(`${api.noteRead.href()}?id=alias.md`)
+    expect(response.status).toBe(200)
+    const note = await readJson<NoteDocument>(response)
+    expect(note.body).toBe(raw)
+    expect(note.frontmatter).toEqual({})
+    expect((await readJson<WorkspaceData>(await app.get('/api/workspace'))).notes.map((n) => n.id)).toEqual([
+      'alias.md',
+    ])
+  })
+
   it('saves the body against the base hash and returns the new hash', async () => {
     const note = await createNote()
     const response = await app.post(api.noteSave.href(), {

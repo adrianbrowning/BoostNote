@@ -56,14 +56,15 @@ export function noteSegments(id: string): string[] {
 
 export function isInside(parent: string, child: string): boolean {
   const relative = path.relative(parent, child)
-  return relative === '' || (!relative.startsWith('..') && !path.isAbsolute(relative))
+  return relative === '' || (relative !== '..' && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative))
 }
 
 /**
  * Joins `segments` onto the (already real-pathed) vault root and verifies that the deepest existing
- * ancestor of the result does not resolve, through symlinks, outside the root.
+ * ancestor of the result does not resolve, through symlinks, outside the root, nor (with `excluded`, a
+ * real path) into the `excluded` folder.
  */
-export async function resolveInside(root: string, segments: readonly string[]): Promise<string> {
+export async function resolveInside(root: string, segments: readonly string[], excluded?: string): Promise<string> {
   const absolute = path.join(root, ...segments)
   if (!isInside(root, absolute)) throw new VaultError('INVALID_PATH', `Path escapes the vault: ${absolute}`)
   let probe = absolute
@@ -71,6 +72,9 @@ export async function resolveInside(root: string, segments: readonly string[]): 
     try {
       const real = await realpath(probe)
       if (!isInside(root, real)) throw new VaultError('INVALID_PATH', `Path escapes the vault via a symlink: ${probe}`)
+      if (excluded !== undefined && (isInside(excluded, absolute) || isInside(excluded, real))) {
+        throw new VaultError('INVALID_PATH', 'This path is in the scratch notes’ folder, which is no part of the vault')
+      }
       return absolute
     } catch (error) {
       if (!isNodeError(error, 'ENOENT') || probe === root) throw error

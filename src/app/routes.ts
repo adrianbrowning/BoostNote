@@ -73,6 +73,10 @@ export const routes = route({
     scratchRead: get('/scratch/read'),
     /** `{ id, text }`: replaces the note's text (last write wins). */
     scratchWrite: post('/scratch/write'),
+    /**
+     * `{ id, ifBlank? }`: deletes the note (`ScratchDiscardResult`); with `ifBlank: true`, only when its text is empty
+     * or whitespace only, decided in one store call.
+     */
     scratchDiscard: post('/scratch/discard'),
     /**
      * Save to vault (`{ id, folder }`): the scratch note becomes a note in `folder` of the vault named by `?vault=`

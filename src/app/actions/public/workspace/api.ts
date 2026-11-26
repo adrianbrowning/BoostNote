@@ -17,6 +17,7 @@ import type {
   ReaderFolderResult,
   ReaderImportResult,
   SaveConflictBody,
+  ScratchDiscardResult,
   ScratchNote,
   ScratchSaveResult,
   ScratchSummary,
@@ -203,7 +204,9 @@ export function createClient(transport: Transport) {
     createScratch: () => post<ScratchNote>(api.scratchCreate.href()),
     readScratch: (id: string) => request<ScratchNote>(withQuery(api.scratchRead.href(), { id })),
     writeScratch,
-    discardScratch: (id: string) => post<unknown>(api.scratchDiscard.href(), { id }),
+    /** Deletes scratch note `id`; with `ifBlank`, only when its text is empty or whitespace only (main decides). */
+    discardScratch: (id: string, options: { ifBlank?: boolean } = {}) =>
+      post<ScratchDiscardResult>(api.scratchDiscard.href(), options.ifBlank ? { id, ifBlank: true } : { id }),
     /** Save to vault: main turns scratch note `id` into a note in `folder` of the vault named by `?vault=` and removes it. */
     saveScratch: (id: string, folder: string) => post<ScratchSaveResult>(api.scratchSave.href(), { id, folder }),
   }

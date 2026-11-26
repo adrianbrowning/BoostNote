@@ -16,14 +16,14 @@ import { ScratchStore } from '../app/scratch-store.ts'
 import { type CliTarget, defaultShimDirs, installShim, loginShellPath, windowsCommands } from '../cli/install.ts'
 import { findLegacyStorages } from '../migrate/index.ts'
 import { markdownFilesIn } from './argv.ts'
-import { createCaptureHandler } from './capture.ts'
+import { createCaptureHandler, registerStoredHotkeys } from './capture.ts'
 import { eventHub } from './events.ts'
 import { createExportServices } from './export.ts'
 import { installMenu } from './menu.ts'
 import { createPreferenceServices } from './preferences.ts'
 import { handleBoostProtocol, registerBoostScheme } from './protocol.ts'
 import { createQuitDisposal, raceTimeout } from './quit.ts'
-import { SettingsStore, sameAccelerator } from './settings.ts'
+import { SettingsStore } from './settings.ts'
 import { checkForUpdate, createUpdater } from './updates.ts'
 import { VaultSession } from './vault-session.ts'
 import { createMainWindow } from './window.ts'
@@ -40,7 +40,8 @@ if (!app.commandLine.hasSwitch('user-data-dir')) {
 registerBoostScheme()
 
 const settings = new SettingsStore(path.join(app.getPath('userData'), 'settings.json'))
-const vaults = new VaultSession({ settings, events: eventHub })
+const scratchDir = path.join(app.getPath('userData'), 'scratch')
+const vaults = new VaultSession({ settings, events: eventHub, exclude: scratchDir })
 const preferences = createPreferenceServices(
   toggleMainWindow,
   createCaptureHandler({ show: bringMainWindowToFront, send: (event) => eventHub.broadcast(event) }),
@@ -105,7 +106,7 @@ const router = createAppRouter({
   showItemInFolder: (fullPath) => shell.showItemInFolder(fullPath),
   findLegacyStorages: () => findLegacyStorages({ appDataDir: path.join(app.getPath('appData'), 'Boostnote') }),
   drops,
-  scratch: new ScratchStore(path.join(app.getPath('userData'), 'scratch')),
+  scratch: new ScratchStore(scratchDir),
   exports: createExportServices(liveWindow),
   updates: updater,
 })
@@ -225,15 +226,7 @@ if (!app.requestSingleInstanceLock()) {
     // Theme before the window exists (its background colour follows it).
     const ui = settings.ui
     preferences.apply(ui)
-    if (!preferences.setHotkey(ui.globalHotkey)) console.warn(`Could not register the hotkey ${ui.globalHotkey}`)
-    // One accelerator stored for both, aliases included (a hand-edited settings.json), stays the
-    // show/hide hotkey.
-    if (
-      ui.captureHotkey !== '' &&
-      (sameAccelerator(ui.captureHotkey, ui.globalHotkey) || !preferences.setCaptureHotkey(ui.captureHotkey))
-    ) {
-      console.warn(`Could not register the Quick capture hotkey ${ui.captureHotkey}`)
-    }
+    registerStoredHotkeys(preferences, ui, (message) => console.warn(message))
     updater.setAutomatic(ui.checkUpdates)
     // Reopen the last vault first, so the first page already shows it.
     await vaults.restore().catch((error: unknown) => console.error('Could not reopen the last vault', error))

@@ -53,8 +53,8 @@ export class TestApp {
   readonly printed: string[] = []
   readonly pdfs: string[] = []
   /**
-   * The fake `PreferenceServices` (`registeredHotkey` and `registeredCaptureHotkey` are what the fake OS has
-   * registered).
+   * The fake `PreferenceServices`. Like the OS, it has one registry for both hotkeys: it refuses an accelerator in
+   * `takenHotkeys` or one the other hotkey holds (`registeredHotkey` and `registeredCaptureHotkey` read it).
    */
   readonly preferences: {
     registeredHotkey: string | undefined
@@ -76,24 +76,33 @@ export class TestApp {
   private constructor(dir: string) {
     this.dir = dir
     this.settings = new SettingsStore(path.join(dir, 'userData', 'settings.json'))
-    this.vaults = new VaultSession({ settings: this.settings, events: this.events, debounceMs: 20 })
     this.scratchDir = path.join(dir, 'userData', 'scratch')
+    this.vaults = new VaultSession({
+      settings: this.settings,
+      events: this.events,
+      debounceMs: 20,
+      exclude: this.scratchDir,
+    })
+    const registry = new Map<'global' | 'capture', string>()
+    const register = (owner: 'global' | 'capture', accelerator: string): boolean => {
+      const other = registry.get(owner === 'global' ? 'capture' : 'global')
+      if (accelerator !== '' && (this.takenHotkeys.includes(accelerator) || other === accelerator)) return false
+      if (accelerator === '') registry.delete(owner)
+      else registry.set(owner, accelerator)
+      return true
+    }
     const preferences = {
-      registeredHotkey: undefined as string | undefined,
-      registeredCaptureHotkey: undefined as string | undefined,
+      get registeredHotkey() {
+        return registry.get('global')
+      },
+      get registeredCaptureHotkey() {
+        return registry.get('capture')
+      },
       apply: (ui: UiPreferences) => {
         this.applied.push(ui)
       },
-      setHotkey: (accelerator: string) => {
-        if (this.takenHotkeys.includes(accelerator)) return false
-        preferences.registeredHotkey = accelerator === '' ? undefined : accelerator
-        return true
-      },
-      setCaptureHotkey: (accelerator: string) => {
-        if (this.takenHotkeys.includes(accelerator)) return false
-        preferences.registeredCaptureHotkey = accelerator === '' ? undefined : accelerator
-        return true
-      },
+      setHotkey: (accelerator: string) => register('global', accelerator),
+      setCaptureHotkey: (accelerator: string) => register('capture', accelerator),
     }
     this.preferences = preferences
     this.router = createAppRouter({

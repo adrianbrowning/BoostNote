@@ -50,6 +50,18 @@ export class SavedEvent extends Event {
   }
 }
 
+/** A save found the open scratch note `id` gone (`404`): the session let it go; `message` is main's notice. */
+export class ScratchGoneEvent extends Event {
+  readonly id: string
+  readonly message: string
+
+  constructor(id: string, message: string) {
+    super('scratchgone')
+    this.id = id
+    this.message = message
+  }
+}
+
 /**
  * The note open in the editor and its persistence: debounced autosave with optimistic concurrency
  * (every save sends the hash it is based on; the server answers 409 when the file changed), live
@@ -58,9 +70,15 @@ export class SavedEvent extends Event {
  *
  * The editor can show a scratch note instead (`openScratch`; `note` is then `null`): its text autosaves
  * as typed through `POST /api/scratch/write`, with no hash, frontmatter or live reload (last write
- * wins), and a failed save, a scratch note gone included, is an `error` (retried like a note's).
+ * wins). A failed save is an `error` (retried like a note's), except one that finds the scratch note gone: the
+ * session then lets it go (`ScratchGoneEvent`).
  */
-export class NoteSession extends TypedEventTarget<{ change: Event; doc: DocEvent; saved: SavedEvent }> {
+export class NoteSession extends TypedEventTarget<{
+  change: Event
+  doc: DocEvent
+  saved: SavedEvent
+  scratchgone: ScratchGoneEvent
+}> {
   /** What is on disk, as of the last read or save (`null` with no note, or while a scratch note is open). */
   note: NoteDocument | null = null
   /** The open scratch note as of its last read or save (`null` unless one is open; `note` is then `null`). */
@@ -429,7 +447,11 @@ export class NoteSession extends TypedEventTarget<{ change: Event; doc: DocEvent
     }
   }
 
-  /** Saves the open scratch note's text `body` as typed (last write wins); any failure is an `error`. */
+  /**
+   * Saves the open scratch note's text `body` as typed (last write wins); a failure is an `error`, except a `404`:
+   * the scratch note is gone (deleted on disk), so the session lets it go and dispatches `ScratchGoneEvent`
+   * (`Navigation` closes its tab with the notice), and nothing unsaved remains that could hold a transition back.
+   */
   async #saveScratch(id: string, body: string): Promise<SaveOutcome> {
     try {
       const saved = await this.#api.writeScratch(id, body)
@@ -441,10 +463,16 @@ export class NoteSession extends TypedEventTarget<{ change: Event; doc: DocEvent
       return { state: this.state }
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
-      if (this.scratch?.id === id) {
-        this.error = message
-        this.state = 'error'
+      if (this.scratch?.id !== id) return { state: 'error', error: message }
+      if (error instanceof ApiError && error.status === 404) {
+        this.#reset(null)
+        this.dispatchEvent(new DocEvent('', false))
+        this.dispatchEvent(new ScratchGoneEvent(id, message))
+        // Nothing unsaved remains once the session lets the note go; `saved` keeps a Retry from replacing the gone notice.
+        return { state: 'saved' }
       }
+      this.error = message
+      this.state = 'error'
       return { state: 'error', error: message }
     }
   }

@@ -119,26 +119,56 @@ function modifierName(part: string, platform: NodeJS.Platform): string {
   return part
 }
 
-/** One name per key Electron parses as the same key code, in upper case. */
-function keyName(key: string): string {
+/** Shifted characters Electron parses as their unshifted key plus Shift (`'+'` and `Plus` as `Shift+=`). */
+const SHIFTED: Record<string, string> = {
+  ')': '0',
+  '!': '1',
+  '@': '2',
+  '#': '3',
+  $: '4',
+  '%': '5',
+  '^': '6',
+  '&': '7',
+  '*': '8',
+  '(': '9',
+  ':': ';',
+  '+': '=',
+  PLUS: '=',
+  '<': ',',
+  _: '-',
+  '>': '.',
+  '?': '/',
+  '~': '`',
+  '{': '[',
+  '}': ']',
+  '|': '\\',
+  '"': "'",
+}
+
+/** One name per key Electron parses as the same key code, in upper case, and whether it adds Shift. */
+function keyName(key: string): { key: string; shift: boolean } {
   const upper = key.toUpperCase()
-  if (upper === 'ESC') return 'ESCAPE'
-  if (upper === 'ENTER') return 'RETURN'
-  return upper
+  if (upper === 'ESC') return { key: 'ESCAPE', shift: false }
+  if (upper === 'ENTER') return { key: 'RETURN', shift: false }
+  const base = SHIFTED[upper]
+  return base === undefined ? { key: upper, shift: false } : { key: base, shift: true }
 }
 
 /**
  * Whether two accelerators press the same keys on `platform`: aliases Electron parses alike count as
  * one (`CommandOrControl` and `Command` on macOS or `Control` elsewhere; `Cmd`, `Super` and `Meta`;
- * `Option` and `Alt`; `Esc` and `Escape`; `Enter` and `Return`), modifiers in any order, the key in any
- * case. `''` (no hotkey) is never the same as anything.
+ * `Option` and `Alt`; `Esc` and `Escape`; `Enter` and `Return`; a shifted character and its unshifted
+ * key with Shift, such as `!` and `Shift+1` or `Plus`/`+` and `Shift+=`), modifiers in any order, the
+ * key in any case. `''` (no hotkey) is never the same as anything.
  */
 export function sameAccelerator(a: string, b: string, platform: NodeJS.Platform = process.platform): boolean {
   if (a === '' || b === '') return false
   const canonical = (value: string) => {
     const parts = value.split(/\+(?!$)/)
-    const key = keyName(parts.pop() ?? '')
-    return { key, modifiers: new Set(parts.map((part) => modifierName(part, platform))) }
+    const { key, shift } = keyName(parts.pop() ?? '')
+    const modifiers = new Set(parts.map((part) => modifierName(part, platform)))
+    if (shift) modifiers.add('Shift')
+    return { key, modifiers }
   }
   const left = canonical(a)
   const right = canonical(b)

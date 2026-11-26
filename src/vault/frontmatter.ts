@@ -69,18 +69,24 @@ function parseYamlMapping(yaml: string): Frontmatter | undefined {
   const doc = parseDocument(yaml)
   if (doc.errors.length > 0 || !isMap(doc.contents)) return undefined
   try {
-    return toMapping(doc.toJS())
+    const value = toMapping(doc.toJS())
+    // A recursive alias (`a: &a {self: *a}`) gives a cyclic value, which no note document can carry.
+    JSON.stringify(value)
+    return value
   } catch {
-    // An unresolved alias or alias bomb is not reported in `doc.errors`; it is still invalid YAML.
+    // An unresolved alias, an alias bomb or a recursive alias is not reported in `doc.errors`; it is still invalid
+    // frontmatter, left in the body.
     return undefined
   }
 }
 
 /**
  * Serialises a note. When `previous` is the parsed form of the file being replaced, the original
- * YAML text is edited in place: unchanged keys keep their exact bytes (quoting, comments, flow
- * style), changed keys are rewritten where they stand, removed keys are dropped and new keys are
- * appended. An empty frontmatter on a file that had none produces just the body.
+ * YAML text is edited in place where its layout allows (a plain block mapping, keys in their order):
+ * unchanged keys keep their exact bytes (quoting, comments, flow style), changed keys are rewritten
+ * where they stand, removed keys are dropped and new keys are appended. Other layouts are re-emitted
+ * through the YAML document model (comments kept), and as a last resort written anew (comments and
+ * layout lost). An empty frontmatter on a file that had none produces just the body.
  */
 export function serializeNoteText(frontmatter: Frontmatter, body: string, previous?: NoteText): string {
   const yaml = previous?.yaml ?? null
@@ -98,11 +104,12 @@ function stringifyMapping(frontmatter: Frontmatter): string {
 
 /** Edits `yaml` (whose parsed value is `before`) so that it parses to `after`; see `serializeNoteText`. */
 export function updateYaml(yaml: string, before: Frontmatter, after: Frontmatter): string {
-  if (isDeepStrictEqual(before, after)) return yaml
+  if (isDeepStrictEqual(before, after) && isDeepStrictEqual(Object.keys(before), Object.keys(after))) return yaml
   const spliced = spliceYaml(yaml, after)
   if (spliced !== undefined && isDeepStrictEqual(parseYamlMapping(spliced), after)) return spliced
-  // Unusual layouts (flow mappings, anchors, reordered keys): re-emit through the document model,
-  // which still keeps comments and the order of surviving keys.
+  // Unusual layouts (flow mappings, anchors, reordered keys): re-emit through the document model, which keeps
+  // comments; keys follow `after`'s order. When that text cannot be written or does not parse back to `after` (a
+  // reorder that puts an alias before its anchor), the block is written anew and its comments are lost.
   const doc = parseDocument(yaml)
   if (!isMap(doc.contents)) return stringifyMapping(after)
   const current = toMapping(doc.toJS())
@@ -112,7 +119,27 @@ export function updateYaml(yaml: string, before: Frontmatter, after: Frontmatter
   for (const [key, value] of Object.entries(after)) {
     if (!isDeepStrictEqual(current[key], value)) doc.set(key, value)
   }
-  return doc.toString(STRINGIFY_OPTIONS)
+  const order = Object.keys(after)
+  const map = doc.contents
+  const keyOf = (item: (typeof map.items)[number]) => String(isScalar(item.key) ? item.key.value : item.key)
+  // `after` lists array-index keys first, as every JS object does: the YAML order is changed only when the user
+  // reordered keys, judged as `spliceYaml` judges it.
+  if (!isDeepStrictEqual(jsKeyOrder(map.items.map(keyOf)), order)) {
+    map.items.sort((a, b) => order.indexOf(keyOf(a)) - order.indexOf(keyOf(b)))
+  }
+  // A reorder can put an alias before its anchor: then the block cannot be written or parsed, so it is written anew.
+  let text: string
+  try {
+    text = doc.toString(STRINGIFY_OPTIONS)
+  } catch {
+    return stringifyMapping(after)
+  }
+  return isDeepStrictEqual(parseYamlMapping(text), after) ? text : stringifyMapping(after)
+}
+
+/** `keys` in the order a JS object built from them in that order lists them (array-index keys first, ascending). */
+function jsKeyOrder(keys: string[]): string[] {
+  return Object.keys(Object.fromEntries(keys.map((key) => [key, true])))
 }
 
 function toMapping(value: unknown): Frontmatter {
@@ -140,13 +167,8 @@ function spliceYaml(yaml: string, after: Frontmatter): string | undefined {
   }
   const beforeKeys = spans.map((span) => span.key)
   const kept = Object.keys(after).filter((key) => beforeKeys.includes(key))
-  if (
-    !isDeepStrictEqual(
-      kept,
-      beforeKeys.filter((key) => key in after),
-    )
-  )
-    return undefined
+  // `after` lists array-index keys first, as every JS object does: an unchanged YAML order reads that way too.
+  if (!isDeepStrictEqual(kept, jsKeyOrder(beforeKeys.filter((key) => key in after)))) return undefined
   const before = toMapping(doc.toJS())
   let text = yaml
   // Apply from the end so earlier offsets stay valid.

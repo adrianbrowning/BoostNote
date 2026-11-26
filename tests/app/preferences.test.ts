@@ -219,6 +219,31 @@ describe('preferences route', () => {
     })
   })
 
+  it('refuses a patch that sets both hotkeys to the same new accelerator, without registering it', async () => {
+    await app.post(api.preferencesSave.href(), { globalHotkey: 'CommandOrControl+Alt+K' })
+    await app.post(api.preferencesSave.href(), { captureHotkey: 'CommandOrControl+Alt+J' })
+    const setHotkey = vi.spyOn(app.preferences, 'setHotkey')
+    const setCaptureHotkey = vi.spyOn(app.preferences, 'setCaptureHotkey')
+
+    const both = await app.post(api.preferencesSave.href(), {
+      globalHotkey: 'CommandOrControl+Alt+L',
+      captureHotkey: 'CommandOrControl+Alt+L',
+    })
+    expect(both.status).toBe(409)
+    expect(await both.json()).toEqual({
+      error: 'HOTKEY_UNAVAILABLE',
+      message: 'CommandOrControl+Alt+L is already the show/hide hotkey.',
+    })
+    expect(setHotkey).not.toHaveBeenCalled()
+    expect(setCaptureHotkey).not.toHaveBeenCalled()
+    expect(app.preferences.registeredHotkey).toBe('CommandOrControl+Alt+K')
+    expect(app.preferences.registeredCaptureHotkey).toBe('CommandOrControl+Alt+J')
+    expect(app.settings.ui).toMatchObject({
+      globalHotkey: 'CommandOrControl+Alt+K',
+      captureHotkey: 'CommandOrControl+Alt+J',
+    })
+  })
+
   it('puts the show/hide hotkey of a patch back when the Quick capture hotkey of the same patch is refused', async () => {
     await app.post(api.preferencesSave.href(), { globalHotkey: 'CommandOrControl+Alt+K' })
     app.takenHotkeys.push('Control+Shift+F6')
@@ -292,6 +317,17 @@ describe('preferences route', () => {
     expect(sameAccelerator('Meta+Shift+Enter', 'Cmd+Shift+Return', 'darwin')).toBe(true)
     expect(sameAccelerator('', '', 'linux')).toBe(false)
     expect(sameAccelerator('', 'Control+Alt+K', 'darwin')).toBe(false)
+    expect(sameAccelerator('Control+Alt+Plus', 'Control+Alt+Shift+=', 'linux')).toBe(true)
+    expect(sameAccelerator('Control+Alt++', 'Control+Alt+Shift+=', 'linux')).toBe(true)
+    expect(sameAccelerator('Control+Alt+plus', 'Control+Alt++', 'linux')).toBe(true)
+    expect(sameAccelerator('Control+Alt+!', 'Control+Alt+Shift+1', 'linux')).toBe(true)
+    expect(sameAccelerator('Control+Alt+Shift+!', 'Control+Alt+Shift+1', 'linux')).toBe(true)
+    expect(sameAccelerator('Control+Alt+)', 'Shift+Control+Alt+0', 'linux')).toBe(true)
+    expect(sameAccelerator('Control+Alt+?', 'Control+Alt+Shift+/', 'linux')).toBe(true)
+    expect(sameAccelerator('Control+Alt+"', "Control+Alt+Shift+'", 'linux')).toBe(true)
+    expect(sameAccelerator('Control+Alt+|', 'Control+Alt+Shift+\\', 'linux')).toBe(true)
+    expect(sameAccelerator('Control+Alt+!', 'Control+Alt+1', 'linux')).toBe(false)
+    expect(sameAccelerator('Control+Alt+=', 'Control+Alt+Plus', 'linux')).toBe(false)
   })
 })
 

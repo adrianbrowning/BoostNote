@@ -70,6 +70,11 @@ export interface NavigationHost {
   fail(error: unknown): void
   /** Something visible changed (the tabs, the reader). */
   changed(): void
+  /**
+   * The scratch notes changed: one was created, deleted, saved to the vault or found gone (or the tabs were
+   * restored). The host lists them again; called once the transition that changed them is done.
+   */
+  scratchChanged(): Promise<void>
 }
 
 export interface NavigationOptions {
@@ -127,12 +132,47 @@ export class Navigation {
    * into them, so a transition that lands meanwhile cannot overwrite that entry.
    */
   #scratchRestoring = false
+  /** The New Scratch Note running now, if any (`newScratch` runs one at a time). */
+  #scratchCreates: Promise<unknown> = Promise.resolve()
+  /** A transition changed the scratch notes since the host last listed them (`#relistScratch`). */
+  #scratchListStale = false
+  /** The blank discards of background scratch tab closes still out, by scratch note id. */
+  readonly #discarding = new Map<string, Promise<void>>()
 
   constructor({ session, api, store, host }: NavigationOptions) {
     this.#session = session
     this.#api = api
     this.#store = store
     this.#host = host
+    session.addEventListener('scratchgone', (event) => this.#scratchGone(event.id, event.message))
+  }
+
+  /**
+   * A save found the open scratch note `id` gone (deleted on disk; the session let it go): its tab closes with the
+   * notice, as a `404` read does, and the active tab loads (the event fires only while the session held the scratch
+   * note, so it holds nothing now, also when that tab was in the background). Failures go to the host.
+   */
+  #scratchGone(id: string, message: string): void {
+    this.#host.notify('error', message)
+    this.#scratchListStale = true
+    const tab = this.#scratchTab(id)
+    if (tab) {
+      try {
+        this.#edit((tabs) => tabs.close(tab.key))
+      } catch (error) {
+        this.#host.fail(error)
+      }
+      this.#host.changed()
+    }
+    // The session held it and now holds nothing: the active tab loads (its hold lists the scratch notes again).
+    void this.hold(() => this.#loadActive(), { gate: false }).catch((error: unknown) => this.#host.fail(error))
+  }
+
+  /** Lets the host list the scratch notes again when a transition changed them, once no hold runs. */
+  async #relistScratch(): Promise<void> {
+    if (!this.#scratchListStale || this.#holds > 0) return
+    this.#scratchListStale = false
+    await this.#host.scratchChanged()
   }
 
   /**
@@ -177,6 +217,7 @@ export class Navigation {
     } finally {
       this.#holds--
       this.#session.lock(this.#holds > 0)
+      await this.#relistScratch()
     }
   }
 
@@ -212,6 +253,7 @@ export class Navigation {
       async () => {
         this.#transitions++
         this.#restoreNoteTabs()
+        this.#scratchListStale = true
         const scratch = scratchTabsOf(this.#store.loadScratch())
         if (scratch.ids.length > 0) {
           const current = this.token()
@@ -293,13 +335,15 @@ export class Navigation {
    * drops unsaved edits instead (the "Close" of a note removed on disk). A background tab closes
    * without the gate, except a scratch tab whose scratch note the session still holds (the tab left for
    * failed to read): the gate saves its text first and a refused gate keeps the tab; the session then lets it
-   * go. A reader tab closes once main revoked its ticket (a `404` means it already
+   * go and the active tab loads. A reader tab closes once main revoked its ticket (a `404` means it already
    * was); if revoking fails the tab stays open. A reader that is already closing or opening its
    * folder as the vault is left to that action. A scratch tab's scratch note is discarded once its tab
    * closed when its text (saved by the gate first, when the session held it) is empty or whitespace only, and
-   * kept otherwise; when that read or discard fails, the tab stays closed, the scratch note is kept and the
-   * failure is reported (a `404`: it is gone already, and nothing is reported). The tabs are saved to the tab
-   * store after that discard, so a store that throws rejects the close with the blank scratch note already gone.
+   * kept otherwise (main decides, in one request); when that discard fails, the tab stays closed, the scratch note
+   * is kept and the failure is reported (a `404`: it is gone already, and nothing is reported). The tabs are saved
+   * to the tab store after that discard, so a store that throws rejects the close with the blank scratch note
+   * already gone. A background scratch tab the session does not hold closes without holding the open note, which
+   * stays editable meanwhile.
    */
   async close(key = this.tabs.activeKey, options: { discard?: boolean } = {}): Promise<void> {
     await this.#close(key, options, this.#hostReport)
@@ -325,12 +369,14 @@ export class Navigation {
     }
     if (key !== this.tabs.activeKey) {
       if (tab?.kind === 'scratch' && this.#session.scratch?.id === tab.id) {
-        // The session still holds it (the note tab left for failed to read): the gate saves its text, then it goes.
+        // The session still holds it (the note tab left for failed to read): the gate saves its text, then it goes
+        // and the active tab loads (that note tab's read again, or this tab's neighbour if it became active).
         await this.hold(async () => {
           this.#edit((tabs) => tabs.close(key))
           if (this.#session.scratch?.id === tab.id) this.#session.close()
           this.#host.changed()
           await this.#discardBlank(tab.id, report)
+          await this.#loadActive(report)
         })
         return
       }
@@ -339,15 +385,20 @@ export class Navigation {
         this.#host.changed()
         return
       }
-      // Held so the tabs are saved after the discard: a store that throws then rejects with the blank note gone.
-      await this.hold(
-        async () => {
-          this.#edit((tabs) => tabs.close(key))
-          this.#host.changed()
-          await this.#discardBlank(tab.id, report)
-        },
-        { gate: false },
-      )
+      // Not held: the open note is left as it is, so it stays editable. The tabs are saved after the discard, so a
+      // store that throws rejects the close with the blank note gone (inside another hold, that hold saves them).
+      this.#edit((tabs) => tabs.close(key), { save: false })
+      this.#host.changed()
+      // A reopen from the scratch list meanwhile reads it only once this discard answered (`#loadScratch`).
+      const discarding = this.#discardBlank(tab.id, report)
+      this.#discarding.set(tab.id, discarding)
+      try {
+        await discarding
+      } finally {
+        if (this.#discarding.get(tab.id) === discarding) this.#discarding.delete(tab.id)
+      }
+      await this.#relistScratch()
+      if (this.#holds === 0) this.#persist()
       return
     }
     if (options.discard) this.#session.close()
@@ -364,16 +415,18 @@ export class Navigation {
   }
 
   /**
-   * Discards scratch note `id`, whose tab closed, when its text on disk is empty or whitespace only. Its text is the
-   * one on disk: the gate saved it before its tab closed, when the session held it (which then let it go), and a
-   * scratch note the session does not hold has no unsaved text. A failed read or discard keeps it, reported to
-   * `report` (a `404`: it is gone already).
+   * Discards scratch note `id`, whose tab closed, when its text on disk is empty or whitespace only (main checks and
+   * deletes it in one request, `ifBlank`). Its text is the one on disk: the gate saved it before its tab closed, when
+   * the session held it (which then let it go), and a scratch note the session does not hold has no unsaved text. A
+   * failed discard keeps it, reported to `report` (a `404`: it is gone already).
    */
   async #discardBlank(id: string, report: LoadReport): Promise<void> {
     try {
-      if ((await this.#api.readScratch(id)).text.trim() === '') await this.#api.discardScratch(id)
+      await this.#api.discardScratch(id, { ifBlank: true })
+      this.#scratchListStale = true
     } catch (error) {
-      if (!(error instanceof ApiError && error.status === 404)) report.fail(error)
+      if (error instanceof ApiError && error.status === 404) this.#scratchListStale = true
+      else report.fail(error)
     }
   }
 
@@ -441,56 +494,99 @@ export class Navigation {
   /**
    * "New Scratch Note": after the gate, creates a scratch note (with or without an open vault) and shows it in a
    * new scratch tab after the active tab. `null` when the gate refused (nothing is created); `shown: false` when
-   * the scratch note was created but is not shown: a later transition changed the active tab meanwhile.
+   * the scratch note was created but is not shown: a later transition changed the active tab meanwhile. Runs one at
+   * a time: a New Scratch Note asked for while one is out (two Quick capture presses) starts once that one is done,
+   * so it is no later transition to it and both scratch notes show.
    */
-  async newScratch(): Promise<{ scratch: ScratchNote; shown: boolean } | null> {
-    return this.hold(async () => {
-      const current = this.token()
-      const scratch = await this.#api.createScratch()
-      if (!current()) return { scratch, shown: false }
-      this.#edit((tabs) => tabs.openScratch(scratch.id))
-      this.#session.openScratch(scratch)
-      return { scratch, shown: true }
-    })
+  newScratch(): Promise<{ scratch: ScratchNote; shown: boolean } | null> {
+    const run = this.#scratchCreates.then(() =>
+      this.hold(async () => {
+        const current = this.token()
+        const scratch = await this.#api.createScratch()
+        this.#scratchListStale = true
+        if (!current()) return { scratch, shown: false }
+        this.#edit((tabs) => tabs.openScratch(scratch.id))
+        this.#session.openScratch(scratch)
+        return { scratch, shown: true }
+      }),
+    )
+    this.#scratchCreates = run.catch(() => {})
+    return run
   }
 
-  /** The scratch list's reopen: activates scratch note `id`'s tab, or opens one after the active tab, after the gate. */
+  /**
+   * The scratch list's reopen: activates scratch note `id`'s tab, or opens one after the active tab, after the gate.
+   * When its tab is active but the session does not hold the scratch note (its read failed), it is read again.
+   */
   async openScratch(id: string): Promise<void> {
     const active = this.tabs.active
-    if (active?.kind === 'scratch' && active.id === id) return
+    if (active?.kind === 'scratch' && active.id === id && this.#session.scratch?.id === id) return
     await this.#switch((tabs) => tabs.openScratch(id))
   }
 
   /**
    * The scratch list's Discard: deletes scratch note `id` (a `404`: it is gone already) once a save of its text still
    * out ended (so it cannot write the file back), then closes its tab when it is open, dropping the text the session
-   * holds of it; when that tab was active, the next tab loads. The gate runs first only when that load can replace
-   * another note the session holds. When the delete fails, the scratch note and its tab stay and the error rejects.
+   * holds of it; when that tab was active, the next tab loads. Only a discard of the scratch note the session holds,
+   * or of the active tab's, holds the open note (`hold`); the gate runs first only when that load can replace another
+   * note the session holds. Any other discard (no tab, or a background tab) leaves the open note editable while its
+   * request is out. When the delete fails, the scratch note and its tab stay and the error rejects.
    */
   async discardScratch(id: string): Promise<void> {
     const tab = this.tabs.tabs.find((item) => item.kind === 'scratch' && item.id === id)
+    const active = tab !== undefined && tab.key === this.tabs.activeKey
+    if (!active && this.#session.scratch?.id !== id) {
+      await this.#discard(id)
+      // The tab may have become active, or the session may hold it, while the request was out.
+      const open = this.#scratchTab(id)
+      const shown = this.#session.scratch?.id === id || (open !== undefined && open.key === this.tabs.activeKey)
+      if (shown) {
+        await this.hold(() => this.#closeDiscarded(id), { gate: false })
+        return
+      }
+      if (open) this.#edit((tabs) => tabs.close(open.key))
+      this.#host.changed()
+      await this.#relistScratch()
+      return
+    }
     const holdsOther =
       (this.#session.note !== null || this.#session.scratch !== null) && this.#session.scratch?.id !== id
     await this.hold(
       async () => {
         // A save of its text still out could land after the delete and bring the file back: it ends first.
         if (this.#session.scratch?.id === id) await this.#session.flush()
-        try {
-          await this.#api.discardScratch(id)
-        } catch (error) {
-          if (!(error instanceof ApiError && error.status === 404)) throw error
-        }
-        const held = this.#session.scratch?.id === id
-        if (held) this.#session.close()
-        const open = this.tabs.tabs.find((item) => item.kind === 'scratch' && item.id === id)
-        const wasActive = open !== undefined && open.key === this.tabs.activeKey
-        if (open) this.#edit((tabs) => tabs.close(open.key))
-        // The session follows the active tab again: the next one when it was this one, or the one it held this for.
-        if (wasActive || held) await this.#loadActive()
-        else this.#host.changed()
+        await this.#discard(id)
+        await this.#closeDiscarded(id)
       },
-      { gate: tab !== undefined && tab.key === this.tabs.activeKey && holdsOther },
+      { gate: active && holdsOther },
     )
+  }
+
+  /** Deletes scratch note `id`; a `404` means it is gone already. */
+  async #discard(id: string): Promise<void> {
+    try {
+      await this.#api.discardScratch(id)
+    } catch (error) {
+      if (!(error instanceof ApiError && error.status === 404)) throw error
+    }
+    this.#scratchListStale = true
+  }
+
+  /** Scratch note `id`'s tab, if open. */
+  #scratchTab(id: string): ScratchTab | undefined {
+    return this.tabs.tabs.find((item): item is ScratchTab => item.kind === 'scratch' && item.id === id)
+  }
+
+  /** Inside a `hold`: lets discarded scratch note `id` go from the session and its tab, and loads the active tab. */
+  async #closeDiscarded(id: string): Promise<void> {
+    const held = this.#session.scratch?.id === id
+    if (held) this.#session.close()
+    const open = this.#scratchTab(id)
+    const wasActive = open !== undefined && open.key === this.tabs.activeKey
+    if (open) this.#edit((tabs) => tabs.close(open.key))
+    // The session follows the active tab again: the next one when it was this one, or the one it held this for.
+    if (wasActive || held) await this.#loadActive()
+    else this.#host.changed()
   }
 
   /**
@@ -499,9 +595,11 @@ export class Navigation {
    * its position, active (the note then loads into the session; a tab in the background, saved from the scratch list,
    * too), unless a transition changed the active tab while `save` was out: then it stays in the background, the
    * active tab left as it is (`shown: true`). A scratch note with no tab (saved from the scratch list) opens as the
-   * new note in a new active tab after the active one (`shown: true`). When a vault switch ran while `save` was out,
-   * the note is in the vault left, so the tab closes instead (none opens) and the active tab loads (`shown: false`).
-   * `null` when the gate refused (`save` does not run); when `save` rejects, the tab stays.
+   * new note in a new tab after the active one, active unless a transition changed the active tab while `save` was
+   * out (`shown: true`). When a vault switch ran while `save` was out, the note is in the vault left, so the tab
+   * closes instead (none opens) and the active tab loads (`shown: false`). The session lets the removed scratch note
+   * go before the active tab loads, so a failed read of the new note leaves no editor on it. `null` when the gate
+   * refused (`save` does not run); when `save` rejects, the tab stays.
    */
   async saveScratch<T extends { id: string }>(
     id: string,
@@ -511,6 +609,7 @@ export class Navigation {
       const sameVault = this.vaultToken()
       const unmoved = this.token()
       const saved = await save()
+      this.#scratchListStale = true
       const tab = this.tabs.tabs.find((item) => item.kind === 'scratch' && item.id === id)
       const shown = sameVault()
       if (!tab && !shown) return { saved, shown }
@@ -519,6 +618,7 @@ export class Navigation {
       this.#edit((tabs) => {
         if (!tab) {
           tabs.openNew(saved.id)
+          if (stay && active !== null) tabs.activate(active)
           return
         }
         if (!shown) {
@@ -528,6 +628,7 @@ export class Navigation {
         tabs.replaceScratch(tab.key, saved.id)
         if (stay && active !== null && active !== tab.key) tabs.activate(active)
       })
+      if (this.#session.scratch?.id === id) this.#session.close()
       await this.#loadActive()
       return { saved, shown }
     })
@@ -665,14 +766,14 @@ export class Navigation {
   /**
    * Applies `change` to the tabs; a change of the active tab (or its note) is a transition (`token`). Every tab
    * change goes through here except `restore`, which loads the tabs from the store. Inside a `hold` the tabs
-   * are saved once it is done; otherwise right away.
+   * are saved once it is done; otherwise right away, unless `save: false` (the caller saves them).
    */
-  #edit(change: (tabs: Tabs) => unknown): void {
+  #edit(change: (tabs: Tabs) => unknown, { save = true }: { save?: boolean } = {}): void {
     const before = this.#activeShows()
     change(this.tabs)
     if (this.#activeShows() !== before) this.#transitions++
     this.#unsaved = true
-    if (this.#holds === 0) this.#persist()
+    if (save && this.#holds === 0) this.#persist()
   }
 
   /** What the active tab shows: its key with its note's path, its reader ticket or its scratch id (`''`: no tab). */
@@ -759,6 +860,8 @@ export class Navigation {
     }
     // As for notes, a read that returns after a later transition is dropped (its error too).
     const current = this.token()
+    // A background close's blank discard still out: read once it answered, so a deleted note answers 404.
+    await this.#discarding.get(tab.id)
     let scratch: ScratchNote
     try {
       scratch = await this.#api.readScratch(tab.id)
@@ -769,6 +872,7 @@ export class Navigation {
         return
       }
       report.missing(error.message)
+      this.#scratchListStale = true
       this.#edit((tabs) => tabs.close(tab.key))
       await this.#loadActive(report)
       return
