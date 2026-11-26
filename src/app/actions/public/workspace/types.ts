@@ -111,8 +111,8 @@ export interface ReaderImportResult {
 }
 
 /**
- * `POST /api/scratch/save` (`{ id, folder }`): the scratch note became note `id` in `folder` of the open vault, and
- * the scratch note is gone; `workspace` is that vault's lists with the note in them.
+ * `POST /api/scratch/save` (`{ id, folder }`): the scratch note became note `id` in `folder` of the vault named by
+ * `?vault=`, and the scratch note is gone; `workspace` is that vault's lists with the note in them.
  */
 export interface ScratchSaveResult {
   id: string

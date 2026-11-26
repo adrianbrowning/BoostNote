@@ -39,7 +39,8 @@ choose, so any editor, `git` or sync tool works with them. The background and de
   the note's `.assets/` folder, links between dropped notes are kept working, and the originals are
   never moved or changed.
 - **Preferences:** light/dark/system theme, editor font, size and width, spellcheck, a global
-  show/hide hotkey. Every command has a native menu item and shortcut.
+  show/hide hotkey and an optional Quick capture hotkey (off by default) for scratch notes. Every
+  command has a native menu item and shortcut.
 
 ## Install
 
