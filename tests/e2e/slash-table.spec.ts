@@ -18,7 +18,12 @@ async function openTableGrid(page: Page) {
   await editor(page).click()
   await page.keyboard.press('ControlOrMeta+End')
   await page.keyboard.type('\n/table')
-  await expect(page.getByRole('option', { name: /Table/ })).toBeVisible()
+  // CodeMirror ignores Enter (the editor then inserts a newline) while the menu is disabled, waiting on the query
+  // for the last keystroke, and for 75 ms (`interactionDelay`) after the menu first opens. The menu opens before
+  // it is enabled, so 100 ms after it is enabled clears both.
+  const menu = page.locator('.cm-tooltip-autocomplete:not(.cm-tooltip-autocomplete-disabled)')
+  await expect(menu.getByRole('option', { name: /Table/ })).toBeVisible()
+  await page.waitForTimeout(100)
   await page.keyboard.press('Enter')
   const grid = page.getByRole('dialog', { name: 'Table size' })
   await expect(grid).toBeFocused()
