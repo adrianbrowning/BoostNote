@@ -1,6 +1,6 @@
 import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import * as path from 'node:path'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import type { NoteDocument, PreferencesState } from '../../src/app/actions/public/workspace/types.ts'
 import { routes } from '../../src/app/routes.ts'
@@ -134,6 +134,9 @@ describe('preferences route', () => {
   it('refuses a Quick capture hotkey equal to the show/hide hotkey, and the reverse, without registering it', async () => {
     await app.post(api.preferencesSave.href(), { globalHotkey: 'CommandOrControl+Alt+K' })
     await app.post(api.preferencesSave.href(), { captureHotkey: 'CommandOrControl+Alt+J' })
+    // From here on, neither refused save may register anything, not even for a moment.
+    const setHotkey = vi.spyOn(app.preferences, 'setHotkey')
+    const setCaptureHotkey = vi.spyOn(app.preferences, 'setCaptureHotkey')
 
     const capture = await app.post(api.preferencesSave.href(), { captureHotkey: 'CommandOrControl+Alt+K' })
     expect(capture.status).toBe(409)
@@ -147,6 +150,8 @@ describe('preferences route', () => {
       error: 'HOTKEY_UNAVAILABLE',
       message: 'CommandOrControl+Alt+J is already the Quick capture hotkey.',
     })
+    expect(setHotkey).not.toHaveBeenCalled()
+    expect(setCaptureHotkey).not.toHaveBeenCalled()
 
     expect(app.preferences.registeredHotkey).toBe('CommandOrControl+Alt+K')
     expect(app.preferences.registeredCaptureHotkey).toBe('CommandOrControl+Alt+J')
