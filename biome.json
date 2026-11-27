@@ -35,6 +35,17 @@
     {
       "includes": ["tests/e2e/**"],
       "plugins": ["./tests/e2e/rules.grit"]
+    },
+    {
+      "includes": ["site/**/*.astro"],
+      "linter": {
+        "rules": {
+          "correctness": {
+            "noUnusedVariables": "off",
+            "noUnusedImports": "off"
+          }
+        }
+      }
     }
   ],
   "javascript": {

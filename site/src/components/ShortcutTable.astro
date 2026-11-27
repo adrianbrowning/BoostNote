@@ -1,0 +1,25 @@
+---
+import { shortcutRows } from '../shortcuts.ts'
+import Keys from './Keys.astro'
+
+const rows = shortcutRows()
+---
+
+<table>
+  <thead>
+    <tr>
+      <th>Command</th>
+      <th>macOS</th>
+      <th>Windows and Linux</th>
+    </tr>
+  </thead>
+  <tbody>
+    {rows.map((row) => (
+      <tr>
+        <td>{row.command}</td>
+        <td><Keys keys={row.mac} style="mac" /></td>
+        <td><Keys keys={row.pc} style="pc" /></td>
+      </tr>
+    ))}
+  </tbody>
+</table>

@@ -1,0 +1,49 @@
+---
+title: Boostnote
+description: A Markdown note-taking app for macOS, Windows and Linux. Your notes are plain files in a folder you choose.
+template: splash
+hero:
+  tagline: Write Markdown notes in one live-preview editor. Your notes stay plain .md files in a folder you choose.
+  image:
+    file: ../../assets/logo.png
+  actions:
+    - text: Download
+      link: https://github.com/adrianbrowning/BoostNote/releases
+      icon: external
+      variant: primary
+    - text: Keyboard shortcuts
+      link: /BoostNote/reference/shortcuts/
+      icon: right-arrow
+      variant: minimal
+---
+
+import { Card, CardGrid } from '@astrojs/starlight/components'
+
+## What you can do
+
+<CardGrid>
+  <Card title="Keep notes as plain files" icon="document">
+    A vault is any folder. Each note is a `.md` file, so git, sync tools and other editors keep
+    working with your notes.
+  </Card>
+  <Card title="Write with live preview" icon="pencil">
+    Headings, tables, task lists, math, Mermaid diagrams and images show as you type. Type `/` to
+    insert a block.
+  </Card>
+  <Card title="Organise and find" icon="magnifier">
+    Use folders with colours, tags, stars and pins. Search the text of every note.
+  </Card>
+  <Card title="Capture a thought fast" icon="rocket">
+    Open a scratch note from any app with a global hotkey. Save it to a vault later.
+  </Card>
+  <Card title="Share and export" icon="external">
+    Export a note as HTML, PDF or Markdown, or export a folder or the whole vault as a website.
+  </Card>
+  <Card title="Use it from the terminal" icon="seti:shell">
+    The `boostnote` command and its MCP server read and change your notes from scripts and AI
+    tools.
+  </Card>
+</CardGrid>
+
+Boostnote runs on macOS, Windows and Linux. The screenshots in this guide come from macOS. On
+Windows and Linux, the app uses your system font.

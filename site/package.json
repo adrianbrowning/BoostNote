@@ -1,0 +1,24 @@
+{
+  "name": "boostnote-site",
+  "private": true,
+  "type": "module",
+  "description": "The Boostnote user guide, published to GitHub Pages.",
+  "packageManager": "pnpm@10.34.5",
+  "scripts": {
+    "dev": "astro dev",
+    "build": "astro build",
+    "preview": "astro preview"
+  },
+  "dependencies": {
+    "@astrojs/starlight": "0.43.2",
+    "astro": "7.4.13",
+    "sharp": "0.35.5",
+    "starlight-links-validator": "0.27.1"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "esbuild",
+      "sharp"
+    ]
+  }
+}
