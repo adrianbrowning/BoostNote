@@ -36,6 +36,7 @@
     "test:case-sensitive": "bash scripts/test-case-sensitive.sh",
     "docs:dev": "pnpm --dir site dev",
     "docs:build": "pnpm --dir site build",
+    "docs:shots": "playwright test -c tests/docs",
     "prepare": "git config core.hooksPath .githooks || true"
   },
   "pnpm": {

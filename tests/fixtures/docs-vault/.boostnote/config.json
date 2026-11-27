@@ -1,0 +1,14 @@
+{
+  "version": 1,
+  "folders": {
+    "Work": {
+      "color": "#3b82f6"
+    },
+    "Personal": {
+      "color": "#10b981"
+    },
+    "Recipes": {
+      "color": "#f59e0b"
+    }
+  }
+}
