@@ -5,6 +5,11 @@ current, much smaller stack. The work lands as a stack of PRs on `adrianbrowning
 phase. The legacy code is deleted in phase 1; read it with `git show origin/master:<path>` (for
 example `browser/main/lib/dataApi/`, `browser/lib/markdown.js`, `tests/fixtures/`).
 
+This file is for people who work on the code. The user guide, for people who use the app, is in
+`site/` and is published at <https://adrianbrowning.github.io/BoostNote/> (see
+[`DOCS-SITE-PLAN.md`](DOCS-SITE-PLAN.md)). A change to a user-visible feature also updates its guide
+page and, when the UI changes, its screenshots (`pnpm docs:shots`).
+
 ## Decisions
 
 - **No bundler, task runner, Babel, Stylus, React or Redux.** The UI is [Remix 3](https://remix.run)
