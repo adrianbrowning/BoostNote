@@ -17,9 +17,10 @@ const SCALE = 2
 const VAULT_NAME = 'My notes'
 /**
  * Shot-only CSS: hides the vault's temp path in the status bar (a reader sees their own path there;
- * the note count beside it hides with it), the caret, and transitions.
+ * the note count beside it hides with it), the caret (CodeMirror draws its own), and transitions.
  */
 const SHOT_STYLE = `footer > span[title] { visibility: hidden; }
+.cm-cursorLayer { display: none !important; }
 * { caret-color: transparent !important; transition: none !important; animation: none !important; }`
 
 export type Theme = 'light' | 'dark'

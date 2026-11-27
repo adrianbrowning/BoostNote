@@ -1,4 +1,11 @@
-import { COMMANDS, type CommandRow, commandLabel } from '../../src/shared/commands.ts'
+import { COMMANDS, type CommandRow, commandLabel, type MenuCommand } from '../../src/shared/commands.ts'
+
+/** The accelerator of menu command `id`. Throws when the command has none, so a page cannot show a stale key. */
+export function commandAccelerator(id: Exclude<MenuCommand, 'select-tab'>): string {
+  const row: CommandRow | undefined = COMMANDS.find((command) => command.id === id)
+  if (!row?.accelerator) throw new Error(`Menu command ${id} has no shortcut`)
+  return row.accelerator
+}
 
 /** The two ways the guide writes a shortcut: macOS, and Windows and Linux (they share one). */
 export type KeyStyle = 'mac' | 'pc'

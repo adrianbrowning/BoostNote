@@ -1,0 +1,117 @@
+---
+title: Find notes
+description: Search your notes, browse them by folder, tag or star, sort the list, and find text in a note.
+---
+
+import { Aside, Steps } from '@astrojs/starlight/components'
+import Shot from '../../../components/Shot.astro'
+import Shortcut from '../../../components/Shortcut.astro'
+
+This page shows how to find a note in your vault and how to find text in the open note.
+
+## Search all notes
+
+Search finds the notes that contain all the words that you type.
+
+<Steps>
+
+1. In the sidebar, click **All notes**.
+2. Click the **Search notes** box above the note list.
+3. Type one or more words.
+4. Click a note in the results to open it.
+
+</Steps>
+
+<Shot
+  name="find-notes-search"
+  alt="The note list with the search results for the word design, and the Website redesign note open"
+/>
+
+The best results are at the top. A word in the title or in a tag counts more than a word in the text.
+Pinned notes stay at the top of the results.
+
+To find only notes with a tag, type `#` before the word, for example `#recipe`.
+
+To clear the search, delete the text in the search box.
+
+<Aside type="tip">
+  Search looks only in the list that you selected in the sidebar. To search the full vault, click **All
+  notes** first.
+</Aside>
+
+## Browse your notes
+
+The sidebar selects which notes the note list shows.
+
+<Steps>
+
+1. In the sidebar, click one of these items:
+   - **All notes** shows every note in the vault.
+   - **Starred** shows the notes that you starred.
+   - A folder shows the notes in that folder.
+   - A tag shows the notes with that tag.
+2. Click a note in the list to open it.
+
+</Steps>
+
+<Shot
+  name="find-notes-tag"
+  alt="The recipe tag selected in the sidebar, the three recipe notes in the list, and Pasta al limone open"
+/>
+
+The number next to each item is the number of its notes. A folder shows only the notes directly in
+it, not the notes in its subfolders. Click **▸** next to a folder to show its subfolders.
+
+To star, pin or tag a note, see [Organise notes](/BoostNote/guides/organise-notes/).
+
+## Sort the note list
+
+<Steps>
+
+1. Click the **Sort notes** menu next to the search box.
+2. Choose **Updated**, **Created** or **Title**.
+
+</Steps>
+
+**Updated** and **Created** show the newest notes first. **Title** sorts the notes from A to Z.
+Pinned notes always stay at the top.
+
+You cannot sort search results. They are always in order of best match.
+
+## Read the note previews
+
+Each row in the note list shows:
+
+- The title of the note.
+- **★** if the note is starred, and **📌** if it is pinned.
+- The first part of the text of the note.
+- The date the note was last updated. When you sort by **Created**, the row shows the date the note was
+  created.
+- The tags of the note.
+
+## Find text in the open note
+
+<Steps>
+
+1. Open a note.
+2. Choose **Edit › Find…** (<Shortcut command="find" />). The Find bar opens below the note.
+3. Type the text that you want to find. Boostnote highlights each match.
+4. Press <Shortcut keys="Enter" /> or click **next** to go to the next match. Press
+   <Shortcut keys="Shift+Enter" /> or click **previous** to go back.
+5. Press <Shortcut keys="Escape" /> or click **×** to close the Find bar.
+
+</Steps>
+
+<Shot
+  name="find-notes-find-bar"
+  alt="The Find bar below the Markdown tour note, with the word note highlighted in the text"
+/>
+
+The Find bar has more options:
+
+- **all** selects all the matches.
+- **match case** finds only text with the same capital and small letters.
+- **regexp** lets you type a regular expression.
+- **by word** finds only whole words.
+- Type new text in the **Replace** box. Then click **replace** to change one match, or **replace all**
+  to change all the matches.

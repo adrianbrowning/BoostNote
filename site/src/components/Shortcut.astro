@@ -1,0 +1,29 @@
+---
+import type { MenuCommand } from '../../../src/shared/commands.ts'
+import { acceleratorKeys, commandAccelerator } from '../shortcuts.ts'
+import Keys from './Keys.astro'
+
+/**
+ * A shortcut in running text, for both platforms: `⌘N (macOS) or Ctrl+N (Windows and Linux)`.
+ * `command` reads the key from the app's menu table (`src/shared/commands.ts`), so it never goes
+ * stale; `keys` takes an Electron-style accelerator (`CmdOrCtrl+B`) for keys outside the menu, such
+ * as the editor's.
+ */
+type Props = { command: Exclude<MenuCommand, 'select-tab'>; keys?: never } | { keys: string; command?: never }
+
+const props = Astro.props
+const accelerator = props.command ? commandAccelerator(props.command) : props.keys
+const mac = acceleratorKeys(accelerator, 'mac')
+const pc = acceleratorKeys(accelerator, 'pc')
+const same = mac.join('+') === pc.join('+')
+---
+
+{
+  same ? (
+    <Keys keys={pc} style="pc" />
+  ) : (
+    <span>
+      <Keys keys={mac} style="mac" /> (macOS) or <Keys keys={pc} style="pc" /> (Windows and Linux)
+    </span>
+  )
+}

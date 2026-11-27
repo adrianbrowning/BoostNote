@@ -1,0 +1,262 @@
+---
+title: Organise notes
+description: Put notes in folders, colour folders, move and rename items, tag, star and pin notes, edit properties, and use the Trash.
+---
+
+import { Aside, Steps, Tabs, TabItem } from '@astrojs/starlight/components'
+import Shot from '../../../components/Shot.astro'
+import Shortcut from '../../../components/Shortcut.astro'
+
+This page tells you how to keep your notes in order. A folder in Boostnote is a real folder in your vault, and a note is a real file.
+
+## Make a folder
+
+<Steps>
+
+1. In the sidebar, click the folder that must hold the new folder.
+2. Choose **File › New Folder…** (<Shortcut command="new-folder" />).
+3. Type the folder name, then click **Create**.
+
+</Steps>
+
+To make a folder at the top of the vault, click **+** next to **Folders** in the sidebar.
+
+To make a folder in a different folder, right-click that folder and choose **New Folder…**.
+
+A folder with subfolders has an arrow (▸) on its left. Click the arrow to show or hide the subfolders.
+
+## Use the folder menu
+
+The folder menu has the actions for one folder.
+
+<Steps>
+
+1. Right-click a folder in the sidebar. You can also move the pointer over the folder and click **⋯**.
+2. Choose an action.
+
+</Steps>
+
+<Shot name="organise-notes-folder-menu" alt="The folder menu of the Work folder: New Note, New Folder, Export as HTML, Rename, seven colour dots, a No colour button and Move to Trash." />
+
+The menu has these items:
+
+- **New Note** makes a note in the folder.
+- **New Folder…** makes a subfolder.
+- **Export as HTML…** saves the folder as web pages. Refer to [Share and export](/BoostNote/guides/share-and-export/).
+- **Rename…** opens a dialog for a new folder name.
+- **Move to Trash** deletes the folder and all the notes in it. Refer to [Delete and restore notes](#delete-and-restore-notes).
+
+The top folder of the vault has only the first three items.
+
+## Colour a folder
+
+A colour helps you find a folder quickly. The colour shows as a dot before the folder name.
+
+<Steps>
+
+1. Right-click the folder.
+2. Click one of the seven colour dots: red, orange, yellow, green, teal, blue or purple.
+
+</Steps>
+
+To remove the colour, open the folder menu and click **No colour** (the crossed-out dot).
+
+## Move notes and folders
+
+Drag a note or a folder onto a different folder.
+
+<Steps>
+
+1. Drag a note from the note list, or a folder from the sidebar.
+2. Drop it on a folder in the sidebar. To move it to the top of the vault, drop it on the vault name at the top of the folder list.
+
+</Steps>
+
+You can also move a note with a menu:
+
+<Steps>
+
+1. Right-click the note in the note list.
+2. Choose **Move to…**.
+3. In the **Move note** dialog, choose a folder.
+4. Click **Move**.
+
+</Steps>
+
+When a note moves, Boostnote also updates the links in that note, so they still point to the correct files.
+
+<Aside type="tip">
+You can also drop files from Finder or File Explorer on a folder. Boostnote copies them into the vault. Refer to [Bring notes in](/BoostNote/guides/bring-notes-in/).
+</Aside>
+
+## Keep links working after a rename or move
+
+When you rename or move a note or a folder, links in other notes can break. Boostnote finds these links and asks what to do.
+
+<Steps>
+
+1. Rename or move a note or a folder.
+2. Read the **Update links?** dialog. It shows the number of links and the notes that hold them.
+3. Click **Update links** (or press Enter) to change the links. Click **Don’t update** (or press Esc) to keep them as they are.
+
+</Steps>
+
+<Shot name="organise-notes-update-links" alt="The Update links dialog: 2 links in 2 notes point to Website redesign, with the notes Markdown tour and Meeting notes listed." />
+
+After the update, a message shows the number of links that changed, for example "Updated 2 links".
+
+The dialog shows only when other notes link to the item that you renamed or moved.
+
+## Tag notes
+
+A tag is a word that groups notes from different folders.
+
+<Steps>
+
+1. Open the note.
+2. Click the ⓘ button above the note to open the properties panel.
+3. Click the **Tags** field and type a tag.
+4. Press Enter, or type a comma, to add the tag.
+
+</Steps>
+
+As you type, Boostnote suggests the tags that are already in your vault.
+
+To remove a tag, click the **×** on the tag. When the field is empty, Backspace removes the last tag.
+
+To see all the notes with a tag, click the tag under **Tags** in the sidebar.
+
+## Star a note
+
+Star the notes that you use frequently.
+
+<Steps>
+
+1. Open the note.
+2. Click the star (☆) above the note.
+
+</Steps>
+
+Click the star again to remove it. You can also use the **Starred** checkbox in the properties panel.
+
+To see all starred notes, click **Starred** in the sidebar.
+
+## Pin a note to the top
+
+A pinned note shows first in each note list, also in search results.
+
+<Steps>
+
+1. Open the note.
+2. Click the pin (📌) above the note.
+
+</Steps>
+
+You can also right-click the note in the note list and choose **Pin**, or use the **Pinned** checkbox in the properties panel. To remove the pin, do the same step again (the menu item is then **Unpin**).
+
+## Sort the note list
+
+Use the **Sort notes** list above the notes. Choose **Updated**, **Created** or **Title**.
+
+When you search, the results are in order of relevance. Then you cannot change the sort order.
+
+## Edit properties
+
+Properties are the frontmatter at the top of the note file: tags, star, pin, dates and your own fields.
+
+<Steps>
+
+1. Open the note.
+2. Choose **View › Toggle Properties** (<Shortcut command="toggle-properties" />), or click the ⓘ button above the note.
+3. Change a value in the panel.
+
+</Steps>
+
+<Shot name="organise-notes-properties" alt="The properties panel next to the Website redesign note, with tags, Starred, Pinned, the dates and the fields status, owner and due." />
+
+In the panel you can:
+
+- Add and remove tags. Refer to [Tag notes](#tag-notes).
+- Set **Starred** and **Pinned**.
+- See **Created** and **Updated**. You cannot change these dates.
+- Change your own fields. A field is text, a number, a checkbox, a date or a list. For a list, put commas between the items.
+- Rename a field: click its name and type a new name.
+- Remove a field: click the **×** next to it.
+- Add a field: type its name in **New property**, choose its type, then click **Add**.
+
+To close the panel, click **×** at the top of the panel, or use the same command again.
+
+<Aside type="caution">
+If the frontmatter is not valid YAML, the panel cannot read it. The panel tells you so, and the frontmatter shows as text in the editor. Fix it there. The panel also cannot edit nested YAML values; edit the file for these.
+</Aside>
+
+## Delete and restore notes
+
+A deleted note or folder goes to the Trash. You can restore it from there.
+
+<Steps>
+
+1. Right-click the note in the note list. You can also click **⋯** above the open note.
+2. Choose **Move to Trash**.
+3. In the dialog, click **Move to Trash**.
+
+</Steps>
+
+To delete a folder, open the folder menu and choose **Move to Trash**. All the notes in the folder go to the Trash with it.
+
+To restore an item:
+
+<Steps>
+
+1. Click **Trash** at the bottom of the sidebar.
+2. Find the item. The list shows where the item was and when you deleted it.
+3. Click **Restore**.
+
+</Steps>
+
+<Shot name="organise-notes-trash" alt="The Trash with the notes Banana bread and Travel plans, each with its old path, the date it was deleted and a Restore button." />
+
+The item goes back to its old folder. If an item with the same name is there now, the restored item gets a number, for example `Ideas 2.md`.
+
+To delete all the items for ever, click **Empty Trash**, then confirm.
+
+<Aside type="caution">
+**Empty Trash** cannot be undone.
+</Aside>
+
+<Aside type="tip">
+To stop the question before Boostnote moves an item to the Trash, clear **Ask before moving notes and folders to the Trash** in the preferences. Refer to [Customise Boostnote](/BoostNote/guides/customise/).
+</Aside>
+
+## Show the file on disk
+
+Each note is a file. You can show it in the file manager of your computer.
+
+<Tabs syncKey="os">
+<TabItem label="macOS">
+
+<Steps>
+
+1. Open the note.
+2. Choose **File › Reveal in Finder** (<Shortcut command="reveal-note" />).
+
+</Steps>
+
+You can also right-click the note in the note list and choose **Reveal in Finder**.
+
+</TabItem>
+<TabItem label="Windows and Linux">
+
+<Steps>
+
+1. Open the note.
+2. On Windows, choose **File › Show in Explorer** (<Shortcut command="reveal-note" />). On Linux, choose **File › Show in Folder**.
+
+</Steps>
+
+You can also right-click the note in the note list and choose **Show in Folder**.
+
+</TabItem>
+</Tabs>
+
+The file manager opens the folder of the note, with the note file selected.

@@ -1,0 +1,121 @@
+---
+title: Bring notes in
+description: Copy Markdown files into your vault, add a file that you opened from outside the vault, or convert an old Boostnote storage.
+---
+
+import { Aside, Steps } from '@astrojs/starlight/components'
+import Shot from '../../../components/Shot.astro'
+
+You can bring notes in from other places on your computer. Boostnote copies them into your vault and never changes the originals.
+
+## Drag Markdown files into the app
+
+Drag `.md`, `.markdown` or `.mdx` files, or whole folders, from Finder or File Explorer into the Boostnote window. Boostnote copies them into your vault.
+
+<Steps>
+
+1. In Finder or File Explorer, select the files or folders that you want to copy.
+2. Drag them onto the Boostnote window:
+   - To copy them into one folder, drop them on that folder in the sidebar. The folder gets a dashed outline while you drag over it.
+   - To copy them into the selected folder, drop them anywhere else, for example on the note list or on the editor. If no folder is selected, they go to the top of the vault.
+
+</Steps>
+
+<Shot name="bring-notes-in-drop-target" alt="The sidebar while files are dragged over it: the Recipes folder has a dashed green outline." />
+
+A message at the bottom of the window shows what the app copied, for example "Imported 2 notes into Personal (1 image copied, 1 skipped)". The message also lists each file that the app did not copy, and why. If you dropped one file, the new note opens in a tab.
+
+<Shot name="bring-notes-in-drop-notice" alt="Two dropped notes in the Personal folder: Garden plan is open with its chart image, and a message says that the app imported 2 notes, copied 1 image and skipped a text file." />
+
+What the app does with the files:
+
+- It copies the files. The original files stay where they are, without changes.
+- A dropped folder becomes a new folder with the same name, with its Markdown files and subfolders.
+- Images and other files that a note links to are copied into the note's `.assets` folder. The links in the note change to point to the copies.
+- Links between notes that you dropped together keep working.
+- If a note with the same name already exists in the folder, the new note gets a number, for example `Ideas 2.md`.
+- Files that are not Markdown are skipped, unless a dropped note links to them.
+
+<Aside type="caution">
+One drop can copy at most 2000 files and 512 MB. If a drop is larger, the app copies nothing. Drop fewer files at a time.
+</Aside>
+
+<Aside type="tip">
+To add an image to the open note, drop the image on the editor text. The image is stored with the note. See [Write notes](/BoostNote/guides/write-notes/).
+</Aside>
+
+## Add a file that you opened from outside the vault
+
+When you open a `.md` or `.mdx` file that is not in a vault (for example, with a double-click in Finder or File Explorer), Boostnote shows it read-only in a reader tab. A banner at the top says that the file is not in a vault.
+
+<Shot name="bring-notes-in-reader" alt="A reader tab for Packing list.md with a banner that says the file is not in a vault, and the buttons Add to vault, Open folder as vault and Close." />
+
+To copy the file into the open vault:
+
+<Steps>
+
+1. In the banner, click **Add to vault…**.
+2. In the **Folder** list, choose the folder for the note.
+3. Click **Add**.
+
+</Steps>
+
+<Shot name="bring-notes-in-add-to-vault" alt="The Add to vault dialog with the Personal folder chosen, and the Cancel and Add buttons." />
+
+The reader tab changes to the tab of the new note, and you can edit it. Images that the file links to are copied into the note's `.assets` folder. The original file does not change.
+
+To use the file's own folder as a vault instead, click **Open folder as vault**. To make Boostnote always do that for files outside a vault, change the preference **Opening a .md or .mdx outside a vault**. See [Customise Boostnote](/BoostNote/guides/customise/).
+
+<Aside type="caution">
+**Add to vault…** is not available when no vault is open. Open a vault first.
+</Aside>
+
+## Import a storage from the old Boostnote
+
+The old Boostnote app (version 0.x) kept notes in a "storage" folder. The import converts a storage into a new vault of Markdown files. It only reads the storage, so the old app can still open it.
+
+<Steps>
+
+1. Choose **File › Import Boostnote Storage…**. You can also click the vault name at the top of the sidebar, and then click **Import Boostnote Storage…**.
+2. In **Boostnote storage folder**, click **Choose…** and select the old storage folder. If the app finds a storage on your computer, it shows a button for it after **Found:**. Click that button to use it.
+3. In **New vault folder**, click **Choose…** and select an empty folder for the new vault.
+4. Click **Preview**. The dialog shows how many notes, folders, attachments and note links it will import.
+5. Click **Import**.
+6. When the import is done, click **Open vault**.
+
+</Steps>
+
+<Shot name="bring-notes-in-import-storage" alt="The Import Boostnote storage dialog after Preview: it will import 3 notes in 2 folders." />
+
+The old app made its first storage in a folder named `Boostnote` in your home folder.
+
+What you get in the new vault:
+
+- Each old folder becomes a folder, with its colour.
+- Each note becomes a Markdown file, named after the note's title.
+- Tags, stars, pins, and the created and updated dates stay with each note.
+- Snippet notes become Markdown notes, with one code block for each snippet.
+- Attachments go into each note's `.assets` folder. Links to attachments and to other notes are changed to work in the vault.
+- Notes that were in the trash go to the vault's trash, so you can restore them.
+
+Some things are not imported: blog settings, highlighted lines, and the old app's settings (themes, keys, the storage list). The app saves a full report in the new vault as `.boostnote/migration-report.json`.
+
+<Aside type="tip">
+If the folder that you choose already contains files, select **Allow a folder that already contains files**. The import never overwrites a file.
+</Aside>
+
+## Give imported notes readable file names
+
+Earlier versions of the import named files with short lowercase names, such as `team-offsite-agenda.md`. Boostnote shows the file name as the note's name, so these notes show that short name. You can rename them from their titles.
+
+<Steps>
+
+1. Choose **File › Rename Files From Titles…**.
+2. Read the list. It shows each file to rename and its new name, by folder.
+3. Click **Rename N files** (N is the number of files).
+
+</Steps>
+
+<Shot name="bring-notes-in-rename-from-titles" alt="The Rename files from titles dialog: garden-plan becomes Garden plan and team-offsite-agenda becomes Team offsite agenda." />
+
+The app changes only files whose name was made from their title. Files that you named yourself stay the same. Links to a renamed note are updated in all other notes, and its `.assets` folder moves with it.

@@ -1,0 +1,201 @@
+---
+title: Get started
+description: Install Boostnote, open a folder of notes, and learn the parts of the window.
+---
+
+import { Aside, Steps } from '@astrojs/starlight/components'
+import Shot from '../../components/Shot.astro'
+import Shortcut from '../../components/Shortcut.astro'
+
+This page shows how to install Boostnote and open your first vault. It also shows the parts of the
+window and how to work with more than one vault.
+
+## Install Boostnote
+
+Boostnote runs on macOS, Windows and Linux.
+
+<Steps>
+
+1. Open the [releases page](https://github.com/adrianbrowning/BoostNote/releases).
+2. Download the file for your system:
+   - macOS: the `.dmg` or the `.zip` file.
+   - Windows: the `.exe` installer.
+   - Linux: the `.AppImage` or the `.deb` file.
+3. Install the app as you install other apps on your system.
+4. Start Boostnote.
+
+</Steps>
+
+<Aside type="caution">
+  The builds can be unsigned. On macOS, the system can stop the first start. Right-click the app in
+  Finder and choose **Open**. Then click **Open** again to confirm. You do this only one time.
+</Aside>
+
+Boostnote does not update itself. When a new version is available, the status bar tells you. Download
+and install the new version from the releases page.
+
+## Open a folder as a vault
+
+A vault is a folder of Markdown notes. Any folder of `.md` files can be a vault.
+
+<Steps>
+
+1. On the welcome screen, click **Open folder…**. You can also choose **File › Open Folder…**
+   (<Shortcut command="open-folder" />).
+2. In the dialog, select a folder and confirm.
+
+</Steps>
+
+<Shot
+  name="get-started-welcome"
+  alt="The welcome screen with no vault open, with the Open folder and Import Boostnote storage buttons"
+/>
+
+The welcome screen also shows a **Recent** list of the vaults that you opened before. Click a vault to
+open it again. Click **×** to remove it from the list.
+
+Each note stays a plain `.md` file in the folder. Git, sync tools and other editors can use your notes.
+When you start Boostnote again, it opens the vaults that were open.
+
+## Learn the parts of the window
+
+The window has four parts.
+
+<Shot
+  name="main-window"
+  alt="The Boostnote window: the sidebar with folders and tags, the note list, and the Markdown tour note open in the editor"
+/>
+
+- **The sidebar** (left) shows the vault name, **All notes**, **Starred**, your folders, your tags and
+  the **Trash**.
+- **The note list** (middle) shows the notes of the item that you selected in the sidebar.
+- **The editor** (right) shows the open notes in tabs. You write in it.
+- **The status bar** (bottom) shows the vault folder, the number of notes and the save state.
+
+### Hide and show the panes
+
+Hide the sidebar and the note list to get more space for the editor.
+
+<Steps>
+
+1. Choose **View › Toggle Sidebar** (<Shortcut command="toggle-sidebar" />) to hide or show the
+   sidebar.
+2. Choose **View › Toggle Note List** (<Shortcut command="toggle-note-list" />) to hide or show the note
+   list.
+
+</Steps>
+
+<Shot
+  name="get-started-hidden-panes"
+  alt="The Boostnote window with the sidebar and the note list hidden, so the editor fills the window"
+/>
+
+### Change the width of the panes
+
+<Steps>
+
+1. Move the pointer to the line between the sidebar and the note list, or between the note list and
+   the editor.
+2. Drag the line to the left or to the right.
+
+</Steps>
+
+Boostnote keeps the widths of the panes for the next start.
+
+## Create your first note
+
+<Steps>
+
+1. In the sidebar, click the folder for the note.
+2. Choose **File › New Note** (<Shortcut command="new-note" />). You can also click **✎** above the note
+   list.
+3. Type the text of the note.
+
+</Steps>
+
+The new note gets the name `Untitled.md`. Boostnote saves your changes automatically. To rename the
+note, format text and add tables or images, see [Write notes](/BoostNote/guides/write-notes/).
+
+## Open a Markdown file from Finder or Explorer
+
+You can open a `.md` or `.mdx` file from your file manager.
+
+<Steps>
+
+1. In Finder or Explorer, double-click a `.md` or `.mdx` file. You can also right-click the file and
+   choose **Open With › Boostnote**.
+2. Read the file in the tab that opens.
+
+</Steps>
+
+If the file is in a vault that Boostnote knows, it opens as a note. You can edit it.
+
+If the file is not in a vault, it opens in a read-only reader tab. A banner above the file gives you
+three choices:
+
+- **Add to vault…** copies the file into a folder of the open vault.
+- **Open folder as vault** opens the folder of the file as a vault.
+- **Close** closes the tab.
+
+<Shot
+  name="get-started-reader"
+  alt="A file from outside the vault in a reader tab, with the banner that says readme.md is not in a vault"
+/>
+
+<Aside type="tip">
+  To open the folder of such a file as a vault every time, open the preferences. Set **Opening a .md or
+  .mdx outside a vault** to **Open its folder as vault**. See
+  [Customise Boostnote](/BoostNote/guides/customise/).
+</Aside>
+
+Reader tabs do not come back when you start Boostnote again.
+
+## Work with more than one vault
+
+You can keep many vaults open and switch between them.
+
+<Steps>
+
+1. Click the vault name at the top of the sidebar.
+2. Under **Open**, click a vault to show it. Under **Recent**, click a vault to open it again.
+
+</Steps>
+
+<Shot
+  name="get-started-vault-menu"
+  alt="The vault menu with two open vaults, My notes and Archive; a check mark shows the current vault"
+/>
+
+The menu shows:
+
+- A check mark next to the vault on the screen.
+- The number of open tabs of each open vault.
+- **×** next to an open vault. Click it to close that vault.
+- **Open Folder…** to open one more vault.
+- **Import Boostnote Storage…** to import an old Boostnote storage.
+- **Close** and the vault name, to close the current vault.
+
+Each vault keeps its tabs. When you switch back to a vault, its tabs come back.
+
+## Import notes from the old Boostnote
+
+If you used the old Boostnote app, you can convert its storage into a vault.
+
+<Steps>
+
+1. Choose **File › Import Boostnote Storage…**. You can also click **Import Boostnote storage…** on the
+   welcome screen.
+2. Select the old storage folder. Click a storage under **Found**, or click **Choose…**.
+3. Select a folder for the new vault.
+4. Click **Preview** to see what Boostnote will import.
+5. Click **Import**.
+6. Click **Open vault**.
+
+</Steps>
+
+Boostnote only reads the old storage. It does not change it. Folders, tags, stars, dates, attachments
+and snippet notes go into the new vault.
+
+Imported notes can have file names that are hard to read. To rename the files from the note titles,
+choose **File › Rename Files From Titles…**. For more about imports, see
+[Bring notes in](/BoostNote/guides/bring-notes-in/).
