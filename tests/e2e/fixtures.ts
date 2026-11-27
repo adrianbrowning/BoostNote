@@ -106,6 +106,8 @@ export interface LaunchOptions {
   vaultCopyOf?: string
   /** Preferences merged into the profile's `settings.json` `ui` section. */
   ui?: UiPatch
+  /** The temp vault's folder name, which the app shows as the vault's name (default `vault`). */
+  vaultName?: string
 }
 
 /**
@@ -117,9 +119,9 @@ export interface LaunchOptions {
  * does on Windows/Linux. The temp vault is a copy (`vaultCopyOf`), so a real vault is never opened.
  */
 export async function launchApp(files: VaultFiles, options: LaunchOptions = {}): Promise<AppHandle> {
-  const { openFiles = {}, vaultCopyOf, ui = {} } = options
+  const { openFiles = {}, vaultCopyOf, ui = {}, vaultName = 'vault' } = options
   const root = await mkdtemp(path.join(tmpdir(), 'boostnote-e2e-'))
-  const vault = path.join(root, 'vault')
+  const vault = path.join(root, vaultName)
   const userDataDir = path.join(root, 'profile')
   if (vaultCopyOf !== undefined) await cp(await realpath(vaultCopyOf), vault, { recursive: true })
   await writeFiles(vault, files)
