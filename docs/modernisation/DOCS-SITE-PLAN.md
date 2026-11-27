@@ -62,14 +62,15 @@ The full task inventory, with steps, sources and the way to reach each UI state,
 
 One stacked PR per layer (`gh stack`), bottom to top:
 
-1. **Site skeleton and deploy:** generator, config, home page, a GitHub Actions workflow that builds
-   and deploys to Pages. One human step: set Pages source to "GitHub Actions" in the repo settings.
-2. **Screenshot tool and demo vault:** the capture script, the demo vault, a `pnpm` script.
-3. **Pages 1–4:** get started, write, organise, find.
-4. **Pages 5–9:** tabs, quick capture, export, bring notes in, customise.
-5. **Pages 10–11:** terminal and AI tools, keyboard shortcuts.
-6. **Links:** README points to the site; `PLAN.md` says which page owns each user-visible feature, so a
-   new feature also gets a guide entry.
+1. **Plan:** this file, the research and the inventory.
+2. **Site skeleton and deploy:** Starlight in `site/`, the home page, the generated keyboard
+   shortcuts page, and `.github/workflows/pages.yml`. One human step: set Pages source to "GitHub
+   Actions" in the repo settings.
+3. **Screenshot tool and demo vault:** the capture specs, the demo vault, `pnpm docs:shots`.
+4. **Pages 1–4:** get started, write, organise, find.
+5. **Pages 5–9:** tabs, quick capture, export, bring notes in, customise.
+6. **Page 10 and links:** terminal and AI tools. README points to the site; `PLAN.md` says which
+   page owns each user-visible feature, so a new feature also gets a guide entry.
 
 ## Tooling
 
@@ -94,9 +95,9 @@ From [`DOCS-SITE-RESEARCH.md`](DOCS-SITE-RESEARCH.md):
 
 | Risk | Plan |
 |---|---|
-| **Dark shots come out light.** The research says Playwright's `_electron` makes the page light by default, so the theme setting alone may not work. The inventory says `page.emulateMedia` can put the editor and Mermaid out of step with the app theme. | First task of layer 2: a spike that sets both `ui.theme` and `emulateMedia({ colorScheme })` and checks one dark shot by eye. |
+| **Dark shots come out light.** The research says Playwright's `_electron` makes the page light by default, so the theme setting alone may not work. The inventory says `page.emulateMedia` can put the editor and Mermaid out of step with the app theme. | First task of layer 3: a spike that sets both `ui.theme` and `emulateMedia({ colorScheme })` and checks one dark shot by eye. |
 | Starlight is before 1.0, so a minor version can break the config. | Pin exact versions with a lockfile. Read the release notes before an update. |
-| Not checked: the Astro build can import `../src/shared/commands.ts` from outside `site/`. | Spike in layer 1. If not, a small script writes `commands.json` before the build. |
+| Checked in layer 2: the Astro build imports `../src/shared/commands.ts` from outside `site/` (with `vite.server.fs.allow: ['..']` for `astro dev`). | Done. |
 | Native UI (menus, title bar, dialogs, context menus, print) cannot be captured. | Menu paths in text, for example **File › Export › Note as HTML…**. |
 | Shots look like macOS and need a Retina Mac. | Accept it. The pages say so where Windows or Linux differ. |
 
