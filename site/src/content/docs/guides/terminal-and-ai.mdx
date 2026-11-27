@@ -1,0 +1,456 @@
+---
+title: Terminal and AI tools
+description: Use the boostnote command to read and change your notes from a terminal, a script or an AI tool.
+---
+
+import { Aside, Steps, Tabs, TabItem } from '@astrojs/starlight/components'
+import Shot from '../../../components/Shot.astro'
+
+The `boostnote` command reads and changes the notes in a vault from a terminal or a script.
+Its MCP server lets an AI tool, such as Claude or Cursor, do the same.
+
+## Install the command
+
+Boostnote writes a small `boostnote` script that runs the command line on the app itself. You do not need to install Node.js.
+
+<Tabs syncKey="os">
+<TabItem label="macOS">
+
+<Steps>
+
+1. Choose **Boostnote › Install Command Line Tool…**.
+2. Read the message. It tells you where Boostnote put the command, for example:
+
+   ```text
+   Installed the boostnote command at /usr/local/bin/boostnote.
+   Open a new terminal and try: boostnote search <words>
+   Run it again here if you move the app.
+   ```
+
+3. Open a new terminal window.
+4. Type `boostnote --help` to see all the commands.
+
+</Steps>
+
+</TabItem>
+<TabItem label="Windows and Linux">
+
+On Linux:
+
+<Steps>
+
+1. Choose **Help › Install Command Line Tool…**.
+2. Read the message. It tells you where Boostnote put the command.
+3. Open a new terminal window.
+4. Type `boostnote --help` to see all the commands.
+
+</Steps>
+
+On Windows, Boostnote does not install a command. It shows the command to type instead:
+
+<Steps>
+
+1. Choose **Help › Command Line Tool…**.
+2. Copy the PowerShell or Command Prompt line from the message. It has this form:
+
+   ```text
+   PowerShell:
+     $env:ELECTRON_RUN_AS_NODE=1; & "<Boostnote.exe>" "<app>\resources\app\src\cli\index.js" search todo
+   Command Prompt:
+     set "ELECTRON_RUN_AS_NODE=1" && "<Boostnote.exe>" "<app>\resources\app\src\cli\index.js" search todo
+   ```
+
+3. Replace `search todo` with the command you want to run.
+
+</Steps>
+
+</TabItem>
+</Tabs>
+
+Boostnote puts the command in `/usr/local/bin` when it can write there. Otherwise it uses `~/.local/bin`.
+
+<Aside type="caution">
+If the message says that the folder is not on your PATH, add the folder to your PATH, or type the full path of the command.
+If you move the app, install the command again.
+</Aside>
+
+## Choose the vault
+
+Each command works on one vault. The command finds the vault in this order:
+
+1. The folder you give with `--vault`.
+2. The folder in the `BOOSTNOTE_VAULT` environment variable.
+3. The vault that was last open in the app.
+
+```console
+$ boostnote --vault ~/Notes folders
+Notes/  (2 notes)
+  Personal/  (3)
+  Recipes/  (3)
+  Work/  (2)
+    Projects/  (2)
+```
+
+To use the same vault in each command, set the variable once: `export BOOSTNOTE_VAULT=~/Notes`.
+The examples on this page use the demo vault in `~/Notes` and do not show `--vault`.
+
+## Name a note
+
+A note id is the path of the note in the vault, for example `Work/Projects/Mobile app.md`.
+
+- You can leave out `.md`.
+- You can use only the name (`Mobile app`) when only one note has that name.
+- Put quotes around a name that has spaces.
+
+## Get output for scripts
+
+Add `--json` to get the result as JSON instead of text.
+
+```console
+$ boostnote --json tasks "Website redesign"
+{
+  "id": "Work/Projects/Website redesign.md",
+  "title": "Website redesign",
+  "total": 6,
+  "completed": 3,
+  "percent": 50
+}
+```
+
+Each command ends with an exit code that a script can check:
+
+| Code | Meaning |
+| --- | --- |
+| 0 | The command worked. |
+| 1 | An error occurred. |
+| 2 | The command or its options are not correct. |
+| 3 | Conflict: the note changed after you read it. |
+| 4 | The note or folder was not found. |
+
+```console
+$ boostnote read nothere
+Error: Note not found: nothere
+$ echo $?
+4
+```
+
+## List notes
+
+`list` shows your notes, newest first. A pin (📌) or a star (★) marks pinned and starred notes.
+
+```console
+$ boostnote list
+Work/Projects/Website redesign.md — Website redesign  #work #project  (2026-11-26)
+Markdown tour.md — Markdown tour  #intro #markdown  (2026-11-25)
+Personal/Ideas.md — Ideas  #ideas  (2026-11-25)
+📌 ★ Welcome.md — Welcome  #intro  (2026-11-24)
+Recipes/Weekly meal plan.md — Weekly meal plan  #recipe #planning  (2026-11-23)
+★ Personal/Reading list.md — Reading list  #reading  (2026-11-22)
+Work/Projects/Mobile app.md — Mobile app  #work #project  (2026-11-21)
+Work/Meeting notes 2026-11-20.md — Meeting notes 2026-11-20  #work #meeting  (2026-11-20)
+Recipes/Pasta al limone.md — Pasta al limone  #recipe #quick  (2026-11-19)
+Work/Quarterly goals.md — Quarterly goals  #work #planning  (2026-11-18)
+Personal/Travel plans.md — Travel plans  #travel  (2026-11-12)
+Recipes/Banana bread.md — Banana bread  #recipe #baking  (2026-11-09)
+```
+
+To show fewer notes, add filters:
+
+- `--folder <folder>` shows the notes in one folder. Add `--recursive` to include its subfolders.
+- `--tag <tag>`, `--starred` and `--pinned` show only the notes that match.
+- `--sort updated`, `created`, `title` or `id` changes the order.
+- `--limit <n>` shows only the first notes.
+
+```console
+$ boostnote list --folder Work --recursive --sort title
+Work/Meeting notes 2026-11-20.md — Meeting notes 2026-11-20  #work #meeting  (2026-11-20)
+Work/Projects/Mobile app.md — Mobile app  #work #project  (2026-11-21)
+Work/Quarterly goals.md — Quarterly goals  #work #planning  (2026-11-18)
+Work/Projects/Website redesign.md — Website redesign  #work #project  (2026-11-26)
+```
+
+## Search notes
+
+`search` finds notes by words in the title, the tags and the text. The best match comes first.
+
+```console
+$ boostnote search pasta
+Recipes/Pasta al limone.md — Pasta al limone  (score 13)
+    Boil 200 g of spaghetti. Melt butter with lemon zest and juice. Toss the pasta with the butter, parmesan and some pasta water.
+Recipes/Weekly meal plan.md — Weekly meal plan  (score 1)
+    Day Breakfast Lunch Dinner Shopping Monday Porridge with berries Lentil soup Pasta al limone Lemons, parmesan Tuesday Yoghurt and granola Leftover soup Stir-fr…
+```
+
+Each word must match. To search only the tags, start the word with `#`:
+
+```console
+$ boostnote search '#planning'
+Recipes/Weekly meal plan.md — Weekly meal plan  (score 8)
+    Day Breakfast Lunch Dinner Shopping Monday Porridge with berries Lentil soup Pasta al limone Lemons, parmesan Tuesday Yoghurt and granola Leftover soup Stir-fr…
+Work/Quarterly goals.md — Quarterly goals  (score 8)
+    Goal Owner Progress Launch the new website Sam 50% Mobile app brief Priya 10% Hire a designer Alex 80%
+```
+
+<Aside type="tip">
+Put quotes around `#planning`. Without them, the shell reads the rest of the line as a comment.
+</Aside>
+
+## Read a note
+
+`read` shows the properties of a note, its hash and its text.
+
+```console
+$ boostnote read "Website redesign"
+Website redesign
+id: Work/Projects/Website redesign.md
+tags: ["work","project"]
+status: in progress
+owner: Sam
+due: 2026-12-15
+created: 2026-11-05T09:15:00Z
+updated: 2026-11-26T11:20:00Z
+hash: 824c45157acabb65b7d0b65e7821dbb5495147fe1a74da5b4c012b39456065e1
+
+# Website redesign
+
+New home page, a lighter style and faster pages. Decisions are in [Meeting notes 2026-11-20](../Meeting%20notes%202026-11-20.md).
+
+## Tasks
+
+- [x] Collect feedback from support
+- [x] Draft the new navigation
+- [x] Pick the colour palette
+- [ ] Build the home page
+- [ ] Test on phones
+- [ ] Launch
+```
+
+Add `--raw` to show the file as it is on disk, with its frontmatter.
+
+## Create a note
+
+`create` makes a note in a folder that already exists. Use `""` or `/` for the top of the vault.
+
+```console
+$ boostnote create Work --name "Standup 2026-11-27" --tag meeting --body "- [ ] Share the home page draft"
+Created Work/Standup 2026-11-27.md
+hash: 17e9d6d393bc3ed7d95ff37cdc2ffbad5b0a48acbc02c0fd731858a7fa521f10
+```
+
+- Without `--name`, the note is named "Untitled". If the name is in use, Boostnote adds a number.
+- Add `--tag` one time for each tag.
+- Instead of `--body`, you can send the text from a file: `boostnote create Work --name Agenda < agenda.md`.
+
+## Add text to a note
+
+`append` adds text at the end of a note, on a new line.
+
+```console
+$ boostnote append "Standup 2026-11-27" "- [ ] Book the phone test lab"
+Appended to Work/Standup 2026-11-27.md
+hash: 698d0928de971116d0303595681404c6d81468f8536bb7b8c53eacb67fa59a86
+```
+
+To replace all the text of a note, use `write`. It keeps the properties.
+
+```console
+$ boostnote write "Travel plans" --base-hash f15d51150beacd22136f595ab024030844710a208527866f78e30510f389c7d5 < travel.md
+Wrote Personal/Travel plans.md
+hash: b3b57050328937bbc2a94997a4021fe9307c9cfccc7b943ecdb2be7a867d31ad
+```
+
+## Change a note safely
+
+Give the hash from `read` as `--base-hash` to `write`, `append` or `set-props`.
+If the note changed after you read it, the command stops with exit code 3 and changes nothing.
+
+```console
+$ boostnote append Welcome "- [ ] Tidy the inbox" --base-hash 5cc493ae856031b5d1da549cffd4a5e067b2a3a7736ad5cbec78d31644e1eee0
+Appended to Welcome.md
+hash: 93e723d6891e3df2a1b171e2e3eeef0730dafad4ec6d4b210275a9afdd9c2ea1
+$ boostnote append Welcome "- [ ] Tidy the inbox" --base-hash 5cc493ae856031b5d1da549cffd4a5e067b2a3a7736ad5cbec78d31644e1eee0
+Error: Note changed since it was read: Welcome.md. Read it again and reapply the change.
+```
+
+When this occurs, read the note again and make the change again.
+
+## Set properties
+
+`set-props` sets or removes the properties of a note. Properties that you do not name do not change.
+
+```console
+$ boostnote set-props "Website redesign" status=review starred=true --unset owner
+Updated Work/Projects/Website redesign.md
+tags: ["work","project"]
+status: review
+due: 2026-12-15
+created: 2026-11-05T09:15:00Z
+updated: 2026-11-27T09:20:39.189Z
+starred: true
+hash: d2426938c2ab898c5754c92babfc3f4f4d52692dfb9f5cdef19a8ce154798959
+```
+
+- `tags=a,b` sets the tags.
+- `starred=true` and `pinned=true` star or pin the note.
+- `title=Text` sets the title.
+- Other properties take a YAML value, for example `due=2026-12-15`.
+- `--unset <name>` removes a property. Add it one time for each property.
+
+## Rename or move a note
+
+`rename` gives a note a new name. `move` puts a note in a different folder.
+Both update the links to the note in your other notes.
+
+```console
+$ boostnote rename "Mobile app" "Phone app"
+Renamed Work/Projects/Mobile app.md → Work/Projects/Phone app.md
+Updated 1 link(s) in 1 note(s).
+hash: 58080be11a2ea0e88fc83f66727fdf8a0af953c2aab0194fc2d0a52f30e45b6a
+$ boostnote move "Work/Projects/Website redesign.md" Work
+Moved Work/Projects/Website redesign.md → Work/Website redesign.md
+Updated 2 link(s) in 2 note(s).
+hash: 802d8c4717370506e18c764ad697043890dc96ed5e72921d66f1265d2dfff8ed
+```
+
+After these two commands, the links in "Meeting notes 2026-11-20" point to the new places:
+
+```md
+- The [Website redesign](Website%20redesign.md) launches before the holidays.
+- The [Mobile app](Projects/Phone%20app.md) waits for the sync decision.
+```
+
+The folder must exist. To keep the links as they are, add `--no-update-links`.
+
+## Move a note to the trash and restore it
+
+`trash` moves a note to the trash of the vault. It does not delete the note.
+
+```console
+$ boostnote trash Ideas
+Moved Personal/Ideas.md to the trash.
+Restore with: boostnote restore Personal/Ideas.md
+$ boostnote restore Personal/Ideas.md
+Restored note Personal/Ideas.md
+```
+
+Use the id that `trash` shows to restore the note. If a note with that name is in the folder now, Boostnote adds a number.
+
+## List tags
+
+`tags` shows each tag and the number of notes that have it.
+
+```console
+$ boostnote tags
+#baking  1
+#ideas  1
+#intro  2
+#markdown  1
+#meeting  1
+#planning  2
+#project  2
+#quick  1
+#reading  1
+#recipe  3
+#travel  1
+#work  4
+```
+
+## Show folders
+
+`folders` shows the folder tree and the number of notes in each folder.
+
+```console
+$ boostnote folders
+Notes/  (2 notes)
+  Personal/  (3)
+  Recipes/  (3)
+  Work/  (2)
+    Projects/  (2)
+```
+
+## Check task progress
+
+`tasks` counts the done and open items (`- [x]` and `- [ ]`) in a note.
+
+```console
+$ boostnote tasks "Website redesign"
+Work/Projects/Website redesign.md: 3/6 done (50%)
+```
+
+## Use the command while the app is open
+
+You can use the command while Boostnote is open. The app sees each change.
+
+- If the note is open and you have no unsaved changes, the app loads the new version.
+- If you are typing in the note at that time, the app does not overwrite your text. It shows a bar above the note.
+
+<Shot name="terminal-and-ai-conflict-bar" alt="The Travel plans note with a yellow bar: This note changed on disk while you were editing it, with the buttons Keep mine and Load theirs." />
+
+- Click **Keep mine** to save your version over the version on disk.
+- Click **Load theirs** to drop your changes and load the version on disk.
+
+## Connect an AI tool
+
+`boostnote mcp` starts a [Model Context Protocol](https://modelcontextprotocol.io) (MCP) server. An AI tool that supports MCP can then search, read and change the notes in your vault.
+
+The server gives the AI tool these tools:
+
+| Tool | What it does |
+| --- | --- |
+| `list_notes` | Lists notes. It can filter by folder, tag, starred or pinned. |
+| `search_notes` | Searches the titles, tags and text. |
+| `read_note` | Reads a note: its properties, text and hash. |
+| `create_note` | Creates a note in a folder. |
+| `write_note` | Replaces the text of a note and keeps its properties. |
+| `append_to_note` | Adds text at the end of a note. |
+| `update_properties` | Sets or removes properties, such as tags, starred or pinned. |
+| `rename_note` | Renames a note and updates the links to it. |
+| `move_note` | Moves a note to a different folder and updates the links to it. |
+| `trash_note` | Moves a note to the trash. |
+| `restore_note` | Puts a note from the trash back in its folder. |
+| `list_tags` | Lists the tags and their note counts. |
+| `list_folders` | Shows the folder tree and its note counts. |
+| `task_progress` | Counts the done and open tasks in a note. |
+
+Each note is also an MCP resource with the address `boostnote://note/<id>`. An AI tool can list and read your notes through these resources.
+
+The server tells the AI tool to read a note before it changes it, and to send the hash with the change.
+Thus the AI tool cannot overwrite an edit that you made after it read the note.
+The AI tool cannot delete notes: `trash_note` moves a note to the trash, and you can restore it.
+
+### Claude Desktop and Cursor
+
+<Steps>
+
+1. Install the command. See [Install the command](#install-the-command).
+2. Open the configuration file of the tool:
+   - Claude Desktop: `claude_desktop_config.json`.
+   - Cursor: `.cursor/mcp.json` in a project, or `~/.cursor/mcp.json` for all projects.
+3. Add this entry. Replace `/path/to/vault` with the folder of your vault.
+
+   ```json
+   {
+     "mcpServers": {
+       "boostnote": { "command": "boostnote", "args": ["mcp", "--vault", "/path/to/vault"] }
+     }
+   }
+   ```
+
+4. Restart the tool.
+
+</Steps>
+
+<Aside type="caution">
+Apps that you start from the Dock or a desktop menu may not find commands in `~/.local/bin`.
+If the tool cannot start the server, use the full path of `boostnote` as `command`.
+</Aside>
+
+### Claude Code
+
+Type this command in a terminal. Replace `/path/to/vault` with the folder of your vault.
+
+```sh
+claude mcp add boostnote -- boostnote mcp --vault /path/to/vault
+```
+
+You can also put the same `mcpServers` entry in the `.mcp.json` file of a project.

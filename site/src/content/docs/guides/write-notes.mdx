@@ -1,0 +1,273 @@
+---
+title: Write notes
+description: Create and name notes, format text, and add tables, tasks, math, diagrams, code, images and links.
+---
+
+import { Aside, Steps } from '@astrojs/starlight/components'
+import Shot from '../../../components/Shot.astro'
+import Shortcut from '../../../components/Shortcut.astro'
+
+This page tells you how to create a note and write in it. Each note is a plain Markdown file in your vault.
+
+## Create a note
+
+A new note goes in the folder that you selected in the sidebar.
+
+<Steps>
+
+1. In the sidebar, click the folder for the note.
+2. Choose **File › New Note** (<Shortcut command="new-note" />), or click the ✎ button above the note list.
+3. Type the note text in the editor.
+
+</Steps>
+
+The first new note is `Untitled.md`. The next one is `Untitled 2.md`, then `Untitled 3.md`, and so on.
+
+<Shot name="write-notes-new-note" alt="A new note named Untitled, open in the editor, at the top of the note list." />
+
+Boostnote saves your changes automatically. The status bar shows **Saved** when the file is up to date.
+
+## Rename a note
+
+The file name is the name of the note. When you rename the note, Boostnote renames the file.
+
+<Steps>
+
+1. Open the note.
+2. Click the note name above the editor. The name becomes a text box.
+3. Type the new name.
+4. Press Enter to keep the name. Press Esc to cancel.
+
+</Steps>
+
+<Shot name="write-notes-rename" alt="The note name above the editor as a text box, with the new name Shopping list typed in it." />
+
+To use the keyboard, move the focus to the note name, then press F2 or Enter. You can also right-click the note in the note list and choose **Rename…**.
+
+- If a note with that name is already in the folder, Boostnote shows an error under the name. Type a different name.
+- If the note has a `title` in its frontmatter, the header shows that title. When you edit it, you change the `title`, not the file name.
+- If other notes link to this note, Boostnote asks if it must update those links. Refer to [Organise notes](/BoostNote/guides/organise-notes/).
+
+## See formatting as you type
+
+The editor shows your Markdown as formatted text (live preview). You do not need a separate preview pane.
+
+- The Markdown markers, for example `**` or `#`, show only around the cursor. Move the cursor into bold text to see its `**` markers.
+- When the cursor is in a different place, the markers hide again.
+- When the editor does not have the focus, the full note shows as formatted text.
+- Images, checkboxes, tables, math and diagrams show in the note.
+
+<Shot name="write-notes-live-preview" alt="The Markdown tour note: the cursor is in the bold word markers, so its two asterisks show, and the other text is formatted." />
+
+<Aside type="tip">
+To edit the source of a table, a formula or a diagram, click it. The editor shows its Markdown.
+</Aside>
+
+## Format text with shortcuts
+
+Select text, then press a shortcut. For bold, italic, inline code and strikethrough, press the shortcut again to remove the format. With no selection, these four shortcuts add the markers and put the cursor between them.
+
+| Keys | What it does |
+| --- | --- |
+| <Shortcut keys="CmdOrCtrl+B" /> | Bold: `**text**` |
+| <Shortcut keys="CmdOrCtrl+I" /> | Italic: `*text*` |
+| <Shortcut keys="CmdOrCtrl+E" /> | Inline code: `` `text` `` |
+| <Shortcut keys="CmdOrCtrl+Shift+X" /> | Strikethrough: `~~text~~` |
+| <Shortcut keys="CmdOrCtrl+K" /> | Link: `[text](url)`, with `url` selected so you can type the address. If the selection is a URL, it becomes the link target and the cursor goes into the empty label. With no selection, it adds `[](url)` and puts the cursor in the label. |
+| <Shortcut keys="Tab" /> | In a list item: moves the item in one level. In other text: adds a tab. |
+| <Shortcut keys="Shift+Tab" /> | In a list item: moves the item out one level. |
+| <Shortcut keys="Enter" /> | In a list, a task list or a quote: starts the next item. On an empty item: ends the list. |
+| <Shortcut keys="Backspace" /> | Just after a list or quote marker: removes one level of the marker. |
+
+The editor also helps when you type:
+
+- When you type `(`, `[`, `{` or `"`, the editor adds the closing character.
+- When text is selected and you type `` ` ``, `*`, `_` or `~`, the editor puts that character on the two sides of the selection.
+
+## Insert blocks with slash commands
+
+Type `/` to open a menu of blocks, for example headings, lists, tables and diagrams.
+
+<Steps>
+
+1. At the start of a line, or after a space, type `/`.
+2. Type some letters to filter the menu, for example `/tab`.
+3. Use the arrow keys to select a command, then press Enter. You can also click the command.
+
+</Steps>
+
+Press Esc to close the menu without a change.
+
+<Shot name="write-notes-slash-menu" alt="The slash menu under a slash on an empty line, with Heading 1 selected and more commands below it." />
+
+On an empty line, the line becomes the block. In a line with text, the block goes after the current block. The date and time commands put their text where you typed `/`.
+
+| Command | Type | What it inserts |
+| --- | --- | --- |
+| Heading 1 | `/h1` | A large heading (`# `) |
+| Heading 2 | `/h2` | A heading (`## `) |
+| Heading 3 | `/h3` | A small heading (`### `) |
+| Bulleted list | `/bullet` | A bulleted list item (`- `) |
+| Numbered list | `/numbered` | A numbered list item (`1. `) |
+| Task list | `/task` | A task with a checkbox (`- [ ] `) |
+| Quote | `/quote` | A quote (`> `) |
+| Code block | `/code` | An empty fenced code block, with the cursor in it |
+| Mermaid diagram | `/mermaid` | A `mermaid` block with a small example flowchart |
+| Math block | `/math` | An empty `$$` math block, with the cursor in it |
+| Table | `/table` | A grid to choose the table size. Refer to [Insert a table](#insert-a-table). |
+| Divider | `/divider` | A horizontal line (`---`) |
+| Date | `/date` | The date today, as `YYYY-MM-DD` |
+| Time | `/time` | The time now, as `HH:mm` (24-hour) |
+| Date and time | `/datetime` | The date and time now, as `YYYY-MM-DD HH:mm` |
+| Image | `/image` | Opens a file dialog. Boostnote saves the image you choose with the note. |
+
+The date and time use the local time of your computer.
+
+The filter also finds other words. For example, `/todo` finds Task list, `/hr` finds Divider, and `/latex` finds Math block.
+
+<Aside type="caution">
+The slash menu does not open in code, math or a link. There, `/` is a usual character.
+</Aside>
+
+## Insert a table
+
+The `/table` command opens a grid. Use it to choose the number of columns and rows.
+
+<Steps>
+
+1. On a line, type `/table`, then press Enter.
+2. Move the pointer over the grid, or use the arrow keys, to choose the size. The size shows under the grid as columns × rows.
+3. Click, or press Enter, to insert the table.
+
+</Steps>
+
+<Shot name="write-notes-table-grid" alt="The table size grid with 3 columns and 4 rows highlighted, and the text 3 × 4 under it." />
+
+The largest table is 10 columns × 10 rows. Press Esc, or click outside the grid, to cancel.
+
+The header cells are "Column 1", "Column 2", and so on. The cursor goes into the first header cell, so you can type a new header at once.
+
+## Tick tasks and see progress
+
+A task is a list item with a checkbox: `- [ ] Task` (not done) or `- [x] Task` (done).
+
+<Steps>
+
+1. Type `/task`, or type `- [ ] ` at the start of a line.
+2. Type the task.
+3. To mark the task as done, click its checkbox.
+
+</Steps>
+
+When a note has tasks, a progress bar shows above the note. It shows the number of tasks done, the total and a percentage.
+
+<Shot name="write-notes-tasks" alt="The Website redesign note with three of six tasks ticked, and a progress bar that shows 3/6 and 50%." />
+
+## Add math, diagrams and code
+
+Boostnote shows formulas, diagrams and highlighted code in the note.
+
+- **Math:** put a formula between `$` signs for inline math, for example `$A = \pi r^2$`. For a block, put the formula between two `$$` lines, or in a ```` ```math ```` block. Boostnote uses KaTeX to show the formula.
+- **Diagrams:** write a Mermaid diagram in a ```` ```mermaid ```` block. Type `/mermaid` to start with an example flowchart.
+- **Code:** write code in a fenced block, for example ```` ```ts ````. Boostnote highlights the code for that language.
+
+<Shot name="write-notes-diagram" alt="The Markdown tour note scrolled to a math formula, a Mermaid flowchart and a TypeScript code block with highlighted syntax." />
+
+<Aside type="tip">
+If a diagram has an error, the error message shows in the note in place of the diagram. Click the diagram to edit its source.
+</Aside>
+
+## Add images
+
+You can paste an image, drop an image file, or choose an image file.
+
+<Steps>
+
+1. Put the cursor where you want the image.
+2. Do one of these steps:
+   - Paste an image that you copied.
+   - Drag an image file from Finder or File Explorer into the editor.
+   - Type `/image`, press Enter and choose an image file.
+
+</Steps>
+
+Boostnote copies the image into a folder next to the note, `<note name>.assets/`. For example, the images of `Markdown tour.md` go in `Markdown tour.assets/`. The note gets an image link such as `![chart](<Markdown tour.assets/chart.png>)`.
+
+Pasted text also changes in two ways:
+
+- When you paste a web address (`http://` or `https://`) alone, it becomes an image link: `![](address)`.
+- When you paste formatted text from a web page or a document, it becomes Markdown.
+
+<Aside type="caution">
+A scratch note is not in a vault, so it cannot keep images. Refer to [Quick capture](/BoostNote/guides/quick-capture/).
+</Aside>
+
+## Link to other notes
+
+A link to a note is a Markdown link to the `.md` file, relative to the current note. For example, `[Website redesign](Work/Projects/Website%20redesign.md)`.
+
+<Steps>
+
+1. Select the link text.
+2. Press <Shortcut keys="CmdOrCtrl+K" />.
+3. Type the path of the other note, for example `Ideas.md`.
+
+</Steps>
+
+To follow a link, hold Command (macOS) or Ctrl (Windows and Linux) and click the link:
+
+- A link to a note opens that note in Boostnote.
+- A web link (`http://` or `https://`) opens in your web browser.
+
+A usual click puts the cursor in the link, so you can edit it. To go back to the previous note, choose **View › Back** (<Shortcut command="go-back" />).
+
+If a link points to a note that is not in the vault, Boostnote shows "Note not found".
+
+## Fix spelling
+
+Boostnote checks your spelling while you type. A red line shows under a word that it does not know.
+
+<Steps>
+
+1. Right-click the underlined word.
+2. Choose one of the suggestions to replace the word. Or choose **Add to Dictionary** to keep the word.
+
+</Steps>
+
+The menu shows up to five suggestions. If there are none, it shows **No suggestions**. Under them are **Cut**, **Copy**, **Paste** and **Select All**.
+
+To stop the spelling check, clear **Check spelling while typing** in the preferences. Refer to [Customise Boostnote](/BoostNote/guides/customise/).
+
+## Edits made in other apps
+
+Your notes are files, so other apps can change them too. Boostnote sees each change.
+
+- If you do not have unsaved edits in the note, the note updates automatically.
+- If you also changed the note, a bar shows above the note: "This note changed on disk while you were editing it."
+
+<Shot name="write-notes-conflict" alt="A yellow bar above the Ideas note says the note changed on disk, with the buttons Keep mine and Load theirs." />
+
+Choose one version:
+
+- **Keep mine** saves your version over the version from the other app.
+- **Load theirs** removes your edits and shows the version from the other app.
+
+Other bars:
+
+- If an app moved or deleted the file, the bar says "This note was moved or deleted outside Boostnote". Click **Save my copy** to save your text again, or **Close** to close the note.
+- If Boostnote cannot save the note, the bar says "Saving failed" with the reason. Click **Retry** to try again.
+
+<Aside type="tip">
+While a bar shows, Boostnote does not let you open a different note. Thus you cannot lose your edits by accident.
+</Aside>
+
+## MDX notes
+
+Boostnote opens and saves `.mdx` files as notes, the same as `.md` files. You edit them in the same editor.
+
+Boostnote does not run MDX components:
+
+- The editor shows component tags such as `<Callout>` as text. In an HTML export, Boostnote removes the tags and keeps the text in them.
+- `import` lines, `export` lines and `{expressions}` show as usual text.
+
+New notes are always `.md` files.

@@ -17,19 +17,22 @@ const SCALE = 2
 const VAULT_NAME = 'My notes'
 /**
  * Shot-only CSS: hides the vault's temp path in the status bar (a reader sees their own path there;
- * the note count beside it hides with it), the caret, and transitions.
+ * the note count beside it hides with it) and transitions. CURSOR_STYLE also hides the caret
+ * (CodeMirror draws its own), unless a shot asks to show it.
  */
 const SHOT_STYLE = `footer > span[title] { visibility: hidden; }
-* { caret-color: transparent !important; transition: none !important; animation: none !important; }`
+* { transition: none !important; animation: none !important; }`
+const CURSOR_STYLE = `.cm-cursorLayer { display: none !important; }
+* { caret-color: transparent !important; }`
 
 export type Theme = 'light' | 'dark'
 
 export interface DocsApp extends AppHandle {
   /**
    * Saves `<name>-<theme>.png`: the whole window, or only `target` (with `padding` CSS pixels of the
-   * page around it, so a dialog keeps its shadow).
+   * page around it, so a dialog keeps its shadow). `cursor` keeps the text cursor in the shot.
    */
-  shot(name: string, target?: Locator, options?: { padding?: number }): Promise<void>
+  shot(name: string, target?: Locator, options?: { padding?: number; cursor?: boolean }): Promise<void>
 }
 
 /** Launches the app on a copy of the demo vault in `theme`, at the docs window size. */
@@ -42,7 +45,7 @@ export async function launchDocsApp(
   const handle = await launchApp(files, { vaultName: VAULT_NAME, ...options, vaultCopyOf: DOCS_VAULT, ui })
   const cdp = await fitWindow(handle, theme)
   return Object.assign(handle, {
-    shot: async (name: string, target?: Locator, { padding = 0 } = {}) => {
+    shot: async (name: string, target?: Locator, { padding = 0, cursor = false } = {}) => {
       let clip = { x: 0, y: 0, ...WINDOW }
       if (target) {
         const box = await target.boundingBox()
@@ -57,12 +60,15 @@ export async function launchDocsApp(
         }
       }
       // A constructed sheet (CSSOM), as the app's CSP blocks a <style> element without its nonce.
-      await handle.page.evaluate(async (css) => {
-        const sheet = new CSSStyleSheet()
-        sheet.replaceSync(css)
-        document.adoptedStyleSheets = [...document.adoptedStyleSheets, sheet]
-        await document.fonts.ready
-      }, SHOT_STYLE)
+      await handle.page.evaluate(
+        async (css) => {
+          const sheet = new CSSStyleSheet()
+          sheet.replaceSync(css)
+          document.adoptedStyleSheets = [...document.adoptedStyleSheets, sheet]
+          await document.fonts.ready
+        },
+        SHOT_STYLE + (cursor ? '' : `\n${CURSOR_STYLE}`),
+      )
       // CDP, not page.screenshot: Playwright scales Electron shots to 1 device pixel per CSS pixel.
       const { data } = await cdp.send('Page.captureScreenshot', { format: 'png', clip: { ...clip, scale: 1 } })
       await handle.page.evaluate(() => {

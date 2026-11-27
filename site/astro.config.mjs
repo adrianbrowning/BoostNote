@@ -19,7 +19,24 @@ export default defineConfig({
       editLink: { baseUrl: `${repository}/edit/master/site/` },
       // A link to a page or heading that does not exist fails the build.
       plugins: [starlightLinksValidator()],
-      sidebar: [{ label: 'Reference', items: ['reference/shortcuts'] }],
+      sidebar: [
+        { label: 'Start here', items: ['get-started'] },
+        {
+          label: 'Guides',
+          items: [
+            'guides/write-notes',
+            'guides/organise-notes',
+            'guides/find-notes',
+            'guides/tabs',
+            'guides/quick-capture',
+            'guides/share-and-export',
+            'guides/bring-notes-in',
+            'guides/customise',
+            'guides/terminal-and-ai',
+          ],
+        },
+        { label: 'Reference', items: ['reference/shortcuts'] },
+      ],
     }),
   ],
   // The shortcuts page reads the app's command table from ../src/shared at build time.

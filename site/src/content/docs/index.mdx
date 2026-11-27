@@ -3,7 +3,7 @@ title: Boostnote
 description: A Markdown note-taking app for macOS, Windows and Linux. Your notes are plain files in a folder you choose.
 template: splash
 hero:
-  tagline: Write Markdown notes in one live-preview editor. Your notes stay plain .md files in a folder you choose.
+  tagline: Write Markdown notes in one live-preview editor. Your notes stay plain .md or .mdx files in a folder you choose.
   image:
     file: ../../assets/logo.png
   actions:
@@ -11,10 +11,10 @@ hero:
       link: https://github.com/adrianbrowning/BoostNote/releases
       icon: external
       variant: primary
-    - text: Keyboard shortcuts
-      link: /BoostNote/reference/shortcuts/
+    - text: Get started
+      link: /BoostNote/get-started/
       icon: right-arrow
-      variant: minimal
+      variant: secondary
 ---
 
 import { Card, CardGrid } from '@astrojs/starlight/components'
@@ -29,25 +29,29 @@ import Shot from '../../components/Shot.astro'
 
 <CardGrid>
   <Card title="Keep notes as plain files" icon="document">
-    A vault is any folder. Each note is a `.md` file, so git, sync tools and other editors keep
-    working with your notes.
+    A vault is any folder. Each note is a `.md` or `.mdx` file, so git, sync tools and other editors keep
+    working with your notes. [Get started](/BoostNote/get-started/)
   </Card>
   <Card title="Write with live preview" icon="pencil">
     Headings, tables, task lists, math, Mermaid diagrams and images show as you type. Type `/` to
-    insert a block.
+    insert a block. [Write notes](/BoostNote/guides/write-notes/)
   </Card>
   <Card title="Organise and find" icon="magnifier">
-    Use folders with colours, tags, stars and pins. Search the text of every note.
+    Use folders with colours, tags, stars and pins. Search the text of your notes.
+    [Organise notes](/BoostNote/guides/organise-notes/), [Find notes](/BoostNote/guides/find-notes/)
   </Card>
   <Card title="Capture a thought fast" icon="rocket">
-    Open a scratch note from any app with a global hotkey. Save it to a vault later.
+    Open a scratch note with one shortcut. Turn on the Quick capture hotkey in Preferences to open one
+    from any app. Save it to a vault later.
+    [Quick capture](/BoostNote/guides/quick-capture/)
   </Card>
   <Card title="Share and export" icon="external">
     Export a note as HTML, PDF or Markdown, or export a folder or the whole vault as a website.
+    [Share and export](/BoostNote/guides/share-and-export/)
   </Card>
   <Card title="Use it from the terminal" icon="seti:shell">
     The `boostnote` command and its MCP server read and change your notes from scripts and AI
-    tools.
+    tools. [Terminal and AI tools](/BoostNote/guides/terminal-and-ai/)
   </Card>
 </CardGrid>
 

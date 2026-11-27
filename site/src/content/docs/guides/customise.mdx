@@ -1,0 +1,153 @@
+---
+title: Customise
+description: Change the theme, the editor font and widths, the global hotkeys and the update check in Preferences.
+---
+
+import { Steps, TabItem, Tabs } from '@astrojs/starlight/components'
+import Shot from '../../../components/Shot.astro'
+import Shortcut from '../../../components/Shortcut.astro'
+
+This page shows how to change how Boostnote looks and works, and how Boostnote tells you about new versions.
+
+## Open Preferences
+
+<Tabs syncKey="os">
+<TabItem label="macOS">
+
+<Steps>
+
+1. Choose **Boostnote › Settings…** (<Shortcut command="preferences" />).
+
+</Steps>
+
+</TabItem>
+<TabItem label="Windows and Linux">
+
+<Steps>
+
+1. Choose **File › Preferences…** (<Shortcut command="preferences" />).
+
+</Steps>
+
+</TabItem>
+</Tabs>
+
+<Shot name="customise-preferences" alt="The Preferences dialog with the theme, editor, table, checkbox, file and hotkey options" />
+
+Each change applies immediately, and Boostnote saves it. You do not have to restart. To close the dialog, click **Done** or press Esc.
+
+If a value is not valid, for example a font size of 40, Boostnote does not save it and shows an error in the dialog.
+
+## Change a preference
+
+| Option | Values | Default | What it changes |
+| --- | --- | --- | --- |
+| **Theme** | Match system, Light, Dark | Match system | The colours of the app. **Match system** follows the light or dark mode of your computer. |
+| **Editor font** | The name of a font on your computer | Empty (**System font**) | The font of the note text in the editor. Leave it empty to use the font of the app. |
+| **Font size (px)** | 10 to 32 | 16 | The size of the note text in the editor. |
+| **Line width (px, 0 = full width)** | 0, or 400 to 2000 | 736 | The maximum width of the lines of text. **0** uses the full width of the editor pane. |
+| **Table width** | Line width, Full pane width, Custom | Line width | The maximum width of tables. **Line width** keeps tables as wide as the text. **Full pane width** lets them use the full pane. **Custom** shows **Table width (px)**. |
+| **Table width (px)** | 400 to 2000 | 1200 (or the line width, if that is wider) when you choose **Custom** | The maximum width of tables, in pixels. It shows only when **Table width** is **Custom**. A table is never narrower than the line width. |
+| **Check spelling while typing** | On, off | On | Marks words that are spelled incorrectly. |
+| **Ask before moving notes and folders to the Trash** | On, off | On | Asks you to confirm before Boostnote moves a note or folder to the Trash, or discards a scratch note. |
+| **Check for updates automatically** | On, off | On | Looks for a new version once a day. Refer to [Get updates](#get-updates). |
+| **Opening a .md or .mdx outside a vault** | Read only, Open its folder as vault | Read only | What happens when you open a Markdown file that is not in a vault. **Read only** shows the file in a tab that you cannot edit. **Open its folder as vault** opens the file's folder as a vault. |
+| **Show/hide Boostnote from anywhere** | A key combination, or none | <Shortcut keys="CmdOrCtrl+Shift+Space" /> | The hotkey that shows or hides Boostnote from any app. |
+| **Quick capture: a new scratch note from anywhere** | A key combination, or none | None | The hotkey that shows Boostnote with a new scratch note, from any app. |
+
+For more about the two hotkeys, refer to [Quick capture](/BoostNote/guides/quick-capture/).
+
+Boostnote also remembers some things that are not in the dialog: the size of the window, the widths of the sidebar and the note list, which panes you hid, and whether the properties panel is open.
+
+## Make the text wider or narrower
+
+The line width sets how wide the text can be. Long lines are hard to read, so the default is 736 pixels.
+
+<Steps>
+
+1. Open Preferences (<Shortcut command="preferences" />).
+2. In **Line width (px, 0 = full width)**, type a new width. To use the full width of the editor, type `0`.
+3. Press Tab or click another field.
+
+</Steps>
+
+With the default width, the text stays in a column in the middle of a wide editor:
+
+<Shot name="customise-line-width-default" alt="The Markdown tour with the default line width: the text is a column in the middle of the editor" />
+
+With a line width of 0, the text uses the full width of the editor:
+
+<Shot name="customise-line-width-full" alt="The Markdown tour with a line width of 0: the text fills the full width of the editor" />
+
+You see the difference only when the editor pane is wider than the line width. To make the editor wider, hide the sidebar (<Shortcut command="toggle-sidebar" />) and the note list (<Shortcut command="toggle-note-list" />).
+
+## Set a global hotkey
+
+The two hotkeys in Preferences work from any app, also when Boostnote is not in front.
+
+<Steps>
+
+1. Open Preferences (<Shortcut command="preferences" />).
+2. Click the button below the hotkey name. It shows the current key combination, or **None**.
+3. Press the new key combination.
+
+</Steps>
+
+Boostnote saves the hotkey immediately. To stop without a change, press Esc. To remove a hotkey, click **Turn off**.
+
+A hotkey must follow these rules:
+
+- It must include a modifier key other than Shift, for example Command, Ctrl or Alt. A function key (F1 to F24) can be used alone.
+- The two hotkeys cannot use the same key combination.
+- No other app can use the same key combination. If another app uses it, Boostnote says that it could not register the hotkey, and keeps the old one.
+
+## Get updates
+
+Boostnote never downloads or installs anything by itself. It only tells you when a new version is available.
+
+Once a day, and 10 seconds after you start the app, Boostnote looks for a new version on GitHub. When there is one, the status bar shows a notice:
+
+<Shot name="customise-update-notice" alt="The status bar notice: Boostnote 99.0.0 is available, with a Download link and a close button" />
+
+- Click **Download** to open the release page in your web browser. Then download and install the new version.
+- Click **×** to hide the notice for that version. The notice shows again when a later version is available.
+
+### Look for an update now
+
+<Tabs syncKey="os">
+<TabItem label="macOS">
+
+<Steps>
+
+1. Choose **Boostnote › Check for Updates…**.
+
+</Steps>
+
+</TabItem>
+<TabItem label="Windows and Linux">
+
+<Steps>
+
+1. Choose **Help › Check for Updates…**.
+
+</Steps>
+
+</TabItem>
+</Tabs>
+
+A message tells you the result:
+
+- **Boostnote X.Y.Z is available.** Click **Download** to open the release page, or **Later** to close the message.
+- **Boostnote is up to date.**
+- **Could not check for updates.** The message gives the reason, for example that GitHub did not answer in time.
+
+### Turn off the daily check
+
+<Steps>
+
+1. Open Preferences (<Shortcut command="preferences" />).
+2. Clear **Check for updates automatically**.
+
+</Steps>
+
+**Check for Updates…** still works when the daily check is off.

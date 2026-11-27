@@ -1,0 +1,146 @@
+---
+title: Quick capture
+description: Write a quick note without choosing a folder, keep it or save it to a vault later, and open Boostnote from any app.
+---
+
+import { Aside, Steps } from '@astrojs/starlight/components'
+import Shot from '../../../components/Shot.astro'
+import Shortcut from '../../../components/Shortcut.astro'
+
+A scratch note is a quick note that is not in a vault yet. This page shows how to write one, keep it, save it to a vault, and open Boostnote from any app with a hotkey.
+
+## Write a scratch note
+
+Use a scratch note when you want to write something down now and choose a folder later. It works also when no vault is open.
+
+<Steps>
+
+1. Choose **File › New Scratch Note** (<Shortcut command="new-scratch-note" />).
+2. Type your text.
+
+</Steps>
+
+A new tab opens with a **Scratch** badge. Boostnote saves your text while you type.
+
+<Shot
+  name="quick-capture-scratch-note"
+  alt="A scratch note called Call back Sam, with the Scratch badge on its tab and the banner above the text"
+/>
+
+The banner above the text says that links to notes, images and properties need a vault note. In a scratch note, links to other notes do not open, and the properties panel is not available. Links to web pages work, and so does **Edit › Find…**.
+
+## Keep a scratch note for later
+
+<Steps>
+
+1. Type some text in the scratch note.
+2. Close its tab (<Shortcut command="close-tab" />).
+
+</Steps>
+
+Boostnote keeps the scratch note. You find it in the **Scratch** list:
+
+- In the sidebar, below the tags, when a vault is open.
+- On the welcome screen, when no vault is open.
+- In a panel next to the editor, when no vault is open and tabs are open.
+
+<Shot name="quick-capture-scratch-list" alt="The Scratch list in the sidebar with two scratch notes, Call back Sam and Gift ideas" />
+
+<Aside type="caution">
+  When you close a scratch note that has no text, Boostnote deletes it.
+</Aside>
+
+Scratch notes that are open when you quit Boostnote come back as tabs when you start it again.
+
+## Reopen a scratch note
+
+<Steps>
+
+1. In the **Scratch** list, click the title of the scratch note.
+
+</Steps>
+
+The scratch note opens in a tab. If it is open already, its tab becomes active.
+
+## Save a scratch note to a vault
+
+When you know where the note belongs, move it into a folder of the open vault. It then becomes a normal note.
+
+<Steps>
+
+1. Open the scratch note.
+2. In the banner, click **Save to vault…**.
+3. In **Folder**, choose a folder.
+4. Click **Save**.
+
+</Steps>
+
+<Shot name="quick-capture-save-to-vault" alt="The Save to vault dialog with the Work folder selected" />
+
+The new note gets the title of the scratch note as its file name. If a note with that name exists already, Boostnote adds a number, for example `Call back Sam 2`. The note opens in the same tab, and the scratch note is removed.
+
+You can also click **↧** (Save to vault…) next to the scratch note in the **Scratch** list. If the scratch note is not open, the new note opens in a new tab.
+
+<Aside type="note">
+  **Save to vault…** is not available when no vault is open. Open a vault first. Refer to [Get
+  started](/BoostNote/get-started/).
+</Aside>
+
+## Discard a scratch note
+
+<Steps>
+
+1. In the **Scratch** list, click **×** (Discard) next to the scratch note.
+2. Click **Discard** to confirm.
+
+</Steps>
+
+Boostnote deletes the text for good. It does not go to the Trash.
+
+Boostnote asks you to confirm only when **Ask before moving notes and folders to the Trash** is on in Preferences. Refer to [Customise](/BoostNote/guides/customise/).
+
+## Capture a note from any app
+
+The Quick capture hotkey shows Boostnote with a new scratch note, from any app. It is off until you set it.
+
+<Steps>
+
+1. Open Preferences (<Shortcut command="preferences" />).
+2. Under **Quick capture: a new scratch note from anywhere**, click the button that shows **None**.
+3. Press the key combination that you want to use, for example <Shortcut keys="CmdOrCtrl+Alt+Shift+K" />.
+4. Click **Done**.
+
+</Steps>
+
+<Shot
+  name="quick-capture-hotkey"
+  alt="The Quick capture hotkey in Preferences, set to Command+Alt+Shift+K, with the message Registered Command+Alt+Shift+K"
+/>
+
+Now press the hotkey in any app. Boostnote comes to the front with a new scratch note, ready for you to type.
+
+To stop recording without a change, press Esc. To remove the hotkey, click **Turn off**.
+
+For the rules that a hotkey must follow, refer to [Customise](/BoostNote/guides/customise/).
+
+## Show or hide Boostnote from any app
+
+The show/hide hotkey brings Boostnote to the front from any app. When Boostnote is in front, the same hotkey hides it. The default is <Shortcut keys="CmdOrCtrl+Shift+Space" />.
+
+<Steps>
+
+1. Press <Shortcut keys="CmdOrCtrl+Shift+Space" />.
+
+</Steps>
+
+To change the hotkey, open Preferences and use **Show/hide Boostnote from anywhere**. It works the same as the Quick capture hotkey.
+
+<Shot
+  name="quick-capture-show-hide-hotkey"
+  alt="The show/hide hotkey in Preferences, set to CommandOrControl+Shift+Space, with the status Active"
+/>
+
+The line below each hotkey tells you its status:
+
+- **Active.** The hotkey works.
+- **Not active: another app may use this combination.** Another app has the same hotkey. Choose a different combination.

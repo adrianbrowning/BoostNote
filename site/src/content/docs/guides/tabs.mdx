@@ -1,0 +1,109 @@
+---
+title: Tabs
+description: Open notes in tabs, switch between them, go back and forward, and get your tabs back after a restart.
+---
+
+import { Aside, Steps } from '@astrojs/starlight/components'
+import Shot from '../../../components/Shot.astro'
+import Shortcut from '../../../components/Shortcut.astro'
+
+Each open note has a tab above the editor. This page shows how to open, close, switch and move tabs.
+
+<Shot
+  name="tabs-strip"
+  alt="Four tabs above the editor: Welcome, Website redesign, Reading list and Markdown tour, with Website redesign active"
+/>
+
+## Open a note in a new tab
+
+When you click a note in the note list, the note opens in the active tab. To keep the active tab and open the note next to it, open it in a new tab.
+
+<Steps>
+
+1. Hold down Command (macOS) or Ctrl (Windows and Linux).
+2. Click the note in the note list.
+
+</Steps>
+
+The new tab opens after the active tab and becomes active.
+
+You can also do one of these:
+
+- Click the note with the middle mouse button.
+- Right-click the note, then click **Open in New Tab**.
+- In the editor header, click **⋯** (Note actions), then click **Open in New Tab**.
+
+<Shot name="tabs-note-menu" alt="The note menu open on the Markdown tour note, with Open in New Tab at the top" />
+
+## Close a tab
+
+<Steps>
+
+1. Click the tab that you want to close.
+2. Choose **File › Close Tab** (<Shortcut command="close-tab" />).
+
+</Steps>
+
+You can also click the **×** on the tab, or click the tab with the middle mouse button.
+
+When you close the active tab, the tab on its right becomes active. When you close the last tab, the editor is empty, and the window stays open.
+
+## Reopen a closed tab
+
+<Steps>
+
+1. Choose **File › Reopen Closed Tab** (<Shortcut command="reopen-tab" />).
+
+</Steps>
+
+The last tab that you closed opens again, at the same position. Do it again to reopen the tab that you closed before that one. Boostnote remembers the last 40 closed tabs of each vault.
+
+<Aside type="caution">
+  A closed scratch note does not come back with **Reopen Closed Tab**. Open it again from the Scratch
+  list. Refer to [Quick capture](/BoostNote/guides/quick-capture/).
+</Aside>
+
+## Switch between tabs
+
+To go to a tab, click it. You can also use the keyboard:
+
+| To go to | Choose | Shortcut |
+| --- | --- | --- |
+| The next tab | **Window › Next Tab** | <Shortcut command="next-tab" /> |
+| The previous tab | **Window › Previous Tab** | <Shortcut command="previous-tab" /> |
+| Tab 1 to tab 8, by position | **Window › Select Tab › Tab 1** to **Tab 8** | <Shortcut keys="CmdOrCtrl+1" /> to <Shortcut keys="CmdOrCtrl+8" /> |
+| The last tab | **Window › Select Tab › Last Tab** | <Shortcut keys="CmdOrCtrl+9" /> |
+
+## Change the order of the tabs
+
+<Steps>
+
+1. Drag a tab to a new position in the tab strip.
+2. Release the mouse button.
+
+</Steps>
+
+## Go back and forward
+
+Each tab remembers the notes that you opened in it. You can go back to an earlier note in the same tab, and then forward again.
+
+<Steps>
+
+1. Choose **View › Back** (<Shortcut command="go-back" />).
+2. To go forward again, choose **View › Forward** (<Shortcut command="go-forward" />).
+
+</Steps>
+
+You can also click the **←** and **→** arrows at the left of the tab strip, or use the back and forward buttons on your mouse.
+
+Back and forward skip the notes that no longer exist. A new tab has no history, so its arrows are off. Scratch notes and read-only files from outside the vault have no history either.
+
+## Get your tabs back after a restart
+
+You do not have to do anything. Boostnote saves the tabs of each vault: their order, the active tab and the closed-tab list. When you start Boostnote again, or open that vault again, the tabs come back.
+
+- Tabs of notes that were deleted or moved outside Boostnote do not come back.
+- The back and forward history of each tab is not kept after a restart.
+- Scratch notes come back too, as tabs. Read-only files from outside the vault do not.
+- Each vault has its own tabs. When you change to another vault, you see that vault's tabs. Scratch
+  notes and read-only files stay open.

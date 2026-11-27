@@ -1,0 +1,123 @@
+---
+title: Share and export
+description: Save a note as an HTML page, a PDF or a Markdown file, turn a folder into a small website, or print a note.
+---
+
+import { Aside, Steps } from '@astrojs/starlight/components'
+import Shot from '../../../components/Shot.astro'
+import Shortcut from '../../../components/Shortcut.astro'
+
+Your notes are already plain Markdown files. Use this page to give a note or a folder to people who do not use Boostnote.
+
+## Export a note as an HTML page
+
+An HTML export is one file that opens in any web browser. It contains the note's text, math, diagrams and the images from your vault. It contains no scripts. It works with no internet connection, but an image that links to a web address still loads from the web.
+
+<Steps>
+
+1. Open the note that you want to export.
+2. Choose **File › Export › Note as HTML…**.
+3. In the save dialog, choose a folder and a file name. The dialog starts in your Documents folder, with the note's name.
+4. Click **Save**.
+
+</Steps>
+
+A message at the bottom of the window shows where the file is. Open the file in a browser to see the result.
+
+<Shot name="share-and-export-html-note" alt="The Markdown tour note exported as HTML and opened in a browser, with its heading, text, link and chart image." />
+
+Math and Mermaid diagrams are already drawn in the file. Code blocks keep their colours.
+
+<Shot name="share-and-export-html-diagram" alt="Further down the same exported page: a math formula, a flowchart diagram and a coloured code block." />
+
+<Aside type="tip">
+An exported page always has a light background, also when the app uses the dark theme.
+</Aside>
+
+## Export a note as a PDF
+
+A PDF export looks like the HTML export, on A4 pages.
+
+<Steps>
+
+1. Open the note that you want to export.
+2. Choose **File › Export › Note as PDF…**.
+3. In the save dialog, choose a folder and a file name.
+4. Click **Save**.
+
+</Steps>
+
+## Export a note as a Markdown file
+
+A Markdown export is a copy of the note's file. Use it to give the note to a person who uses a different Markdown editor.
+
+<Steps>
+
+1. Open the note that you want to export.
+2. Choose **File › Export › Note as Markdown…**.
+3. In the save dialog, choose a folder and a file name.
+4. Click **Save**.
+
+</Steps>
+
+The note's images and attached files are copied too. They go into a `<name>.assets` folder next to the new file, and the links in the copy point to that folder. An `.mdx` note is exported as an `.mdx` file.
+
+<Aside type="caution">
+To export, a note must be open. If no note is open, the app shows "Open a note to export it".
+</Aside>
+
+## Export a folder as a website
+
+You can turn a folder of notes into a small website. Each note becomes an HTML page, and an `index.html` page lists all the pages.
+
+<Steps>
+
+1. In the sidebar, right-click the folder. You can also point to the folder and click its **⋯** button.
+2. Click **Export as HTML…**.
+3. In the folder dialog, choose where to put the website.
+4. Click **Export**.
+
+</Steps>
+
+<Shot name="share-and-export-folder-menu" alt="The folder menu of the Recipes folder in the sidebar, with Export as HTML highlighted." />
+
+You can also select a folder in the sidebar and choose **File › Export › Folder as HTML…**. If no folder is selected, this exports the whole vault.
+
+The app makes a new folder, named after your folder with " (HTML)" at the end, for example `Recipes (HTML)`. If that name is already used, the app adds a number. When the export is done, the app shows the new folder in Finder or File Explorer.
+
+The new folder contains:
+
+- One HTML page for each note in the folder and in its subfolders. The pages keep the same folder structure as your notes.
+- An `index.html` page that lists all the pages, grouped by folder.
+
+Links between notes in the export go to the correct pages, so a reader can click from page to page. A link to a note outside the exported folder stays as you wrote it.
+
+## Export the whole vault as a website
+
+<Steps>
+
+1. Choose **File › Export › Vault as HTML…**.
+2. In the folder dialog, choose where to put the website.
+3. Click **Export**.
+
+</Steps>
+
+The result is the same as for a folder, with every note in the vault. The new folder has the vault's name, for example `My notes (HTML)`. To start, open its `index.html` page in a browser.
+
+<Shot name="share-and-export-site-index" alt="The index page of an exported vault in a browser, with a list of note links under the folder headings Personal, Recipes and Work." />
+
+<Aside type="tip">
+You can also right-click the vault's own row at the top of the folder list, and then click **Export as HTML…**.
+</Aside>
+
+## Print a note
+
+<Steps>
+
+1. Open the note that you want to print.
+2. Choose **File › Print…**, or press <Shortcut command="print" />.
+3. Use your system's print dialog to choose a printer and print the note.
+
+</Steps>
+
+The printed note looks like the PDF export.
