@@ -34,6 +34,8 @@
     "smoke": "node --import remix/node-tsx scripts/smoke.ts",
     "test:linux": "bash scripts/test-linux.sh",
     "test:case-sensitive": "bash scripts/test-case-sensitive.sh",
+    "docs:dev": "pnpm --dir site dev",
+    "docs:build": "pnpm --dir site build",
     "prepare": "git config core.hooksPath .githooks || true"
   },
   "pnpm": {
