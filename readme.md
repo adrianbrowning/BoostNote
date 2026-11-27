@@ -10,6 +10,9 @@ React/Redux app and its CSON storage are gone; notes are now ordinary `.md` file
 choose, so any editor, `git` or sync tool works with them. The background and decisions are in
 [docs/modernisation/PLAN.md](docs/modernisation/PLAN.md).
 
+**How to use it:** the [user guide](https://adrianbrowning.github.io/BoostNote/) shows each feature
+step by step, with screenshots.
+
 ## Features
 
 - **Vaults of plain Markdown.** A vault is any folder: notes are `.md` files with optional YAML
