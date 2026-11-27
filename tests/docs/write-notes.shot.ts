@@ -38,7 +38,7 @@ test('live preview: the line with the cursor shows its markers', async ({ docsAp
   // Markers show for the construct holding the cursor: here, the bold word.
   await editor(page).getByText('markers', { exact: true }).click()
   await expect(editor(page)).toContainText('**markers**')
-  await docsApp.shot('write-notes-live-preview')
+  await docsApp.shot('write-notes-live-preview', undefined, { cursor: true })
 })
 
 test('the slash menu and the table size grid', async ({ docsApp }) => {

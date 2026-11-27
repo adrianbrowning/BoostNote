@@ -1,4 +1,4 @@
-import { copyFile, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { copyFile, mkdir, rm, writeFile } from 'node:fs/promises'
 import * as path from 'node:path'
 import type { Page } from '@playwright/test'
 import CSON from 'cson-parser'
@@ -124,11 +124,14 @@ test('a file opened from outside the vault, and Add to vault', async ({ docsApp 
   await docsApp.shot('bring-notes-in-add-to-vault', dialog.locator('form'), { padding: 16 })
 })
 
-test('the Import Boostnote storage dialog after Preview', async ({ docsApp }) => {
+test('the Import Boostnote storage dialog after Preview', async ({ docsApp, theme }) => {
   const { page } = docsApp
-  // A short folder, so the dialog's fields show readable paths (the test's own temp folder has a very long path).
-  // Not under the test home, so the dialog lists no "Found:" storage button either.
-  const root = await mkdtemp('/tmp/boostnote-docs-')
+  // A short, fixed folder per theme, so the dialog's fields show readable paths that stay the same on
+  // every run (the test's own temp folder has a long, random path). Not under the test home, so the
+  // dialog lists no "Found:" storage button either.
+  const root = `/tmp/boostnote-docs-import-${theme}`
+  await rm(root, { recursive: true, force: true })
+  await mkdir(root, { recursive: true })
   try {
     const storage = path.join(root, 'Boostnote')
     await writeLegacyStorage(storage)
