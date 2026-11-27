@@ -23,7 +23,7 @@ Shortcuts show both forms: <kbd>⌘</kbd> on macOS, <kbd>Ctrl</kbd> on Windows a
 |---|---|---|
 | 0 | Home | What Boostnote is, a hero screenshot, download link, links to each page |
 | 1 | Get started | Install; open a folder as a vault; tour the window (sidebar, note list, editor, status bar, resize and hide panes); open a `.md` file from Finder/Explorer (reader tab); use several vaults; come from old Boostnote (import a storage) |
-| 2 | Write notes | Create a note; rename it (the file name is the note name); live preview; format with shortcuts; slash commands (full list of all 17); insert a table (size grid); tasks and the progress bar; math, diagrams and code; images (paste, drop, `/image`); links between notes; find in a note; fix spelling (right-click); edits from other apps and the conflict bar; MDX notes |
+| 2 | Write notes | Create a note; rename it (the file name is the note name); live preview; format with shortcuts; slash commands (full list of all 16); insert a table (size grid); tasks and the progress bar; math, diagrams and code; images (paste, drop, `/image`); links between notes; find in a note; fix spelling (right-click); edits from other apps and the conflict bar; MDX notes |
 | 3 | Organise notes | Folders and colours; move notes and folders (drag and drop); keep links working after a rename or move; tags; star; pin; properties panel (frontmatter); Trash and restore; sort the list; show the file on disk |
 | 4 | Find notes | Search all notes; browse All notes, folders, tags, Starred; note-list previews |
 | 5 | Tabs | Open, close and switch tabs; back and forward per tab; tabs come back per vault |
@@ -67,10 +67,10 @@ One stacked PR per layer (`gh stack`), bottom to top:
    shortcuts page, and `.github/workflows/pages.yml`. One human step: set Pages source to "GitHub
    Actions" in the repo settings.
 3. **Screenshot tool and demo vault:** the capture specs, the demo vault, `pnpm docs:shots`.
-4. **Pages 1–4:** get started, write, organise, find.
-5. **Pages 5–9:** tabs, quick capture, export, bring notes in, customise.
-6. **Page 10 and links:** terminal and AI tools. README points to the site; `PLAN.md` says which
-   page owns each user-visible feature, so a new feature also gets a guide entry.
+4. **Guide pages:** pages 1–10 with their shot specs and shots, the sidebar, and home-page links.
+   One layer, because the pages link to each other and the build fails on a broken link.
+5. **Links:** README points to the site; `PLAN.md` and `AGENTS.md` say that a change to a
+   user-visible feature also updates its guide page and its shots.
 
 ## Tooling
 
